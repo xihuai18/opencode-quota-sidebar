@@ -1,5 +1,5 @@
-import { configuredProviderEnabled } from './common.js'
-import type { QuotaProviderAdapter } from './types.js'
+import { configuredProviderEnabled } from '../common.js'
+import type { QuotaProviderAdapter } from '../types.js'
 
 export const anthropicAdapter: QuotaProviderAdapter = {
   id: 'anthropic',

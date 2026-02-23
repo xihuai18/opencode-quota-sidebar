@@ -42,6 +42,8 @@ export type ProviderResolveContext = {
 }
 
 export type QuotaFetchContext = {
+  /** Original provider ID before normalization (useful for adapter variants). */
+  sourceProviderID?: string
   providerID: string
   providerOptions?: Record<string, unknown>
   auth: AuthValue | undefined

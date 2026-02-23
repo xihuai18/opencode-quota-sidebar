@@ -1,9 +1,9 @@
-import { debug, debugError, isRecord, swallow } from '../helpers.js'
+import { debug, debugError, isRecord, swallow } from '../../helpers.js'
 import type {
   QuotaSidebarConfig,
   QuotaSnapshot,
   QuotaWindow,
-} from '../types.js'
+} from '../../types.js'
 import {
   OPENAI_OAUTH_CLIENT_ID,
   configuredProviderEnabled,
@@ -11,8 +11,8 @@ import {
   normalizePercent,
   parseRateLimitWindow,
   toIso,
-} from './common.js'
-import type { QuotaProviderAdapter } from './types.js'
+} from '../common.js'
+import type { QuotaProviderAdapter } from '../types.js'
 
 async function fetchOpenAIQuota(ctx: {
   providerID: string

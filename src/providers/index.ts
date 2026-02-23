@@ -1,8 +1,8 @@
-import { anthropicAdapter } from './anthropic.js'
-import { copilotAdapter } from './copilot.js'
-import { openaiAdapter } from './openai.js'
+import { anthropicAdapter } from './core/anthropic.js'
+import { copilotAdapter } from './core/copilot.js'
+import { openaiAdapter } from './core/openai.js'
 import { QuotaProviderRegistry } from './registry.js'
-import { rightCodeAdapter } from './rightcode.js'
+import { rightCodeAdapter } from './third_party/rightcode.js'
 
 export function createDefaultProviderRegistry() {
   const registry = new QuotaProviderRegistry()

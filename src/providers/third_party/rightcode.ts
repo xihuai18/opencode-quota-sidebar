@@ -1,5 +1,5 @@
-import { isRecord, swallow } from '../helpers.js'
-import type { QuotaSnapshot, QuotaWindow } from '../types.js'
+import { isRecord, swallow } from '../../helpers.js'
+import type { QuotaSnapshot, QuotaWindow } from '../../types.js'
 import {
   asNumber,
   basePathPrefixes,
@@ -7,8 +7,8 @@ import {
   fetchWithTimeout,
   sanitizeBaseURL,
   toIso,
-} from './common.js'
-import type { AuthValue, QuotaProviderAdapter } from './types.js'
+} from '../common.js'
+import type { AuthValue, QuotaProviderAdapter } from '../types.js'
 
 function isRightCodeBaseURL(value: unknown) {
   const normalized = sanitizeBaseURL(value)
@@ -108,6 +108,7 @@ function extractPrefixes(value: Record<string, unknown>) {
 }
 
 async function fetchRightCodeQuota(ctx: {
+  sourceProviderID?: string
   providerID: string
   providerOptions?: Record<string, unknown>
   auth: AuthValue | undefined
@@ -118,14 +119,23 @@ async function fetchRightCodeQuota(ctx: {
   }
 }): Promise<QuotaSnapshot> {
   const checkedAt = Date.now()
+
+  const sourceProviderID =
+    typeof ctx.sourceProviderID === 'string' && ctx.sourceProviderID
+      ? ctx.sourceProviderID
+      : ctx.providerID
+  const shortLabel = sourceProviderID.startsWith('rightcode-')
+    ? `RC-${sourceProviderID.slice('rightcode-'.length)}`
+    : 'RC'
+
   const base: Pick<
     QuotaSnapshot,
     'providerID' | 'adapterID' | 'label' | 'shortLabel' | 'sortOrder'
   > = {
-    providerID: ctx.providerID,
+    providerID: sourceProviderID,
     adapterID: 'rightcode',
     label: 'RightCode',
-    shortLabel: 'RC',
+    shortLabel,
     sortOrder: 5,
   }
 

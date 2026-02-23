@@ -10,8 +10,6 @@ import type {
 } from './providers/types.js'
 import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
 
-const providerRegistry = createDefaultProviderRegistry()
-
 function resolveContext(
   providerID: string,
   providerOptions?: Record<string, unknown>,
@@ -52,28 +50,6 @@ function pickAuth(
   return undefined
 }
 
-export function normalizeProviderID(providerID: string) {
-  return providerRegistry.normalizeProviderID(providerID)
-}
-
-export function resolveQuotaAdapter(
-  providerID: string,
-  providerOptions?: Record<string, unknown>,
-) {
-  return providerRegistry.resolve(resolveContext(providerID, providerOptions))
-}
-
-export function quotaCacheKey(
-  providerID: string,
-  providerOptions?: Record<string, unknown>,
-) {
-  const adapter = resolveQuotaAdapter(providerID, providerOptions)
-  const normalizedProviderID = normalizeProviderID(providerID)
-  const baseURL = sanitizeBaseURL(providerOptions?.baseURL)
-  const keyBase = adapter?.id || normalizedProviderID
-  return baseURL ? `${keyBase}@${baseURL}` : keyBase
-}
-
 export function quotaSort(left: QuotaSnapshot, right: QuotaSnapshot) {
   const leftOrder = left.sortOrder ?? 99
   const rightOrder = right.sortOrder ?? 99
@@ -86,6 +62,100 @@ export function quotaSort(left: QuotaSnapshot, right: QuotaSnapshot) {
 export function listDefaultQuotaProviderIDs() {
   // Keep default report behavior stable for built-in subscription providers.
   return ['openai', 'github-copilot', 'anthropic']
+}
+
+export function createQuotaRuntime() {
+  const providerRegistry = createDefaultProviderRegistry()
+
+  const normalizeProviderID = (providerID: string) =>
+    providerRegistry.normalizeProviderID(providerID)
+
+  const resolveQuotaAdapter = (
+    providerID: string,
+    providerOptions?: Record<string, unknown>,
+  ) => {
+    return providerRegistry.resolve(resolveContext(providerID, providerOptions))
+  }
+
+  const quotaCacheKey = (
+    providerID: string,
+    providerOptions?: Record<string, unknown>,
+  ) => {
+    const adapter = resolveQuotaAdapter(providerID, providerOptions)
+    const normalizedProviderID = normalizeProviderID(providerID)
+    const baseURL = sanitizeBaseURL(providerOptions?.baseURL)
+    const keyBase = adapter?.id || normalizedProviderID
+    return baseURL ? `${keyBase}@${baseURL}` : keyBase
+  }
+
+  const fetchQuotaSnapshot = async (
+    providerID: string,
+    authMap: Record<string, AuthValue>,
+    config: QuotaSidebarConfig,
+    updateAuth?: AuthUpdate,
+    providerOptions?: Record<string, unknown>,
+  ) => {
+    const context = resolveContext(providerID, providerOptions)
+    const adapter = providerRegistry.resolve(context)
+    if (!adapter) return undefined
+    if (!adapter.isEnabled(config)) return undefined
+
+    const normalizedProviderID =
+      adapter.normalizeID?.(providerID) ?? normalizeProviderID(providerID)
+    const auth = pickAuth(providerID, normalizedProviderID, adapter.id, authMap)
+
+    const snapshot = await adapter.fetch({
+      sourceProviderID: providerID,
+      providerID: normalizedProviderID,
+      providerOptions,
+      auth,
+      config,
+      updateAuth,
+    })
+
+    return {
+      ...snapshot,
+      adapterID: snapshot.adapterID || adapter.id,
+      shortLabel: snapshot.shortLabel || adapter.shortLabel,
+      sortOrder: snapshot.sortOrder ?? adapter.sortOrder,
+      label: snapshot.label || adapter.label,
+    }
+  }
+
+  return {
+    normalizeProviderID,
+    resolveQuotaAdapter,
+    quotaCacheKey,
+    fetchQuotaSnapshot,
+  }
+}
+
+type QuotaRuntime = ReturnType<typeof createQuotaRuntime>
+
+function withRuntime<T>(fn: (runtime: QuotaRuntime) => T) {
+  return fn(createQuotaRuntime())
+}
+
+export function normalizeProviderID(providerID: string) {
+  return withRuntime((runtime) => runtime.normalizeProviderID(providerID))
+}
+
+export function resolveQuotaAdapter(
+  providerID: string,
+  providerOptions?: Record<string, unknown>,
+) {
+  return withRuntime((runtime) =>
+    runtime.resolveQuotaAdapter(providerID, providerOptions),
+  )
+}
+
+export function quotaCacheKey(
+  providerID: string,
+  providerOptions?: Record<string, unknown>,
+) {
+  return withRuntime((runtime) =>
+    runtime.quotaCacheKey(providerID, providerOptions),
+  )
 }
 
 export async function loadAuthMap(authPath: string) {
@@ -115,42 +185,13 @@ export async function fetchQuotaSnapshot(
   updateAuth?: AuthUpdate,
   providerOptions?: Record<string, unknown>,
 ) {
-  const sourceProviderID = providerID
-  const context = resolveContext(providerID, providerOptions)
-  const adapter = providerRegistry.resolve(context)
-  if (!adapter) return undefined
-  if (!adapter.isEnabled(config)) return undefined
-
-  const normalizedProviderID =
-    adapter.normalizeID?.(providerID) ?? normalizeProviderID(providerID)
-  const auth = pickAuth(providerID, normalizedProviderID, adapter.id, authMap)
-
-  const snapshot = await adapter.fetch({
-    providerID: normalizedProviderID,
-    providerOptions,
-    auth,
-    config,
-    updateAuth,
-  })
-
-  const rightCodeShortLabel =
-    adapter.id === 'rightcode'
-      ? sourceProviderID === 'rightcode'
-        ? 'RC'
-        : sourceProviderID.startsWith('rightcode-')
-          ? `RC-${sourceProviderID.slice('rightcode-'.length)}`
-          : 'RC'
-      : undefined
-
-  return {
-    ...snapshot,
-    // Preserve the original provider identity only for RightCode variants.
-    providerID:
-      adapter.id === 'rightcode' ? sourceProviderID : snapshot.providerID,
-    adapterID: snapshot.adapterID || adapter.id,
-    shortLabel:
-      rightCodeShortLabel || snapshot.shortLabel || adapter.shortLabel,
-    sortOrder: snapshot.sortOrder ?? adapter.sortOrder,
-    label: snapshot.label || adapter.label,
-  }
+  return withRuntime((runtime) =>
+    runtime.fetchQuotaSnapshot(
+      providerID,
+      authMap,
+      config,
+      updateAuth,
+      providerOptions,
+    ),
+  )
 }

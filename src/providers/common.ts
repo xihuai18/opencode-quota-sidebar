@@ -44,7 +44,7 @@ export function toIso(value: unknown) {
 
 /**
  * Derive a human-readable window label from `limit_window_seconds`.
- * Falls back to estimating from `reset_at` when missing.
+ * Uses fallback label when the limit is missing.
  */
 export function windowLabel(
   win: Record<string, unknown>,
@@ -59,22 +59,7 @@ export function windowLabel(
     return 'Weekly'
   }
 
-  const resetAt = win.reset_at
-  if (resetAt === undefined || resetAt === null) return fallback
-
-  const resetMs =
-    typeof resetAt === 'number'
-      ? resetAt > 10_000_000_000
-        ? resetAt
-        : resetAt * 1000
-      : typeof resetAt === 'string'
-        ? Date.parse(resetAt)
-        : NaN
-  if (Number.isNaN(resetMs)) return fallback
-  const hoursLeft = Math.max(0, (resetMs - Date.now()) / 3_600_000)
-  if (hoursLeft <= 12) return `${Math.max(1, Math.round(hoursLeft))}h`
-  if (hoursLeft <= 48) return `${Math.round(hoursLeft / 24)}d`
-  return 'Weekly'
+  return fallback || 'Window'
 }
 
 export function parseRateLimitWindow(

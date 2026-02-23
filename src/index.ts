@@ -10,12 +10,9 @@ import {
   renderToastMessage,
 } from './format.js'
 import {
-  fetchQuotaSnapshot,
+  createQuotaRuntime,
   listDefaultQuotaProviderIDs,
   loadAuthMap,
-  normalizeProviderID,
-  quotaCacheKey,
-  resolveQuotaAdapter,
   quotaSort,
 } from './quota.js'
 import {
@@ -33,147 +30,36 @@ import {
 import { asNumber, debug, isRecord, mapConcurrent, swallow } from './helpers.js'
 import type { CachedSessionUsage, QuotaSnapshot } from './types.js'
 import {
+  calcEquivalentApiCostForMessage,
+  canonicalApiCostProviderID,
+  modelCostKey,
+  type ModelCostRates,
+  parseModelCostRates,
+  SUBSCRIPTION_API_COST_PROVIDERS,
+} from './cost.js'
+import {
+  canonicalizeTitle,
+  looksDecorated,
+  normalizeBaseTitle,
+} from './title.js'
+import { periodStart } from './period.js'
+import {
   emptyUsageSummary,
   fromCachedSessionUsage,
   mergeUsage,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
 } from './usage.js'
+import { TtlValueCache } from './cache.js'
 
 const z = tool.schema
-
-function normalizeBaseTitle(title: string) {
-  return title.split(/\r?\n/, 1)[0] || 'Session'
-}
-
-function stripAnsi(value: string) {
-  return value.replace(/\u001b\[[0-9;]*m/g, '')
-}
-
-function canonicalizeTitle(value: string) {
-  return stripAnsi(value)
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .join('\n')
-}
-
-function periodStart(period: 'day' | 'week' | 'month') {
-  const now = new Date()
-  if (period === 'month') {
-    return new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-  }
-  if (period === 'week') {
-    const day = now.getDay()
-    const shift = day === 0 ? 6 : day - 1
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() - shift,
-    )
-    start.setHours(0, 0, 0, 0)
-    return start.getTime()
-  }
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-}
 
 function isAssistantMessage(message: Message): message is AssistantMessage {
   return message.role === 'assistant'
 }
 
-/**
- * H3 fix: detect if a title already contains our decoration.
- * Current layout has token/quota lines after base title line.
- */
-function looksDecorated(title: string): boolean {
-  const lines = stripAnsi(title).split(/\r?\n/)
-  if (lines.length < 2) return false
-  const detail = lines.slice(1).map((line) => line.trim())
-  return detail.some((line) => {
-    if (!line) return false
-    if (/^Input\s+\S+\s+Output\s+\S+/.test(line)) return true
-    if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
-    if (/^\$\S+\s+as API cost/.test(line)) return true
-    // Backward compatibility: old plugin versions had a separate Reasoning line.
-    if (/^Reasoning\s+\S+/.test(line)) return true
-    if (/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return true
-    return false
-  })
-}
-
-const SUBSCRIPTION_API_COST_PROVIDERS = new Set(['openai', 'anthropic'])
-
-function canonicalApiCostProviderID(providerID: string) {
-  const normalized = normalizeProviderID(providerID)
-  if (SUBSCRIPTION_API_COST_PROVIDERS.has(normalized)) return normalized
-
-  const lowered = providerID.toLowerCase()
-  if (lowered.includes('copilot')) return 'github-copilot'
-  if (lowered.includes('openai') || lowered.endsWith('-oai')) return 'openai'
-  if (lowered.includes('anthropic') || lowered.includes('claude')) {
-    return 'anthropic'
-  }
-  return normalized
-}
-const MODEL_COST_DIVISOR_PER_TOKEN = 1
-const MODEL_COST_DIVISOR_PER_MILLION = 1_000_000
-
-type ModelCostRates = {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-}
-
-function modelCostKey(providerID: string, modelID: string) {
-  return `${providerID}:${modelID}`
-}
-
-function parseModelCostRates(value: unknown): ModelCostRates | undefined {
-  if (!isRecord(value)) return undefined
-
-  const readRate = (input: unknown) => {
-    if (typeof input === 'number') return input
-    if (typeof input === 'string') {
-      const parsed = Number(input)
-      return Number.isFinite(parsed) ? parsed : 0
-    }
-    if (isRecord(input)) {
-      return asNumber(
-        input.usd,
-        asNumber(
-          input.value,
-          asNumber(
-            input.per_1m,
-            asNumber(
-              input.per1m,
-              asNumber(input.per_token, asNumber(input.perToken, 0)),
-            ),
-          ),
-        ),
-      )
-    }
-    return 0
-  }
-
-  const cache = isRecord(value.cache) ? value.cache : undefined
-  const input = readRate(value.input || value.prompt)
-  const output = readRate(value.output || value.completion)
-  const cacheRead = readRate(value.cache_read || cache?.read)
-  const cacheWrite = readRate(value.cache_write || cache?.write)
-
-  if (input <= 0 && output <= 0 && cacheRead <= 0 && cacheWrite <= 0) {
-    return undefined
-  }
-
-  return {
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-  }
-}
-
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
+  const quotaRuntime = createQuotaRuntime()
   const config = await loadConfig([
     path.join(input.directory, 'quota-sidebar.config.json'),
     path.join(input.worktree, 'quota-sidebar.config.json'),
@@ -204,27 +90,21 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   // P1: track sessions needing full rescan (after message.removed)
   const forceRescanSessions = new Set<string>()
 
-  let authCache:
-    | { expiresAt: number; value: Awaited<ReturnType<typeof loadAuthMap>> }
-    | undefined
+  const authCache = new TtlValueCache<Awaited<ReturnType<typeof loadAuthMap>>>()
   const getAuthMap = async () => {
-    if (authCache && authCache.expiresAt > Date.now()) return authCache.value
+    const cached = authCache.get()
+    if (cached) return cached
     const value = await loadAuthMap(authPath)
-    authCache = { value, expiresAt: Date.now() + 30_000 }
-    return value
+    return authCache.set(value, 30_000)
   }
 
-  let providerOptionsCache:
-    | {
-        expiresAt: number
-        value: Record<string, Record<string, unknown>>
-      }
-    | undefined
+  const providerOptionsCache = new TtlValueCache<
+    Record<string, Record<string, unknown>>
+  >()
 
   const getProviderOptionsMap = async () => {
-    if (providerOptionsCache && providerOptionsCache.expiresAt > Date.now()) {
-      return providerOptionsCache.value
-    }
+    const cached = providerOptionsCache.get()
+    if (cached) return cached
 
     const configClient = input.client as unknown as {
       config?: {
@@ -236,11 +116,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     }
 
     if (!configClient.config?.providers) {
-      providerOptionsCache = {
-        value: {},
-        expiresAt: Date.now() + 30_000,
-      }
-      return providerOptionsCache.value
+      return providerOptionsCache.set({}, 30_000)
     }
 
     const response = await configClient.config
@@ -280,25 +156,15 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         }, {})
       : {}
 
-    providerOptionsCache = {
-      value: map,
-      expiresAt: Date.now() + 30_000,
-    }
-    return map
+    return providerOptionsCache.set(map, 30_000)
   }
 
-  let modelCostCache:
-    | {
-        expiresAt: number
-        value: Record<string, ModelCostRates>
-      }
-    | undefined
+  const modelCostCache = new TtlValueCache<Record<string, ModelCostRates>>()
   const missingApiCostRateKeys = new Set<string>()
 
   const getModelCostMap = async () => {
-    if (modelCostCache && modelCostCache.expiresAt > Date.now()) {
-      return modelCostCache.value
-    }
+    const cached = modelCostCache.get()
+    if (cached) return cached
 
     const providerClient = input.client as unknown as {
       provider?: {
@@ -310,11 +176,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     }
 
     if (!providerClient.provider?.list) {
-      modelCostCache = {
-        value: {},
-        expiresAt: Date.now() + 30_000,
-      }
-      return modelCostCache.value
+      return modelCostCache.set({}, 30_000)
     }
 
     const response = await providerClient.provider
@@ -360,12 +222,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       return acc
     }, {})
 
-    modelCostCache = {
-      value: map,
-      expiresAt: Date.now() + Math.max(30_000, config.quota.refreshMs),
-    }
-
-    return map
+    return modelCostCache.set(map, Math.max(30_000, config.quota.refreshMs))
   }
 
   const calcEquivalentApiCost = (
@@ -385,30 +242,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       return 0
     }
 
-    const rawCost =
-      message.tokens.input * rates.input +
-      // API cost intentionally excludes reasoning tokens.
-      message.tokens.output * rates.output +
-      message.tokens.cache.read * rates.cacheRead +
-      message.tokens.cache.write * rates.cacheWrite
-
-    // OpenCode provider pricing units can differ:
-    // - some providers expose USD per token (e.g. 0.0000025)
-    // - others expose USD per 1M tokens (e.g. 2.5)
-    // Heuristic: treat values > 0.001 as "per 1M".
-    const maxRate = Math.max(
-      rates.input,
-      rates.output,
-      rates.cacheRead,
-      rates.cacheWrite,
-    )
-    const divisor =
-      maxRate > 0.001
-        ? MODEL_COST_DIVISOR_PER_MILLION
-        : MODEL_COST_DIVISOR_PER_TOKEN
-
-    const normalized = rawCost / divisor
-    return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
+    return calcEquivalentApiCostForMessage(message, rates)
   }
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -590,10 +424,17 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
       let dirty = false
       for (const { sessionID, computed } of fetched) {
-        mergeUsage(usage, computed)
+        // Range stats already know the session count (sessions.length).
+        // Do not double-count sessionCount when merging per-session summaries.
+        mergeUsage(usage, { ...computed, sessionCount: 0 })
         const memoryState = state.sessions[sessionID]
         if (memoryState) {
           memoryState.usage = toCachedSessionUsage(computed)
+          const dateKey =
+            state.sessionDateMap[sessionID] ||
+            dateKeyFromTimestamp(memoryState.createdAt)
+          state.sessionDateMap[sessionID] = dateKey
+          dirtyDateKeys.add(dateKey)
           dirty = true
         }
       }
@@ -627,7 +468,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     const optionsForProvider = (providerID: string) => {
       return (
         providerOptionsMap[providerID] ||
-        providerOptionsMap[normalizeProviderID(providerID)]
+        providerOptionsMap[quotaRuntime.normalizeProviderID(providerID)]
       )
     }
 
@@ -655,14 +496,17 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
     const matchedCandidates = rawCandidates.filter((candidate) =>
       Boolean(
-        resolveQuotaAdapter(candidate.providerID, candidate.providerOptions),
+        quotaRuntime.resolveQuotaAdapter(
+          candidate.providerID,
+          candidate.providerOptions,
+        ),
       ),
     )
 
     const dedupedCandidates = Array.from(
       matchedCandidates
         .reduce((acc, candidate) => {
-          const key = quotaCacheKey(
+          const key = quotaRuntime.quotaCacheKey(
             candidate.providerID,
             candidate.providerOptions,
           )
@@ -674,7 +518,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
     const fetched = await Promise.all(
       dedupedCandidates.map(async ({ providerID, providerOptions }) => {
-        const cacheKey = quotaCacheKey(providerID, providerOptions)
+        const cacheKey = quotaRuntime.quotaCacheKey(providerID, providerOptions)
         const cached = state.quotaCache[cacheKey]
         if (cached && Date.now() - cached.checkedAt <= config.quota.refreshMs) {
           if (isValidQuotaCache(cached)) {
@@ -683,7 +527,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
           delete state.quotaCache[cacheKey]
         }
 
-        const latest = await fetchQuotaSnapshot(
+        const latest = await quotaRuntime.fetchQuotaSnapshot(
           providerID,
           authMap,
           config,
@@ -775,7 +619,9 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     const usage = await summarizeSessionUsage(sessionID)
     const quotaProviders = Array.from(
       new Set(
-        Object.keys(usage.providers).map((id) => normalizeProviderID(id)),
+        Object.keys(usage.providers).map((id) =>
+          quotaRuntime.normalizeProviderID(id),
+        ),
       ),
     )
     const quotas =
@@ -989,6 +835,12 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       if (sessionState) {
         sessionState.usage = undefined
         sessionState.cursor = undefined
+        const dateKey =
+          state.sessionDateMap[event.properties.sessionID] ||
+          dateKeyFromTimestamp(sessionState.createdAt)
+        state.sessionDateMap[event.properties.sessionID] = dateKey
+        dirtyDateKeys.add(dateKey)
+        scheduleSave()
       }
       scheduleTitleRefresh(event.properties.sessionID)
       return
@@ -1002,7 +854,11 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
   return {
     event: async ({ event }) => {
-      await onEvent(event)
+      try {
+        await onEvent(event)
+      } catch (error) {
+        debug(`event handler failed: ${String(error)}`)
+      }
     },
     tool: {
       quota_summary: tool({

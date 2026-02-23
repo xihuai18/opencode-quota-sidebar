@@ -14,8 +14,8 @@
   "files": [
     "dist/*.js",
     "dist/*.d.ts",
-    "dist/providers/*.js",
-    "dist/providers/*.d.ts",
+    "dist/providers/**/*.js",
+    "dist/providers/**/*.d.ts",
     "LICENSE",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -24,11 +24,13 @@
     "quota-sidebar.config.example.json"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true}); fs.rmSync('tsconfig.tsbuildinfo',{force:true});\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "prepare": "npm run build",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm run build && npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test dist/__tests__/*.test.js"
+    "test": "node -e \"const fs=require('fs'); const path=require('path'); const {spawnSync}=require('child_process'); const dir=path.join('dist','__tests__'); const files=fs.existsSync(dir)?fs.readdirSync(dir).filter(f=>f.endsWith('.test.js')).map(f=>path.join(dir,f)):[]; if(files.length===0){ console.error('No test files found under dist/__tests__. Run: npm run build'); process.exit(1);} const res=spawnSync(process.execPath,['--test',...files],{stdio:'inherit'}); process.exit(typeof res.status==='number'?res.status:1);\""
   },
   "keywords": [
     "opencode",

@@ -1,13 +1,13 @@
-import { isRecord, swallow } from '../helpers.js'
-import type { QuotaSnapshot } from '../types.js'
+import { isRecord, swallow } from '../../helpers.js'
+import type { QuotaSnapshot } from '../../types.js'
 import {
   asNumber,
   configuredProviderEnabled,
   fetchWithTimeout,
   normalizePercent,
   toIso,
-} from './common.js'
-import type { QuotaProviderAdapter } from './types.js'
+} from '../common.js'
+import type { QuotaProviderAdapter } from '../types.js'
 
 async function fetchCopilotQuota(ctx: {
   providerID: string
