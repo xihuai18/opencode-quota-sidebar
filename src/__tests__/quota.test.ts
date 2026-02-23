@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import {
-  fetchQuotaSnapshot,
-  normalizeProviderID,
-  quotaCacheKey,
-} from '../quota.js'
+import { createQuotaRuntime } from '../quota.js'
 import type { QuotaSidebarConfig } from '../types.js'
+
+const quota = createQuotaRuntime()
 
 function makeConfig(
   overrides: Partial<QuotaSidebarConfig['quota']> = {},
@@ -51,11 +49,11 @@ afterEach(() => {
 describe('normalizeProviderID', () => {
   it('normalizes copilot variants', () => {
     assert.equal(
-      normalizeProviderID('github-copilot-enterprise'),
+      quota.normalizeProviderID('github-copilot-enterprise'),
       'github-copilot',
     )
-    assert.equal(normalizeProviderID('github-copilot'), 'github-copilot')
-    assert.equal(normalizeProviderID('openai'), 'openai')
+    assert.equal(quota.normalizeProviderID('github-copilot'), 'github-copilot')
+    assert.equal(quota.normalizeProviderID('openai'), 'openai')
   })
 })
 
@@ -79,7 +77,7 @@ describe('fetchQuotaSnapshot', () => {
       })
     })
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       {
         openai: { type: 'oauth', access: 'access-token' },
@@ -125,7 +123,7 @@ describe('fetchQuotaSnapshot', () => {
       throw new Error(`unexpected url: ${url}`)
     })
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       {
         openai: {
@@ -165,7 +163,7 @@ describe('fetchQuotaSnapshot', () => {
       })
     })
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'github-copilot',
       {
         'github-copilot': { type: 'oauth', access: 'copilot-token' },
@@ -182,7 +180,7 @@ describe('fetchQuotaSnapshot', () => {
   })
 
   it('returns unsupported for anthropic when auth exists', async () => {
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'anthropic',
       {
         anthropic: { type: 'oauth', access: 'token' },
@@ -195,7 +193,7 @@ describe('fetchQuotaSnapshot', () => {
   })
 
   it('honors includeOpenAI=false', async () => {
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       { openai: { type: 'oauth', access: 'token' } },
       makeConfig({ includeOpenAI: false }),
@@ -205,7 +203,7 @@ describe('fetchQuotaSnapshot', () => {
 
   it('returns error on OpenAI non-2xx response', async () => {
     setFetch(async () => jsonResponse({ message: 'forbidden' }, 403))
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       { openai: { type: 'oauth', access: 'token' } },
       makeConfig(),
@@ -216,7 +214,7 @@ describe('fetchQuotaSnapshot', () => {
   })
 
   it('returns undefined for unknown provider', async () => {
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'unknown-provider',
       {},
       makeConfig(),
@@ -225,13 +223,15 @@ describe('fetchQuotaSnapshot', () => {
   })
 
   it('builds stable quota cache keys', () => {
-    assert.equal(quotaCacheKey('openai'), 'openai')
+    assert.equal(quota.quotaCacheKey('openai'), 'openai')
     assert.equal(
-      quotaCacheKey('openai', { baseURL: 'https://api.openai.com/v1/' }),
+      quota.quotaCacheKey('openai', { baseURL: 'https://api.openai.com/v1/' }),
       'openai@https://api.openai.com/v1',
     )
     assert.equal(
-      quotaCacheKey('openai', { baseURL: 'https://www.right.codes/codex/v1' }),
+      quota.quotaCacheKey('openai', {
+        baseURL: 'https://www.right.codes/codex/v1',
+      }),
       'rightcode@https://www.right.codes/codex/v1',
     )
   })
@@ -261,7 +261,7 @@ describe('fetchQuotaSnapshot', () => {
       })
     })
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       {
         openai: { type: 'api', key: 'rc-key' },
@@ -301,7 +301,7 @@ describe('fetchQuotaSnapshot', () => {
       }),
     )
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       {
         openai: { type: 'api', key: 'rc-key' },
@@ -334,7 +334,7 @@ describe('fetchQuotaSnapshot', () => {
       }),
     )
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'openai',
       {
         openai: { type: 'api', key: 'rc-key' },
@@ -369,7 +369,7 @@ describe('fetchQuotaSnapshot', () => {
       }),
     )
 
-    const snapshot = await fetchQuotaSnapshot(
+    const snapshot = await quota.fetchQuotaSnapshot(
       'rightcode-openai',
       {
         'rightcode-openai': { type: 'api', key: 'rc-key' },

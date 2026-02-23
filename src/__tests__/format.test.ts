@@ -163,6 +163,17 @@ describe('renderSidebarTitle', () => {
     }
   })
 
+  it('strips ANSI from base title', () => {
+    const title = renderSidebarTitle(
+      '\u001b[2mSession\u001b[0m',
+      makeUsage(),
+      [],
+      makeConfig(60),
+    )
+    assert.doesNotMatch(title, /\u001b\[[0-9;]*m/)
+    assert.equal(title.split('\n')[0], 'Session')
+  })
+
   it('omits reasoning/cache write lines when value is zero', () => {
     const title = renderSidebarTitle(
       'Session',

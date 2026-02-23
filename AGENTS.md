@@ -213,17 +213,26 @@ Copilot-Integration-Id: vscode-chat
 
 ## 7. 文件清单
 
-| 文件             | 职责                                                            |
-| ---------------- | --------------------------------------------------------------- |
-| `src/index.ts`   | 插件入口，事件处理，工具注册，并发锁，增量聚合编排              |
-| `src/format.ts`  | Sidebar title 渲染，markdown report，toast 格式化               |
-| `src/quota.ts`   | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发 |
-| `src/providers/` | Provider adapters（OpenAI/Copilot/Anthropic/RightCode）         |
-| `src/usage.ts`   | Token 聚合，增量 cursor，UsageSummary 类型                      |
-| `src/storage.ts` | v2 状态持久化，日期分片，LRU chunk 缓存，原子写入，symlink 防护 |
-| `src/types.ts`   | 共享类型定义                                                    |
-| `src/helpers.ts` | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
-| `src/__tests__/` | 单元测试（当前 73 个）                                          |
+| 文件                    | 职责                                                            |
+| ----------------------- | --------------------------------------------------------------- |
+| `src/index.ts`          | 插件入口，事件处理，工具注册，并发锁，增量聚合编排              |
+| `src/format.ts`         | Sidebar title 渲染，markdown report，toast 格式化               |
+| `src/quota.ts`          | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发 |
+| `src/cost.ts`           | API 等价成本计算（pricing 解析、provider 归一、计费单位启发式） |
+| `src/title.ts`          | Session title 规范化与装饰检测（去 ANSI、去抖动）               |
+| `src/period.ts`         | day/week/month 的时间范围起点计算                               |
+| `src/cache.ts`          | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）       |
+| `src/quota_render.ts`   | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）   |
+| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/RightCode）         |
+| `src/usage.ts`          | Token 聚合，增量 cursor，UsageSummary 类型                      |
+| `src/storage.ts`        | v2 存储门面：config/state/save/load/scan/evict 编排             |
+| `src/storage_dates.ts`  | 时间戳与日期 key 工具（normalize/date range）                   |
+| `src/storage_paths.ts`  | OpenCode 数据路径与 chunk 路径解析                              |
+| `src/storage_parse.ts`  | state/chunk 中 session/quota 字段解析与兼容处理                 |
+| `src/storage_chunks.ts` | chunk 读写、LRU 缓存、原子写入与 symlink 防护                   |
+| `src/types.ts`          | 共享类型定义                                                    |
+| `src/helpers.ts`        | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
+| `src/__tests__/`        | 单元测试（当前 86 个）                                          |
 
 ---
 
@@ -253,7 +262,7 @@ Copilot-Integration-Id: vscode-chat
 
 ```bash
 npm run build    # tsc 编译
-npm test         # node --test，当前 73/73 pass
+npm test         # node --test (dist)，当前 86/86 pass
 ```
 
 修改后必须 build + test 通过才算完成。

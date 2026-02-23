@@ -7,15 +7,17 @@ The plugin now uses a provider adapter registry, so adding a new provider does n
 ## Architecture overview
 
 - Provider adapters live in `src/providers/`
+- Built-in adapters live in `src/providers/core/`
+- Third-party/community adapters live in `src/providers/third_party/`
 - `src/providers/registry.ts` resolves which adapter handles a provider
-- `src/quota.ts` delegates to the resolved adapter and manages auth/cache glue
+- `src/quota.ts` provides `createQuotaRuntime()`; runtime methods delegate to resolved adapter and manage auth/cache glue
 - `src/format.ts` renders generic sidebar/report output from `QuotaSnapshot`
 
 ## Add a new provider
 
 ### 1) Create an adapter file
 
-Add `src/providers/<your-provider>.ts` and implement `QuotaProviderAdapter`.
+Add `src/providers/third_party/<your-provider>.ts` and implement `QuotaProviderAdapter`.
 
 Minimal shape:
 
