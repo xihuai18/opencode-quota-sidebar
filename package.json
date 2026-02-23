@@ -14,6 +14,8 @@
   "files": [
     "dist/*.js",
     "dist/*.d.ts",
+    "dist/providers/*.js",
+    "dist/providers/*.d.ts",
     "LICENSE",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -24,7 +26,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run typecheck && npm run build && npm test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test dist/__tests__/*.test.js"
   },

@@ -6,7 +6,7 @@ OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session t
 
 目标：
 
-1. 实时显示当前 session 的 token 消耗（Input/Output/Cache/Reasoning）
+1. 实时显示当前 session 的 token 消耗（Input/Output〔含 Reasoning〕/Cache）
 2. 显示订阅制 provider 的额度余量（OpenAI Codex、GitHub Copilot）
 3. 提供 `quota_summary` / `quota_show` 工具，支持 session/day/week/month 维度的用量报告
 4. 准备开源发布到 npm
@@ -99,13 +99,16 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ### 4.3 Reasoning 显示
 
-- 仅在 `reasoning > 0` 时显示（兼容非推理模型）
+- Reasoning 已并入 Output 统计，不再单独显示 Reasoning 行
 
 ### 4.4 Cost 计算
 
-- 使用 OpenCode 官方的 `AssistantMessage.cost` 字段，不自行估算
-- 已删除 `estimateMessageCost()`、`buildPricingTable()`、`PricingTable`、`ModelPricing` 等所有 pricing 相关代码
-- `sidebar.showCost` 仅影响 `quota_summary` markdown report，不影响 sidebar title
+- Measured Cost：使用 OpenCode 官方 `AssistantMessage.cost` 字段聚合
+- API Cost：按 model `input/output/cache` 单价估算（用于订阅制 provider 的 API 等价成本观察）
+- API Cost 中 Output 单价仅乘 `tokens.output`（Reasoning 不单列计费）
+- `sidebar.showCost` 同时影响 sidebar title、toast、`quota_summary` markdown report
+- Copilot 暂不显示 `Cost as API`（OpenCode pricing 输出格式不稳定/可能缺失）
+- 若模型缺少单价映射或 provider 不在订阅制范围，API Cost 可能显示为 `0.00`
 
 ---
 
@@ -113,17 +116,26 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ### 5.1 Sidebar 中的 quota
 
-- 仅显示当前 session 实际使用过的订阅制 provider
-- `quota_summary` 工具则显示所有订阅制 provider
+- 仅显示当前 session 实际使用过、且能被 adapter 识别的 provider
+- `quota_summary` 工具显示默认 provider + 当前配置中的 provider
+- 同一 provider 的重复 snapshot 会先折叠（保留信息更完整的一条），避免重复显示
 
 ### 5.2 格式
 
-- 单窗口：`OpenAI Remaining 5h 80%`
-- 多窗口：`OpenAI 5h 80% - Weekly 70%`
-- Copilot：`Copilot Remaining Monthly 70%`
-- 使用 "Remaining"（不是 "Remain"）
+- 单窗口：`OpenAI 5h 80% Rst 16:20`
+- 多窗口（缩进续行）：
+  - `OpenAI 5h 80% Rst 16:20`
+  - `       Weekly 70% Rst 03-01`
+- Copilot：`Copilot Monthly 70% Rst 03-01`
+- RightCode（日额度）：`RC Daily $105/$60 Exp 02-27`（不追加百分比）
 
-### 5.3 多窗口 quota
+### 5.3 Toast 格式
+
+- Token 区块后显示 `Cost as API` 区块，按 provider 列出 API 等价成本（`$xx.xx`）
+- Quota 区块沿用 sidebar 规则：多窗口缩进续行、RightCode 不显示日额度百分比
+- RightCode 命中订阅时显示两行：`Daily ... Exp ...` + `Balance ...`
+
+### 5.4 多窗口 quota
 
 OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 
@@ -131,16 +143,32 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 - `rate_limit.secondary_window` — 长期窗口（**单数对象，不是数组**），结构同上
 - 窗口标签从 `limit_window_seconds` 推导（10800→3h, 604800→Weekly），不从 `reset_at` 推导
 
-### 5.4 Provider 支持状态
+### 5.5 Provider 支持状态
 
 | Provider               | Quota 端点                             | 状态              |
 | ---------------------- | -------------------------------------- | ----------------- |
 | OpenAI Codex (OAuth)   | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
 | GitHub Copilot (OAuth) | `api.github.com/copilot_internal/user` | 支持，月度        |
+| RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
 | Anthropic              | 无公开端点                             | `unsupported`     |
 | API Key providers      | 无 quota 概念                          | 仅显示 token 用量 |
 
-### 5.5 Copilot 请求头
+### 5.6 RightCode 日额度规则（关键）
+
+- 订阅匹配规则：根据 `available_prefixes` 与当前 provider `baseURL` 路径前缀匹配
+- 忽略小套餐：`total_quota < 10` 的订阅项直接忽略（徽章/赠送等非主套餐）
+- 仅显示日额度：主行格式 `RC Daily $<dailyRemaining>/$<dailyTotal> Exp MM-DD`
+- 命中订阅时，额外显示余额行：`Balance $<balance>`
+- `reset_today = true`：
+  - `dailyRemaining = remaining_quota`
+  - `dailyPercent = remaining_quota / total_quota * 100`
+- `reset_today = false`：
+  - `dailyRemaining = remaining_quota + total_quota`
+  - `dailyPercent = (remaining_quota + total_quota) / total_quota * 100`（可超过 100%）
+- Sidebar 默认不显示该百分比，仅显示 `$余额/$日总额`
+- 如果没有匹配到有效订阅，则回退显示余额：`RC Balance $<balance>`
+
+### 5.7 Copilot 请求头
 
 伪装 VS Code Copilot Chat 以稳定访问内部 API：
 
@@ -189,12 +217,13 @@ Copilot-Integration-Id: vscode-chat
 | ---------------- | --------------------------------------------------------------- |
 | `src/index.ts`   | 插件入口，事件处理，工具注册，并发锁，增量聚合编排              |
 | `src/format.ts`  | Sidebar title 渲染，markdown report，toast 格式化               |
-| `src/quota.ts`   | Quota API 连接器（OpenAI/Copilot/Anthropic），OAuth token 刷新  |
+| `src/quota.ts`   | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发 |
+| `src/providers/` | Provider adapters（OpenAI/Copilot/Anthropic/RightCode）         |
 | `src/usage.ts`   | Token 聚合，增量 cursor，UsageSummary 类型                      |
 | `src/storage.ts` | v2 状态持久化，日期分片，LRU chunk 缓存，原子写入，symlink 防护 |
 | `src/types.ts`   | 共享类型定义                                                    |
 | `src/helpers.ts` | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
-| `src/__tests__/` | 单元测试（20 个）                                               |
+| `src/__tests__/` | 单元测试（当前 73 个）                                          |
 
 ---
 
@@ -218,13 +247,13 @@ Copilot-Integration-Id: vscode-chat
 
 - Sidebar 所有行必须通过 `fitLine()` 保证不超过 `config.sidebar.width`（默认 36）
 - 不做 `padEnd`，避免 trailing space 标准化导致的回写抖动
-- quota 行一律一 provider 一行，避免长行拼接造成 wrap 异常
+- quota 主行一 provider 一行；多窗口可用缩进续行
 
 ### 8.4 构建与测试
 
 ```bash
 npm run build    # tsc 编译
-npm test         # node --test，当前 20/20 pass
+npm test         # node --test，当前 73/73 pass
 ```
 
 修改后必须 build + test 通过才算完成。

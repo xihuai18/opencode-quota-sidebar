@@ -52,6 +52,37 @@ describe('plugin integration', () => {
         cost: 0.02,
       }
 
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai'],
+      }
+
       const hooks = await QuotaSidebarPlugin({
         directory: projectDir,
         worktree: projectDir,
@@ -74,6 +105,9 @@ describe('plugin integration', () => {
           auth: {
             set: async () => ({ data: { ok: true } }),
           },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
         },
       } as never)
 
@@ -85,6 +119,7 @@ describe('plugin integration', () => {
 
       assert.ok(updates.length > 0)
       assert.match(title, /Input\s+18\.9k\s+Output\s+53/)
+      assert.match(title, /\$0\.02 as API cost/)
       assert.match(title, /Cache Read 1\.5k/)
       assert.doesNotMatch(title, /\u001b\[[0-9;]*m/)
     } finally {

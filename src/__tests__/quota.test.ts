@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { fetchQuotaSnapshot, normalizeProviderID } from '../quota.js'
+import {
+  fetchQuotaSnapshot,
+  normalizeProviderID,
+  quotaCacheKey,
+} from '../quota.js'
 import type { QuotaSidebarConfig } from '../types.js'
 
 function makeConfig(
@@ -13,7 +17,6 @@ function makeConfig(
       width: 36,
       showCost: true,
       showQuota: true,
-      maxQuotaProviders: 2,
     },
     quota: {
       refreshMs: 300_000,
@@ -210,5 +213,175 @@ describe('fetchQuotaSnapshot', () => {
     assert.ok(snapshot)
     assert.equal(snapshot!.status, 'error')
     assert.equal(snapshot!.note, 'http 403')
+  })
+
+  it('returns undefined for unknown provider', async () => {
+    const snapshot = await fetchQuotaSnapshot(
+      'unknown-provider',
+      {},
+      makeConfig(),
+    )
+    assert.equal(snapshot, undefined)
+  })
+
+  it('builds stable quota cache keys', () => {
+    assert.equal(quotaCacheKey('openai'), 'openai')
+    assert.equal(
+      quotaCacheKey('openai', { baseURL: 'https://api.openai.com/v1/' }),
+      'openai@https://api.openai.com/v1',
+    )
+    assert.equal(
+      quotaCacheKey('openai', { baseURL: 'https://www.right.codes/codex/v1' }),
+      'rightcode@https://www.right.codes/codex/v1',
+    )
+  })
+
+  it('uses RightCode adapter when baseURL points to right.codes and matches subscription prefixes', async () => {
+    setFetch(async (input) => {
+      assert.equal(String(input), 'https://www.right.codes/account/summary')
+      return jsonResponse({
+        balance: 258.31,
+        subscriptions: [
+          {
+            name: 'Tiny Badge',
+            total_quota: 0.01,
+            remaining_quota: 0.01,
+            reset_today: false,
+            available_prefixes: ['/codex'],
+          },
+          {
+            name: 'Codex Plan',
+            total_quota: 60,
+            remaining_quota: 45,
+            reset_today: false,
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
+          },
+        ],
+      })
+    })
+
+    const snapshot = await fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'api', key: 'rc-key' },
+      },
+      makeConfig({ includeOpenAI: false }),
+      undefined,
+      { baseURL: 'https://www.right.codes/codex/v1', apiKey: 'rc-key' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.shortLabel, 'RC')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 1)
+    assert.equal(snapshot!.windows![0].label, 'Daily $105/$60')
+    assert.equal(snapshot!.windows![0].showPercent, false)
+    assert.equal(snapshot!.windows![0].resetLabel, 'Exp')
+    assert.equal(snapshot!.windows![0].resetAt, '2026-02-27T02:50:08.000Z')
+    assert.equal(snapshot!.windows![0].remainingPercent, 175)
+    assert.equal(snapshot!.balance?.amount, 258.31)
+  })
+
+  it('falls back to balance for RightCode when subscription prefix does not match', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        balance: 111.25,
+        subscriptions: [
+          {
+            name: 'Other Plan',
+            total_quota: 100,
+            remaining_quota: 50,
+            duration_hours: 720,
+            available_prefixes: ['/chat'],
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'api', key: 'rc-key' },
+      },
+      makeConfig(),
+      undefined,
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.balance?.amount, 111.25)
+    assert.equal(snapshot!.windows, undefined)
+  })
+
+  it('uses normal same-day ratio when reset_today is true', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        balance: 999,
+        subscriptions: [
+          {
+            name: 'Codex Plan',
+            total_quota: 60,
+            remaining_quota: 30,
+            reset_today: true,
+            available_prefixes: ['/codex'],
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'api', key: 'rc-key' },
+      },
+      makeConfig(),
+      undefined,
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 50)
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows![0].label, 'Daily $30/$60')
+    assert.equal(snapshot!.windows![0].remainingPercent, 50)
+  })
+
+  it('preserves rightcode provider ID for display labeling', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        balance: 1,
+        subscriptions: [
+          {
+            name: 'Codex Plan',
+            total_quota: 60,
+            remaining_quota: 45,
+            reset_today: false,
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await fetchQuotaSnapshot(
+      'rightcode-openai',
+      {
+        'rightcode-openai': { type: 'api', key: 'rc-key' },
+      },
+      makeConfig(),
+      undefined,
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.providerID, 'rightcode-openai')
+    assert.equal(snapshot!.shortLabel, 'RC-openai')
   })
 })

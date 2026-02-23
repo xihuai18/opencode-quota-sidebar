@@ -82,6 +82,26 @@ describe('summarizeMessages', () => {
     const summary = summarizeMessages(entries, 0, 1)
     assert.equal(summary.cost, 0.123)
   })
+
+  it('accumulates apiCost from the calculator callback', () => {
+    const entries = [
+      {
+        info: assistantMessage('a1', 1000, 1100, {
+          output: 50,
+          reasoning: 80,
+        }),
+      },
+      {
+        info: assistantMessage('a2', 1200, 1300, { output: 20, reasoning: 40 }),
+      },
+    ]
+
+    const summary = summarizeMessages(entries, 0, 1, {
+      // Excludes reasoning by using output token count only.
+      calcApiCost: (message) => message.tokens.output * 0.01,
+    })
+    assert.equal(summary.apiCost, 0.7)
+  })
 })
 
 describe('summarizeMessagesIncremental', () => {

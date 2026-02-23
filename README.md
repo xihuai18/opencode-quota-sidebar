@@ -37,11 +37,12 @@ Then point OpenCode to the installed dist file in your `opencode.json`:
 
 ## Supported quota providers
 
-| Provider         | Endpoint                               | Auth            | Status                                 |
-| ---------------- | -------------------------------------- | --------------- | -------------------------------------- |
-| OpenAI Codex     | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)     |
-| GitHub Copilot   | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                          |
-| Anthropic Claude | —                                      | —               | Unsupported (no public quota endpoint) |
+| Provider       | Endpoint                               | Auth            | Status                                 |
+| -------------- | -------------------------------------- | --------------- | -------------------------------------- |
+| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)     |
+| GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                          |
+| RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)    |
+| Anthropic      | —                                      | —               | Unsupported (no public quota endpoint) |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -52,14 +53,18 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - line 2: Input/Output tokens
   - line 3: Cache Read tokens (only if non-zero)
   - line 4: Cache Write tokens (only if non-zero)
-  - line 5: Reasoning tokens (only if non-zero)
-  - quota lines: subscription quota like `OpenAI Remaining 5h 80%` or `OpenAI 5h 80% - Weekly 70%` (only for subscription providers used in this session)
+  - line 5: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
+  - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`, with multi-window continuation lines indented (e.g. `       Weekly 70% Rst 03-01`)
+  - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available
+- Toast message includes three sections: `Token Usage`, `Cost as API` (per provider), and `Quota`
+- Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
   - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
+  - RightCode API key (`/account/summary`)
   - Anthropic: currently marked unsupported (no public quota endpoint)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
 - API key providers still show usage aggregation (quota only applies to subscription providers)
@@ -164,14 +169,18 @@ Create `quota-sidebar.config.json` under your project root:
     "enabled": true,
     "width": 36,
     "showCost": true,
-    "showQuota": true,
-    "maxQuotaProviders": 2
+    "showQuota": true
   },
   "quota": {
     "refreshMs": 300000,
     "includeOpenAI": true,
     "includeCopilot": true,
     "includeAnthropic": true,
+    "providers": {
+      "rightcode": {
+        "enabled": true
+      }
+    },
     "refreshAccessToken": false,
     "requestTimeoutMs": 8000
   },
@@ -184,7 +193,11 @@ Create `quota-sidebar.config.json` under your project root:
 
 Notes:
 
-- `sidebar.showCost` only affects whether `quota_summary` includes cost in the markdown report. The sidebar title never shows cost.
+- `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
+- `output` now includes reasoning tokens. Reasoning is no longer rendered as a separate line.
+- API cost excludes reasoning tokens from output billing (uses `tokens.output` only for output-price multiplication).
+- `quota.providers` is the extensible per-adapter switch map.
+- If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
 
 ## Debug logging
 
@@ -205,6 +218,7 @@ This folder is initialized as its own git repository.
 - If enabled, quota checks call external endpoints:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
+  - RightCode: `https://www.right.codes/account/summary`
 - **Screen-sharing warning**: Session titles and toasts surface usage/quota
   information. If you are screen-sharing or recording, consider toggling the
   sidebar display off (`/qtoggle` or `quota_show` tool) to avoid leaking

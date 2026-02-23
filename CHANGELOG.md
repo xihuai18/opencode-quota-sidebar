@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Features
+
+- Refactor quota provider handling to an adapter registry (`src/providers/*`), so adding a new provider no longer requires editing core dispatch code.
+- Add RightCode provider support (`https://www.right.codes/account/summary`) with baseURL-based matching.
+- RightCode subscription display now uses daily quota logic and ignores tiny plans (`total_quota < 10`); when not matched, falls back to account balance.
+
+### UX
+
+- Merge Reasoning tokens into Output across sidebar, toast, and markdown report.
+- Sidebar quota windows now support indented multiline layout with compact reset time (`Rst HH:MM` / `Rst MM-DD`).
+- Toast now includes a dedicated `Cost as API` section with per-provider equivalent API cost.
+- Quota rendering now de-duplicates provider snapshots before output (prevents duplicate RightCode lines).
+- Remove `sidebar.maxQuotaProviders` config (unused in current design).
+
+### Bug Fixes
+
+- Invalidate stale RightCode cache entries that still use old non-daily window formats (auto-refetch on next render).
+
 ### Bug Fixes (Critical)
 
 - H1: Fix `saveState` empty dirty keys triggering full writeAll on every save.

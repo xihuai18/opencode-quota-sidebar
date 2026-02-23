@@ -32,6 +32,120 @@ function fitLine(value: string, width: number) {
   return value
 }
 
+function formatApiCostValue(value: number) {
+  const safe = Number.isFinite(value) && value > 0 ? value : 0
+  return `$${safe.toFixed(2)}`
+}
+
+function formatApiCostLine(value: number) {
+  return `${formatApiCostValue(value)} as API cost`
+}
+
+function alignPairs(
+  pairs: Array<{ label: string; value: string }>,
+  indent = '  ',
+) {
+  if (pairs.length === 0) return [] as string[]
+  const labelWidth = Math.max(...pairs.map((pair) => pair.label.length), 0)
+  return pairs.map((pair) => {
+    if (!pair.label) {
+      return `${indent}${' '.repeat(labelWidth)}  ${pair.value}`
+    }
+    return `${indent}${pair.label.padEnd(labelWidth)}  ${pair.value}`
+  })
+}
+
+const PROVIDER_SHORT_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  'github-copilot': 'Copilot',
+  anthropic: 'Anthropic',
+  rightcode: 'RC',
+}
+
+function canonicalProviderID(providerID: string) {
+  if (providerID.startsWith('github-copilot')) return 'github-copilot'
+  return providerID
+}
+
+function displayShortLabel(providerID: string) {
+  const canonical = canonicalProviderID(providerID)
+  const direct = PROVIDER_SHORT_LABELS[canonical]
+  if (direct) return direct
+  if (canonical.startsWith('rightcode-')) {
+    return `RC-${canonical.slice('rightcode-'.length)}`
+  }
+  return providerID
+}
+
+function quotaDisplayLabel(quota: QuotaSnapshot) {
+  if (quota.shortLabel) return quota.shortLabel
+  if (quota.adapterID) {
+    const adapterLabel = displayShortLabel(quota.adapterID)
+    if (adapterLabel !== quota.adapterID) return adapterLabel
+  }
+  return displayShortLabel(quota.providerID)
+}
+
+function quotaKey(quota: QuotaSnapshot) {
+  if (quota.adapterID === 'rightcode') return `rightcode:${quota.providerID}`
+  return `${quota.adapterID || quota.providerID}:${quota.providerID}`
+}
+
+function quotaScore(quota: QuotaSnapshot) {
+  let score = 0
+  if (quota.status === 'ok') score += 10
+  if (quota.windows && quota.windows.length > 0)
+    score += 5 + quota.windows.length
+  if (quota.balance) score += 3
+  if (quota.remainingPercent !== undefined) score += 1
+  return score
+}
+
+function collapseQuotaSnapshots(quotas: QuotaSnapshot[]) {
+  const grouped = new Map<string, QuotaSnapshot>()
+  const hasRightCodeBase = quotas.some(
+    (quota) =>
+      quota.adapterID === 'rightcode' && quotaDisplayLabel(quota) === 'RC',
+  )
+  for (const quota of quotas) {
+    // If both RC (balance) and RC-variant (subscription) exist, treat balance as owned by RC.
+    const normalizedQuota =
+      hasRightCodeBase &&
+      quota.adapterID === 'rightcode' &&
+      quotaDisplayLabel(quota).startsWith('RC-')
+        ? { ...quota, balance: undefined }
+        : quota
+
+    const key = quotaKey(normalizedQuota)
+    const existing = grouped.get(key)
+    if (!existing) {
+      grouped.set(key, normalizedQuota)
+      continue
+    }
+
+    const primary =
+      quotaScore(normalizedQuota) >= quotaScore(existing)
+        ? normalizedQuota
+        : existing
+    const secondary = primary === normalizedQuota ? existing : normalizedQuota
+    grouped.set(key, {
+      ...primary,
+      windows:
+        primary.windows && primary.windows.length > 0
+          ? primary.windows
+          : secondary.windows,
+      balance: primary.balance || secondary.balance,
+      remainingPercent:
+        primary.remainingPercent !== undefined
+          ? primary.remainingPercent
+          : secondary.remainingPercent,
+      resetAt: primary.resetAt || secondary.resetAt,
+      note: primary.note || secondary.note,
+    })
+  }
+  return [...grouped.values()]
+}
+
 /**
  * Render sidebar title with multi-line token breakdown.
  *
@@ -40,7 +154,7 @@ function fitLine(value: string, width: number) {
  *   Input 18.9k  Output 53
  *   Cache Read 1.5k           (only if read > 0)
  *   Cache Write 200           (only if write > 0)
- *   Reasoning 23              (only if > 0)
+ *   $3.81 as API cost         (only if showCost=true)
  *   OpenAI Remaining 78%      (only if quota available)
  */
 export function renderSidebarTitle(
@@ -53,6 +167,7 @@ export function renderSidebarTitle(
   const lines: string[] = []
 
   lines.push(fitLine(baseTitle || 'Session', width))
+  lines.push('')
 
   // Input / Output line
   const io = `Input ${sidebarNumber(usage.input)}  Output ${sidebarNumber(usage.output)}`
@@ -65,19 +180,26 @@ export function renderSidebarTitle(
   if (usage.cacheWrite > 0) {
     lines.push(fitLine(`Cache Write ${sidebarNumber(usage.cacheWrite)}`, width))
   }
-
-  // Reasoning line (only if non-zero)
-  if (usage.reasoning > 0) {
-    lines.push(fitLine(`Reasoning ${sidebarNumber(usage.reasoning)}`, width))
+  if (config.sidebar.showCost && usage.apiCost > 0) {
+    lines.push(fitLine(formatApiCostLine(usage.apiCost), width))
   }
 
   // Quota lines (one provider per line for stable wrapping)
   if (config.sidebar.showQuota) {
-    const quotaItems = quotas
-      .filter((q) => q.status === 'ok' || q.status === 'error')
-      .slice(0, config.sidebar.maxQuotaProviders)
-      .map((item) => compactQuotaWide(item))
+    const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
+      ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
+    )
+    const labelWidth = visibleQuotas.reduce((max, item) => {
+      const label = quotaDisplayLabel(item)
+      return Math.max(max, label.length)
+    }, 0)
+
+    const quotaItems = visibleQuotas
+      .flatMap((item) => compactQuotaWide(item, labelWidth))
       .filter((s): s is string => Boolean(s))
+    if (quotaItems.length > 0) {
+      lines.push('')
+    }
     for (const line of quotaItems) {
       lines.push(fitLine(line, width))
     }
@@ -88,37 +210,68 @@ export function renderSidebarTitle(
 
 /**
  * Multi-window quota format for sidebar.
- * Single window:  "OpenAI Remaining 5h 80%"
- * Multi window:   "OpenAI 5h 80% Weekly 70%"
- * Copilot:        "Copilot Monthly 70%"
+ * Single window:  "OpenAI 5h 80% Rst 16:20"
+ * Multi window:   "OpenAI 5h 80% Rst 16:20" + indented next line
+ * Copilot:        "Copilot Monthly 70% Rst 03-01"
  */
-function compactQuotaWide(quota: QuotaSnapshot) {
-  const label =
-    quota.providerID === 'openai'
-      ? 'OpenAI'
-      : quota.providerID === 'github-copilot'
-        ? 'Copilot'
-        : quota.providerID === 'anthropic'
-          ? 'Claude'
-          : quota.providerID.slice(0, 8)
+function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
+  const label = quotaDisplayLabel(quota)
 
-  if (quota.status === 'error') return `${label} Remaining ?`
-  if (quota.status !== 'ok') return ''
+  const labelPadding = ' '.repeat(Math.max(0, labelWidth - label.length))
+  const withLabel = (content: string) => `${label}${labelPadding} ${content}`
+
+  if (quota.status === 'error') return [withLabel('Remaining ?')]
+  if (quota.status === 'unsupported') return [withLabel('unsupported')]
+  if (quota.status === 'unavailable') return [withLabel('unavailable')]
+  if (quota.status !== 'ok') return []
+
+  const balanceText = quota.balance
+    ? `Balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`
+    : undefined
+
+  const renderWindow = (win: NonNullable<QuotaSnapshot['windows']>[number]) => {
+    const showPercent = win.showPercent !== false
+    const pct =
+      win.remainingPercent === undefined
+        ? '?'
+        : `${Math.round(win.remainingPercent)}%`
+    const parts = win.label
+      ? showPercent
+        ? [win.label, pct]
+        : [win.label]
+      : [pct]
+    const reset = compactReset(win.resetAt)
+    if (reset) {
+      parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
+    }
+    return parts.join(' ')
+  }
 
   // Multi-window rendering
   if (quota.windows && quota.windows.length > 0) {
-    const parts = quota.windows.map((win) => {
-      const pct =
-        win.remainingPercent === undefined
-          ? '?'
-          : `${Math.round(win.remainingPercent)}%`
-      return win.label ? `${win.label} ${pct}` : pct
-    })
+    const parts = quota.windows.map(renderWindow)
     if (parts.length === 1) {
-      return `${label} Remaining ${parts[0]}`
+      const first = withLabel(parts[0])
+      if (balanceText && !parts[0].includes('Balance ')) {
+        const indent = ' '.repeat(labelWidth + 1)
+        return [first, `${indent}${balanceText}`]
+      }
+      return [first]
     }
-    // Multiple windows: compact format without "Remaining"
-    return `${label} ${parts.join(' - ')}`
+    const indent = ' '.repeat(labelWidth + 1)
+    const lines = [
+      withLabel(parts[0]),
+      ...parts.slice(1).map((part) => `${indent}${part}`),
+    ]
+    const alreadyHasBalance = parts.some((part) => part.includes('Balance '))
+    if (balanceText && !alreadyHasBalance) {
+      lines.push(`${indent}${balanceText}`)
+    }
+    return lines
+  }
+
+  if (balanceText) {
+    return [withLabel(balanceText)]
   }
 
   // Fallback: single value from top-level remainingPercent
@@ -126,7 +279,27 @@ function compactQuotaWide(quota: QuotaSnapshot) {
     quota.remainingPercent === undefined
       ? '?'
       : `${Math.round(quota.remainingPercent)}%`
-  return `${label} Remaining ${percent}`
+  const reset = compactReset(quota.resetAt)
+  return [withLabel(`Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`)]
+}
+
+function compactReset(iso: string | undefined) {
+  if (!iso) return undefined
+  const timestamp = Date.parse(iso)
+  if (Number.isNaN(timestamp)) return undefined
+
+  const value = new Date(timestamp)
+  const now = new Date()
+  const sameDay =
+    value.getFullYear() === now.getFullYear() &&
+    value.getMonth() === now.getMonth() &&
+    value.getDate() === now.getDate()
+
+  const two = (num: number) => `${num}`.padStart(2, '0')
+  if (sameDay) {
+    return `${two(value.getHours())}:${two(value.getMinutes())}`
+  }
+  return `${two(value.getMonth() + 1)}-${two(value.getDate())}`
 }
 
 function dateLine(iso: string | undefined) {
@@ -154,14 +327,18 @@ export function renderMarkdownReport(
     .sort((a, b) => b.total - a.total)
     .map((provider) =>
       showCost
-        ? `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.reasoning)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | $${provider.cost.toFixed(3)} |`
-        : `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.reasoning)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`,
+        ? `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | $${provider.cost.toFixed(3)} | $${provider.apiCost.toFixed(2)} |`
+        : `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`,
     )
 
-  const quotaLines = quotas.flatMap((quota) => {
+  const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
       return quota.windows.map((win) => {
+        if (win.showPercent === false) {
+          const winLabel = win.label ? ` (${win.label})` : ''
+          return `- ${quota.label}${winLabel}: ${quota.status} | reset ${dateLine(win.resetAt)}`
+        }
         const remaining =
           win.remainingPercent === undefined
             ? '-'
@@ -169,6 +346,11 @@ export function renderMarkdownReport(
         const winLabel = win.label ? ` (${win.label})` : ''
         return `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${dateLine(win.resetAt)}`
       })
+    }
+    if (quota.status === 'ok' && quota.balance) {
+      return [
+        `- ${quota.label}: ${quota.status} | balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`,
+      ]
     }
     const remaining =
       quota.remainingPercent === undefined
@@ -184,23 +366,24 @@ export function renderMarkdownReport(
     '',
     `- Sessions: ${usage.sessionCount}`,
     `- Assistant messages: ${usage.assistantMessages}`,
-    `- Tokens: input ${usage.input}, output ${usage.output}, reasoning ${usage.reasoning}, cache_read ${usage.cacheRead}, cache_write ${usage.cacheWrite}, total ${usage.total}`,
-    ...(showCost ? [`- Cost: $${usage.cost.toFixed(4)}`] : []),
+    `- Tokens: input ${usage.input}, output ${usage.output}, cache_read ${usage.cacheRead}, cache_write ${usage.cacheWrite}, total ${usage.total}`,
+    ...(showCost
+      ? [
+          `- Measured cost: $${usage.cost.toFixed(4)}`,
+          `- API cost: ${formatApiCostValue(usage.apiCost)}`,
+        ]
+      : []),
     '',
     '### Usage by Provider',
     showCost
-      ? '| Provider | Input | Output | Reasoning | Cache | Total | Cost |'
-      : '| Provider | Input | Output | Reasoning | Cache | Total |',
+      ? '| Provider | Input | Output | Cache | Total | Measured Cost | API Cost |'
+      : '| Provider | Input | Output | Cache | Total |',
     showCost
       ? '|---|---:|---:|---:|---:|---:|---:|'
-      : '|---|---:|---:|---:|---:|---:|',
+      : '|---|---:|---:|---:|---:|',
     ...(providers.length
       ? providers
-      : [
-          showCost
-            ? '| - | - | - | - | - | - | - |'
-            : '| - | - | - | - | - | - |',
-        ]),
+      : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
     '',
     '### Subscription Quota',
     ...(quotaLines.length
@@ -213,43 +396,134 @@ export function renderToastMessage(
   period: string,
   usage: UsageSummary,
   quotas: QuotaSnapshot[],
+  options?: { showCost?: boolean; width?: number },
 ) {
+  const width = Math.max(24, Math.floor(options?.width || 56))
+  const showCost = options?.showCost !== false
   const lines: string[] = []
-  lines.push(`${periodLabel(period)} - Total ${shortNumber(usage.total)}`)
   lines.push(
-    `Input ${shortNumber(usage.input)}  Output ${shortNumber(usage.output)}`,
+    fitLine(
+      `${periodLabel(period)} - Total ${shortNumber(usage.total)}`,
+      width,
+    ),
   )
-  if (usage.cacheRead > 0)
-    lines.push(`Cache Read ${shortNumber(usage.cacheRead)}`)
-  if (usage.cacheWrite > 0)
-    lines.push(`Cache Write ${shortNumber(usage.cacheWrite)}`)
-  if (usage.reasoning > 0)
-    lines.push(`Reasoning ${shortNumber(usage.reasoning)}`)
+  lines.push('')
+  lines.push(fitLine('Token Usage', width))
 
-  const quotaLines = quotas.flatMap((item) => {
+  const tokenPairs: Array<{ label: string; value: string }> = [
+    { label: 'Input', value: shortNumber(usage.input) },
+    { label: 'Output', value: shortNumber(usage.output) },
+  ]
+  if (usage.cacheRead > 0) {
+    tokenPairs.push({
+      label: 'Cache Read',
+      value: shortNumber(usage.cacheRead),
+    })
+  }
+  if (usage.cacheWrite > 0) {
+    tokenPairs.push({
+      label: 'Cache Write',
+      value: shortNumber(usage.cacheWrite),
+    })
+  }
+  if (showCost) {
+    if (usage.apiCost > 0) {
+      tokenPairs.push({
+        label: 'API Cost',
+        value: formatApiCostValue(usage.apiCost),
+      })
+    }
+  }
+
+  lines.push(...alignPairs(tokenPairs).map((line) => fitLine(line, width)))
+
+  if (showCost) {
+    const costPairs = Object.values(usage.providers)
+      .filter(
+        (provider) =>
+          canonicalProviderID(provider.providerID) !== 'github-copilot',
+      )
+      .filter((provider) => provider.apiCost > 0)
+      .sort((left, right) => right.apiCost - left.apiCost)
+      .map((provider) => ({
+        label: displayShortLabel(provider.providerID),
+        value: `$${provider.apiCost.toFixed(2)}`,
+      }))
+
+    lines.push('')
+    lines.push(fitLine('Cost as API', width))
+    if (costPairs.length > 0) {
+      lines.push(...alignPairs(costPairs).map((line) => fitLine(line, width)))
+    } else {
+      lines.push(fitLine('  No provider usage in this range', width))
+    }
+  }
+
+  const quotaPairs = collapseQuotaSnapshots(quotas).flatMap((item) => {
     if (item.status === 'ok') {
-      // Multi-window
       if (item.windows && item.windows.length > 0) {
-        const parts = item.windows.map((win) => {
+        const pairs = item.windows.map((win, idx) => {
+          const showPercent = win.showPercent !== false
           const pct =
             win.remainingPercent === undefined
               ? '-'
               : `${win.remainingPercent.toFixed(1)}%`
-          return win.label ? `${win.label} ${pct}` : pct
+          const reset = compactReset(win.resetAt)
+          const parts = [win.label]
+          if (showPercent) parts.push(pct)
+          if (reset) parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
+          return {
+            label: idx === 0 ? quotaDisplayLabel(item) : '',
+            value: parts.filter(Boolean).join(' '),
+          }
         })
-        return [`${item.label} Remaining ${parts.join(' | ')}`]
+
+        if (item.balance) {
+          pairs.push({
+            label: '',
+            value: `Balance ${item.balance.currency}${item.balance.amount.toFixed(2)}`,
+          })
+        }
+
+        return pairs
       }
+
+      if (item.balance) {
+        return [
+          {
+            label: quotaDisplayLabel(item),
+            value: `Balance ${item.balance.currency}${item.balance.amount.toFixed(2)}`,
+          },
+        ]
+      }
+
       const percent =
         item.remainingPercent === undefined
           ? '-'
           : `${item.remainingPercent.toFixed(1)}%`
-      return [`${item.label} Remaining ${percent}`]
+      const reset = compactReset(item.resetAt)
+      return [
+        {
+          label: quotaDisplayLabel(item),
+          value: `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`,
+        },
+      ]
     }
-    if (item.status === 'unsupported') return [`${item.label}: unsupported`]
-    if (item.status === 'unavailable') return [`${item.label}: unavailable`]
-    return [`${item.label} Remaining ?`]
-  })
-  lines.push(...quotaLines)
 
-  return lines.filter((line) => line).join('\n')
+    if (item.status === 'unsupported') {
+      return [{ label: quotaDisplayLabel(item), value: 'unsupported' }]
+    }
+    if (item.status === 'unavailable') {
+      return [{ label: quotaDisplayLabel(item), value: 'unavailable' }]
+    }
+    return [{ label: quotaDisplayLabel(item), value: 'Remaining ?' }]
+  })
+
+  if (quotaPairs.length > 0) {
+    lines.push('')
+    lines.push(fitLine('Quota', width))
+    lines.push(...alignPairs(quotaPairs).map((line) => fitLine(line, width)))
+  }
+
+  return lines.join('\n')
 }

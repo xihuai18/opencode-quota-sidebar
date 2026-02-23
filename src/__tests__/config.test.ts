@@ -29,7 +29,7 @@ describe('loadConfig', () => {
     assert.deepEqual(config, defaultConfig)
   })
 
-  it('clamps width and maxQuotaProviders into safe range', async () => {
+  it('clamps width into safe range', async () => {
     const dir = await makeTempDir()
     const filePath = path.join(dir, 'quota-sidebar.config.json')
     await fs.writeFile(
@@ -37,14 +37,12 @@ describe('loadConfig', () => {
       JSON.stringify({
         sidebar: {
           width: 999,
-          maxQuotaProviders: 999,
         },
       }),
     )
 
     const config = await loadConfig([filePath])
     assert.equal(config.sidebar.width, 60)
-    assert.equal(config.sidebar.maxQuotaProviders, 4)
   })
 
   it('enforces minimum values and parses booleans', async () => {
@@ -58,7 +56,6 @@ describe('loadConfig', () => {
           width: 1,
           showCost: false,
           showQuota: false,
-          maxQuotaProviders: 0,
         },
         quota: {
           refreshMs: 100,
@@ -66,6 +63,11 @@ describe('loadConfig', () => {
           includeOpenAI: false,
           includeCopilot: false,
           includeAnthropic: false,
+          providers: {
+            rightcode: {
+              enabled: false,
+            },
+          },
           refreshAccessToken: true,
         },
       }),
@@ -76,12 +78,12 @@ describe('loadConfig', () => {
     assert.equal(config.sidebar.width, 20)
     assert.equal(config.sidebar.showCost, false)
     assert.equal(config.sidebar.showQuota, false)
-    assert.equal(config.sidebar.maxQuotaProviders, 1)
     assert.equal(config.quota.refreshMs, 30_000)
     assert.equal(config.quota.requestTimeoutMs, 1_000)
     assert.equal(config.quota.includeOpenAI, false)
     assert.equal(config.quota.includeCopilot, false)
     assert.equal(config.quota.includeAnthropic, false)
+    assert.equal(config.quota.providers?.rightcode?.enabled, false)
     assert.equal(config.quota.refreshAccessToken, true)
   })
 })

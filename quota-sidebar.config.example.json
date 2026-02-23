@@ -3,14 +3,18 @@
     "enabled": true,
     "width": 36,
     "showCost": true,
-    "showQuota": true,
-    "maxQuotaProviders": 2
+    "showQuota": true
   },
   "quota": {
     "refreshMs": 300000,
     "includeOpenAI": true,
     "includeCopilot": true,
     "includeAnthropic": true,
+    "providers": {
+      "rightcode": {
+        "enabled": true
+      }
+    },
     "refreshAccessToken": false,
     "requestTimeoutMs": 8000
   },

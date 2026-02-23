@@ -2,6 +2,10 @@ export type QuotaStatus = 'ok' | 'unavailable' | 'unsupported' | 'error'
 
 export type QuotaWindow = {
   label: string
+  /** Set false when this window line should not render a trailing percentage. */
+  showPercent?: boolean
+  /** Prefix for reset/expiry time text in sidebar (default: Rst). */
+  resetLabel?: string
   remainingPercent?: number
   usedPercent?: number
   resetAt?: string
@@ -9,12 +13,23 @@ export type QuotaWindow = {
 
 export type QuotaSnapshot = {
   providerID: string
+  /** Adapter ID that produced this snapshot (e.g. openai, rightcode). */
+  adapterID?: string
   label: string
+  /** Short sidebar label (e.g. OpenAI, Copilot, RC). */
+  shortLabel?: string
+  /** Sort priority: smaller values appear first. */
+  sortOrder?: number
   status: QuotaStatus
   checkedAt: number
   remainingPercent?: number
   usedPercent?: number
   resetAt?: string
+  /** Balance-style quota (for providers that expose balance instead of percent). */
+  balance?: {
+    amount: number
+    currency: string
+  }
   note?: string
   /** Multi-window quota (e.g. OpenAI short-term + weekly). */
   windows?: QuotaWindow[]
@@ -33,6 +48,8 @@ export type CachedProviderUsage = {
   cacheWrite: number
   total: number
   cost: number
+  /** Equivalent API billing cost (USD) computed from model pricing. */
+  apiCost: number
   assistantMessages: number
 }
 
@@ -44,6 +61,8 @@ export type CachedSessionUsage = {
   cacheWrite: number
   total: number
   cost: number
+  /** Equivalent API billing cost (USD) computed from model pricing. */
+  apiCost: number
   assistantMessages: number
   providers: Record<string, CachedProviderUsage>
 }
@@ -84,13 +103,14 @@ export type QuotaSidebarConfig = {
     width: number
     showCost: boolean
     showQuota: boolean
-    maxQuotaProviders: number
   }
   quota: {
     refreshMs: number
     includeOpenAI: boolean
     includeCopilot: boolean
     includeAnthropic: boolean
+    /** Generic per-adapter switches (e.g. rightcode). */
+    providers?: Record<string, { enabled?: boolean }>
     /** When true, refreshes OpenAI OAuth access token using refresh token */
     refreshAccessToken: boolean
     /** Timeout for external quota fetches */

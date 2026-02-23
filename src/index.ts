@@ -11,8 +11,12 @@ import {
 } from './format.js'
 import {
   fetchQuotaSnapshot,
+  listDefaultQuotaProviderIDs,
   loadAuthMap,
   normalizeProviderID,
+  quotaCacheKey,
+  resolveQuotaAdapter,
+  quotaSort,
 } from './quota.js'
 import {
   authFilePath,
@@ -26,8 +30,8 @@ import {
   scanSessionsByCreatedRange,
   stateFilePath,
 } from './storage.js'
-import { debug, mapConcurrent, swallow } from './helpers.js'
-import type { QuotaSnapshot } from './types.js'
+import { asNumber, debug, isRecord, mapConcurrent, swallow } from './helpers.js'
+import type { CachedSessionUsage, QuotaSnapshot } from './types.js'
 import {
   emptyUsageSummary,
   fromCachedSessionUsage,
@@ -76,18 +80,6 @@ function isAssistantMessage(message: Message): message is AssistantMessage {
   return message.role === 'assistant'
 }
 
-function quotaSort(left: QuotaSnapshot, right: QuotaSnapshot) {
-  const order: Record<string, number> = {
-    openai: 0,
-    'github-copilot': 1,
-    anthropic: 2,
-  }
-  const leftOrder = order[left.providerID] ?? 99
-  const rightOrder = order[right.providerID] ?? 99
-  if (leftOrder !== rightOrder) return leftOrder - rightOrder
-  return left.providerID.localeCompare(right.providerID)
-}
-
 /**
  * H3 fix: detect if a title already contains our decoration.
  * Current layout has token/quota lines after base title line.
@@ -100,19 +92,85 @@ function looksDecorated(title: string): boolean {
     if (!line) return false
     if (/^Input\s+\S+\s+Output\s+\S+/.test(line)) return true
     if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
+    if (/^\$\S+\s+as API cost/.test(line)) return true
+    // Backward compatibility: old plugin versions had a separate Reasoning line.
     if (/^Reasoning\s+\S+/.test(line)) return true
-    if (/^(OpenAI|Copilot|Claude)\b/.test(line)) return true
+    if (/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return true
     return false
   })
 }
 
-const SUBSCRIPTION_QUOTA_PROVIDERS = new Set(['openai', 'github-copilot'])
+const SUBSCRIPTION_API_COST_PROVIDERS = new Set(['openai', 'anthropic'])
 
-function subscriptionProvidersUsed(providerIDs: string[]) {
-  const normalized = providerIDs.map((id) => normalizeProviderID(id))
-  return Array.from(new Set(normalized)).filter((id) =>
-    SUBSCRIPTION_QUOTA_PROVIDERS.has(id),
-  )
+function canonicalApiCostProviderID(providerID: string) {
+  const normalized = normalizeProviderID(providerID)
+  if (SUBSCRIPTION_API_COST_PROVIDERS.has(normalized)) return normalized
+
+  const lowered = providerID.toLowerCase()
+  if (lowered.includes('copilot')) return 'github-copilot'
+  if (lowered.includes('openai') || lowered.endsWith('-oai')) return 'openai'
+  if (lowered.includes('anthropic') || lowered.includes('claude')) {
+    return 'anthropic'
+  }
+  return normalized
+}
+const MODEL_COST_DIVISOR_PER_TOKEN = 1
+const MODEL_COST_DIVISOR_PER_MILLION = 1_000_000
+
+type ModelCostRates = {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
+function modelCostKey(providerID: string, modelID: string) {
+  return `${providerID}:${modelID}`
+}
+
+function parseModelCostRates(value: unknown): ModelCostRates | undefined {
+  if (!isRecord(value)) return undefined
+
+  const readRate = (input: unknown) => {
+    if (typeof input === 'number') return input
+    if (typeof input === 'string') {
+      const parsed = Number(input)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    if (isRecord(input)) {
+      return asNumber(
+        input.usd,
+        asNumber(
+          input.value,
+          asNumber(
+            input.per_1m,
+            asNumber(
+              input.per1m,
+              asNumber(input.per_token, asNumber(input.perToken, 0)),
+            ),
+          ),
+        ),
+      )
+    }
+    return 0
+  }
+
+  const cache = isRecord(value.cache) ? value.cache : undefined
+  const input = readRate(value.input || value.prompt)
+  const output = readRate(value.output || value.completion)
+  const cacheRead = readRate(value.cache_read || cache?.read)
+  const cacheWrite = readRate(value.cache_write || cache?.write)
+
+  if (input <= 0 && output <= 0 && cacheRead <= 0 && cacheWrite <= 0) {
+    return undefined
+  }
+
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+  }
 }
 
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
@@ -154,6 +212,203 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     const value = await loadAuthMap(authPath)
     authCache = { value, expiresAt: Date.now() + 30_000 }
     return value
+  }
+
+  let providerOptionsCache:
+    | {
+        expiresAt: number
+        value: Record<string, Record<string, unknown>>
+      }
+    | undefined
+
+  const getProviderOptionsMap = async () => {
+    if (providerOptionsCache && providerOptionsCache.expiresAt > Date.now()) {
+      return providerOptionsCache.value
+    }
+
+    const configClient = input.client as unknown as {
+      config?: {
+        providers?: (args: {
+          query: { directory: string }
+          throwOnError: true
+        }) => Promise<unknown>
+      }
+    }
+
+    if (!configClient.config?.providers) {
+      providerOptionsCache = {
+        value: {},
+        expiresAt: Date.now() + 30_000,
+      }
+      return providerOptionsCache.value
+    }
+
+    const response = await configClient.config
+      .providers({
+        query: { directory: input.directory },
+        throwOnError: true,
+      })
+      .catch(swallow('getProviderOptionsMap'))
+
+    const data =
+      response &&
+      typeof response === 'object' &&
+      'data' in response &&
+      response.data &&
+      typeof response.data === 'object' &&
+      'providers' in response.data
+        ? (response.data.providers as unknown)
+        : undefined
+
+    const map = Array.isArray(data)
+      ? data.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+          if (!item || typeof item !== 'object') return acc
+          const record = item as Record<string, unknown>
+          const id = record.id
+          const options = record.options
+          if (typeof id !== 'string') return acc
+          if (
+            !options ||
+            typeof options !== 'object' ||
+            Array.isArray(options)
+          ) {
+            acc[id] = {}
+            return acc
+          }
+          acc[id] = options as Record<string, unknown>
+          return acc
+        }, {})
+      : {}
+
+    providerOptionsCache = {
+      value: map,
+      expiresAt: Date.now() + 30_000,
+    }
+    return map
+  }
+
+  let modelCostCache:
+    | {
+        expiresAt: number
+        value: Record<string, ModelCostRates>
+      }
+    | undefined
+  const missingApiCostRateKeys = new Set<string>()
+
+  const getModelCostMap = async () => {
+    if (modelCostCache && modelCostCache.expiresAt > Date.now()) {
+      return modelCostCache.value
+    }
+
+    const providerClient = input.client as unknown as {
+      provider?: {
+        list?: (args: {
+          query: { directory: string }
+          throwOnError: true
+        }) => Promise<unknown>
+      }
+    }
+
+    if (!providerClient.provider?.list) {
+      modelCostCache = {
+        value: {},
+        expiresAt: Date.now() + 30_000,
+      }
+      return modelCostCache.value
+    }
+
+    const response = await providerClient.provider
+      .list({
+        query: { directory: input.directory },
+        throwOnError: true,
+      })
+      .catch(swallow('getModelCostMap'))
+
+    const all =
+      response &&
+      typeof response === 'object' &&
+      'data' in response &&
+      isRecord(response.data) &&
+      Array.isArray(response.data.all)
+        ? response.data.all
+        : []
+
+    const map = all.reduce<Record<string, ModelCostRates>>((acc, provider) => {
+      if (!isRecord(provider)) return acc
+      const providerID =
+        typeof provider.id === 'string'
+          ? canonicalApiCostProviderID(provider.id)
+          : undefined
+      if (!providerID) return acc
+      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
+      const models = isRecord(provider.models) ? provider.models : undefined
+      if (!models) return acc
+
+      for (const [modelKey, modelValue] of Object.entries(models)) {
+        if (!isRecord(modelValue)) continue
+        const rates = parseModelCostRates(modelValue.cost)
+        if (!rates) continue
+
+        const modelID =
+          typeof modelValue.id === 'string' ? modelValue.id : modelKey
+        acc[modelCostKey(providerID, modelID)] = rates
+        if (modelKey !== modelID) {
+          acc[modelCostKey(providerID, modelKey)] = rates
+        }
+      }
+
+      return acc
+    }, {})
+
+    modelCostCache = {
+      value: map,
+      expiresAt: Date.now() + Math.max(30_000, config.quota.refreshMs),
+    }
+
+    return map
+  }
+
+  const calcEquivalentApiCost = (
+    message: AssistantMessage,
+    modelCostMap: Record<string, ModelCostRates>,
+  ) => {
+    const providerID = canonicalApiCostProviderID(message.providerID)
+    if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return 0
+
+    const rates = modelCostMap[modelCostKey(providerID, message.modelID)]
+    if (!rates) {
+      const key = modelCostKey(providerID, message.modelID)
+      if (!missingApiCostRateKeys.has(key)) {
+        missingApiCostRateKeys.add(key)
+        debug(`apiCost skipped: no model price for ${key}`)
+      }
+      return 0
+    }
+
+    const rawCost =
+      message.tokens.input * rates.input +
+      // API cost intentionally excludes reasoning tokens.
+      message.tokens.output * rates.output +
+      message.tokens.cache.read * rates.cacheRead +
+      message.tokens.cache.write * rates.cacheWrite
+
+    // OpenCode provider pricing units can differ:
+    // - some providers expose USD per token (e.g. 0.0000025)
+    // - others expose USD per 1M tokens (e.g. 2.5)
+    // Heuristic: treat values > 0.001 as "per 1M".
+    const maxRate = Math.max(
+      rates.input,
+      rates.output,
+      rates.cacheRead,
+      rates.cacheWrite,
+    )
+    const divisor =
+      maxRate > 0.001
+        ? MODEL_COST_DIVISOR_PER_MILLION
+        : MODEL_COST_DIVISOR_PER_TOKEN
+
+    const normalized = rawCost / divisor
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
   }
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -253,6 +508,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
    */
   const summarizeSessionUsage = async (sessionID: string) => {
     const entries = await loadSessionEntries(sessionID)
+    const modelCostMap = await getModelCostMap()
 
     const sessionState = state.sessions[sessionID]
     const forceRescan = forceRescanSessions.has(sessionID)
@@ -263,6 +519,9 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       sessionState?.usage,
       sessionState?.cursor,
       forceRescan,
+      {
+        calcApiCost: (message) => calcEquivalentApiCost(message, modelCostMap),
+      },
     )
     usage.sessionCount = 1
 
@@ -289,12 +548,24 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     )
     const usage = emptyUsageSummary()
     usage.sessionCount = sessions.length
+    const modelCostMap = await getModelCostMap()
+
+    const shouldRecomputeApiCost = (cached: CachedSessionUsage) => {
+      if (cached.assistantMessages <= 0) return false
+      if (cached.apiCost > 0) return false
+      if (cached.total <= 0) return false
+      return true
+    }
 
     // Separate sessions with cached usage from those needing API calls
     const needsFetch: typeof sessions = []
     for (const session of sessions) {
       if (session.state.usage) {
-        mergeUsage(usage, fromCachedSessionUsage(session.state.usage, 0))
+        if (shouldRecomputeApiCost(session.state.usage)) {
+          needsFetch.push(session)
+        } else {
+          mergeUsage(usage, fromCachedSessionUsage(session.state.usage, 0))
+        }
       } else {
         needsFetch.push(session)
       }
@@ -309,13 +580,16 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
           undefined,
           undefined,
           true,
+          {
+            calcApiCost: (message) =>
+              calcEquivalentApiCost(message, modelCostMap),
+          },
         )
         return { sessionID: session.sessionID, computed }
       })
 
       let dirty = false
       for (const { sessionID, computed } of fetched) {
-        computed.sessionCount = 0
         mergeUsage(usage, computed)
         const memoryState = state.sessions[sessionID]
         if (memoryState) {
@@ -333,24 +607,82 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     providerIDs: string[],
     options?: { allowDefault?: boolean },
   ) => {
-    const normalized = Array.from(
-      new Set(providerIDs.map((providerID) => normalizeProviderID(providerID))),
-    )
-    const authMap = await getAuthMap()
+    const isValidQuotaCache = (snapshot: QuotaSnapshot) => {
+      // Guard against stale RightCode cache entries from pre-daily format.
+      if (snapshot.adapterID !== 'rightcode' || snapshot.status !== 'ok') {
+        return true
+      }
+      if (!snapshot.windows || snapshot.windows.length === 0) return true
+      const primary = snapshot.windows[0]
+      if (!primary.label.startsWith('Daily $')) return false
+      if (primary.showPercent !== false) return false
+      return true
+    }
 
-    const candidates = normalized.length
-      ? normalized
-      : options?.allowDefault
-        ? (['openai', 'github-copilot', 'anthropic'] as Array<
-            'openai' | 'github-copilot' | 'anthropic'
-          >)
-        : ([] as string[])
+    const [authMap, providerOptionsMap] = await Promise.all([
+      getAuthMap(),
+      getProviderOptionsMap(),
+    ])
+
+    const optionsForProvider = (providerID: string) => {
+      return (
+        providerOptionsMap[providerID] ||
+        providerOptionsMap[normalizeProviderID(providerID)]
+      )
+    }
+
+    const directCandidates = providerIDs.map((providerID) => ({
+      providerID,
+      providerOptions: optionsForProvider(providerID),
+    }))
+
+    const defaultCandidates = options?.allowDefault
+      ? [
+          ...Object.keys(providerOptionsMap).map((providerID) => ({
+            providerID,
+            providerOptions: providerOptionsMap[providerID],
+          })),
+          ...listDefaultQuotaProviderIDs().map((providerID) => ({
+            providerID,
+            providerOptions: optionsForProvider(providerID),
+          })),
+        ]
+      : []
+
+    const rawCandidates = directCandidates.length
+      ? directCandidates
+      : defaultCandidates
+
+    const matchedCandidates = rawCandidates.filter((candidate) =>
+      Boolean(
+        resolveQuotaAdapter(candidate.providerID, candidate.providerOptions),
+      ),
+    )
+
+    const dedupedCandidates = Array.from(
+      matchedCandidates
+        .reduce((acc, candidate) => {
+          const key = quotaCacheKey(
+            candidate.providerID,
+            candidate.providerOptions,
+          )
+          if (!acc.has(key)) acc.set(key, candidate)
+          return acc
+        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
+        .values(),
+    )
 
     const fetched = await Promise.all(
-      candidates.map(async (providerID) => {
-        const cached = state.quotaCache[providerID]
-        if (cached && Date.now() - cached.checkedAt <= config.quota.refreshMs)
-          return cached
+      dedupedCandidates.map(async ({ providerID, providerOptions }) => {
+        const cacheKey = quotaCacheKey(providerID, providerOptions)
+        const cached = state.quotaCache[cacheKey]
+        if (cached && Date.now() - cached.checkedAt <= config.quota.refreshMs) {
+          if (isValidQuotaCache(cached)) {
+            return cached
+          }
+          delete state.quotaCache[cacheKey]
+        }
+
         const latest = await fetchQuotaSnapshot(
           providerID,
           authMap,
@@ -371,9 +703,10 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
               })
               .catch(swallow('getQuotaSnapshots:authSet'))
           },
+          providerOptions,
         )
         if (!latest) return undefined
-        state.quotaCache[providerID] = latest
+        state.quotaCache[cacheKey] = latest
         return latest
       }),
     )
@@ -440,8 +773,11 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     }
 
     const usage = await summarizeSessionUsage(sessionID)
-    const providers = Object.keys(usage.providers)
-    const quotaProviders = subscriptionProvidersUsed(providers)
+    const quotaProviders = Array.from(
+      new Set(
+        Object.keys(usage.providers).map((id) => normalizeProviderID(id)),
+      ),
+    )
     const quotas =
       config.sidebar.showQuota && quotaProviders.length > 0
         ? await getQuotaSnapshots(quotaProviders)
@@ -686,7 +1022,13 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
           })
 
           if (args.toast !== false) {
-            await showToast(period, renderToastMessage(period, usage, quotas))
+            await showToast(
+              period,
+              renderToastMessage(period, usage, quotas, {
+                showCost: config.sidebar.showCost,
+                width: Math.max(44, config.sidebar.width + 18),
+              }),
+            )
           }
 
           return markdown

@@ -10,25 +10,34 @@ export type ProviderUsage = {
   providerID: string
   input: number
   output: number
+  /** Legacy field kept for cache compatibility; display merges into output. */
   reasoning: number
   cacheRead: number
   cacheWrite: number
   total: number
   cost: number
+  apiCost: number
   assistantMessages: number
 }
 
 export type UsageSummary = {
   input: number
   output: number
+  /** Legacy field kept for cache compatibility; display merges into output. */
   reasoning: number
   cacheRead: number
   cacheWrite: number
   total: number
   cost: number
+  apiCost: number
   assistantMessages: number
   sessionCount: number
   providers: Record<string, ProviderUsage>
+}
+
+export type UsageOptions = {
+  /** Equivalent API cost calculator for the message. */
+  calcApiCost?: (message: AssistantMessage) => number
 }
 
 export function emptyUsageSummary(): UsageSummary {
@@ -40,6 +49,7 @@ export function emptyUsageSummary(): UsageSummary {
     cacheWrite: 0,
     total: 0,
     cost: 0,
+    apiCost: 0,
     assistantMessages: 0,
     sessionCount: 0,
     providers: {},
@@ -60,20 +70,32 @@ function tokenTotal(message: AssistantMessage) {
   )
 }
 
-function addMessageUsage(target: UsageSummary, message: AssistantMessage) {
+function mergedOutput(message: AssistantMessage) {
+  // Reasoning is counted into output to keep one output statistic.
+  return message.tokens.output + message.tokens.reasoning
+}
+
+function addMessageUsage(
+  target: UsageSummary,
+  message: AssistantMessage,
+  options?: UsageOptions,
+) {
   const total = tokenTotal(message)
+  const output = mergedOutput(message)
   const cost =
     typeof message.cost === 'number' && Number.isFinite(message.cost)
       ? message.cost
       : 0
+  const apiCostRaw = options?.calcApiCost ? options.calcApiCost(message) : 0
+  const apiCost = Number.isFinite(apiCostRaw) && apiCostRaw > 0 ? apiCostRaw : 0
   target.input += message.tokens.input
-  target.output += message.tokens.output
-  target.reasoning += message.tokens.reasoning
+  target.output += output
   target.cacheRead += message.tokens.cache.read
   target.cacheWrite += message.tokens.cache.write
   target.total += total
   target.assistantMessages += 1
   target.cost += cost
+  target.apiCost += apiCost
 
   const provider =
     target.providers[message.providerID] ||
@@ -86,16 +108,17 @@ function addMessageUsage(target: UsageSummary, message: AssistantMessage) {
       cacheWrite: 0,
       total: 0,
       cost: 0,
+      apiCost: 0,
       assistantMessages: 0,
     } as ProviderUsage)
 
   provider.input += message.tokens.input
-  provider.output += message.tokens.output
-  provider.reasoning += message.tokens.reasoning
+  provider.output += output
   provider.cacheRead += message.tokens.cache.read
   provider.cacheWrite += message.tokens.cache.write
   provider.total += total
   provider.cost += cost
+  provider.apiCost += apiCost
   provider.assistantMessages += 1
   target.providers[message.providerID] = provider
 }
@@ -104,6 +127,7 @@ export function summarizeMessages(
   entries: Array<{ info: Message }>,
   startAt = 0,
   sessionCount = 1,
+  options?: UsageOptions,
 ) {
   const summary = emptyUsageSummary()
   summary.sessionCount = sessionCount
@@ -112,7 +136,7 @@ export function summarizeMessages(
     if (!isAssistant(entry.info)) continue
     if (!entry.info.time.completed) continue
     if (entry.info.time.created < startAt) continue
-    addMessageUsage(summary, entry.info)
+    addMessageUsage(summary, entry.info, options)
   }
 
   return summary
@@ -128,10 +152,11 @@ export function summarizeMessagesIncremental(
   existingUsage: CachedSessionUsage | undefined,
   cursor: IncrementalCursor | undefined,
   forceRescan: boolean,
+  options?: UsageOptions,
 ): { usage: UsageSummary; cursor: IncrementalCursor } {
   // If no cursor or force rescan, do full scan
   if (forceRescan || !cursor?.lastMessageId || !existingUsage) {
-    const usage = summarizeMessages(entries, 0, 1)
+    const usage = summarizeMessages(entries, 0, 1, options)
     const lastMsg = findLastCompletedAssistant(entries)
     return {
       usage,
@@ -160,7 +185,7 @@ export function summarizeMessagesIncremental(
     }
 
     // Process new message
-    addMessageUsage(summary, entry.info)
+    addMessageUsage(summary, entry.info, options)
     newCursor = {
       lastMessageId: entry.info.id,
       lastMessageTime: entry.info.time.completed ?? undefined,
@@ -170,7 +195,7 @@ export function summarizeMessagesIncremental(
   // If we never found the cursor message, the history may have been modified.
   // Fall back to full rescan.
   if (!foundCursor) {
-    const usage = summarizeMessages(entries, 0, 1)
+    const usage = summarizeMessages(entries, 0, 1, options)
     const lastMsg = findLastCompletedAssistant(entries)
     return {
       usage,
@@ -197,12 +222,13 @@ function findLastCompletedAssistant(
 export function mergeUsage(target: UsageSummary, source: UsageSummary) {
   target.input += source.input
   target.output += source.output
-  target.reasoning += source.reasoning
   target.cacheRead += source.cacheRead
   target.cacheWrite += source.cacheWrite
   target.total += source.total
   target.cost += source.cost
+  target.apiCost += source.apiCost
   target.assistantMessages += source.assistantMessages
+  target.sessionCount += source.sessionCount
 
   for (const provider of Object.values(source.providers)) {
     const existing =
@@ -216,16 +242,17 @@ export function mergeUsage(target: UsageSummary, source: UsageSummary) {
         cacheWrite: 0,
         total: 0,
         cost: 0,
+        apiCost: 0,
         assistantMessages: 0,
       } as ProviderUsage)
 
     existing.input += provider.input
     existing.output += provider.output
-    existing.reasoning += provider.reasoning
     existing.cacheRead += provider.cacheRead
     existing.cacheWrite += provider.cacheWrite
     existing.total += provider.total
     existing.cost += provider.cost
+    existing.apiCost += provider.apiCost
     existing.assistantMessages += provider.assistantMessages
     target.providers[provider.providerID] = existing
   }
@@ -242,11 +269,13 @@ export function toCachedSessionUsage(
     acc[providerID] = {
       input: provider.input,
       output: provider.output,
+      // Legacy persisted field for backward compatibility with old chunks.
       reasoning: provider.reasoning,
       cacheRead: provider.cacheRead,
       cacheWrite: provider.cacheWrite,
       total: provider.total,
       cost: provider.cost,
+      apiCost: provider.apiCost,
       assistantMessages: provider.assistantMessages,
     }
     return acc
@@ -255,11 +284,13 @@ export function toCachedSessionUsage(
   return {
     input: summary.input,
     output: summary.output,
+    // Legacy persisted field for backward compatibility with old chunks.
     reasoning: summary.reasoning,
     cacheRead: summary.cacheRead,
     cacheWrite: summary.cacheWrite,
     total: summary.total,
     cost: summary.cost,
+    apiCost: summary.apiCost,
     assistantMessages: summary.assistantMessages,
     providers,
   }
@@ -269,14 +300,17 @@ export function fromCachedSessionUsage(
   cached: CachedSessionUsage,
   sessionCount = 1,
 ): UsageSummary {
+  // Merge legacy cached reasoning into output for a single output metric.
+  const mergedOutputValue = cached.output + cached.reasoning
   return {
     input: cached.input,
-    output: cached.output,
-    reasoning: cached.reasoning,
+    output: mergedOutputValue,
+    reasoning: 0,
     cacheRead: cached.cacheRead,
     cacheWrite: cached.cacheWrite,
     total: cached.total,
     cost: cached.cost,
+    apiCost: cached.apiCost || 0,
     assistantMessages: cached.assistantMessages,
     sessionCount,
     providers: Object.entries(cached.providers).reduce<
@@ -285,12 +319,13 @@ export function fromCachedSessionUsage(
       acc[providerID] = {
         providerID,
         input: provider.input,
-        output: provider.output,
-        reasoning: provider.reasoning,
+        output: provider.output + provider.reasoning,
+        reasoning: 0,
         cacheRead: provider.cacheRead,
         cacheWrite: provider.cacheWrite,
         total: provider.total,
         cost: provider.cost,
+        apiCost: provider.apiCost || 0,
         assistantMessages: provider.assistantMessages,
       }
       return acc

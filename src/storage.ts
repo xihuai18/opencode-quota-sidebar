@@ -29,13 +29,13 @@ export const defaultConfig: QuotaSidebarConfig = {
     width: 36,
     showCost: true,
     showQuota: true,
-    maxQuotaProviders: 2,
   },
   quota: {
     refreshMs: 5 * 60 * 1000,
     includeOpenAI: true,
     includeCopilot: true,
     includeAnthropic: true,
+    providers: {},
     refreshAccessToken: false,
     requestTimeoutMs: 8_000,
   },
@@ -220,6 +220,7 @@ export async function loadConfig(paths: string[]) {
   const sidebar = isRecord(parsed.sidebar) ? parsed.sidebar : {}
   const quota = isRecord(parsed.quota) ? parsed.quota : {}
   const toast = isRecord(parsed.toast) ? parsed.toast : {}
+  const providers = isRecord(quota.providers) ? quota.providers : {}
 
   return {
     sidebar: {
@@ -230,18 +231,6 @@ export async function loadConfig(paths: string[]) {
       ),
       showCost: asBoolean(sidebar.showCost, defaultConfig.sidebar.showCost),
       showQuota: asBoolean(sidebar.showQuota, defaultConfig.sidebar.showQuota),
-      maxQuotaProviders: Math.max(
-        1,
-        Math.min(
-          4,
-          Math.floor(
-            asNumber(
-              sidebar.maxQuotaProviders,
-              defaultConfig.sidebar.maxQuotaProviders,
-            ),
-          ),
-        ),
-      ),
     },
     quota: {
       refreshMs: Math.max(
@@ -260,6 +249,15 @@ export async function loadConfig(paths: string[]) {
         quota.includeAnthropic,
         defaultConfig.quota.includeAnthropic,
       ),
+      providers: Object.entries(providers).reduce<
+        Record<string, { enabled?: boolean }>
+      >((acc, [id, value]) => {
+        if (!isRecord(value)) return acc
+        if (typeof value.enabled === 'boolean') {
+          acc[id] = { enabled: value.enabled }
+        }
+        return acc
+      }, {}),
       refreshAccessToken: asBoolean(
         quota.refreshAccessToken,
         defaultConfig.quota.refreshAccessToken,
@@ -309,6 +307,7 @@ function parseProviderUsage(value: unknown): CachedProviderUsage | undefined {
     cacheWrite: asNumber(value.cacheWrite, 0),
     total: asNumber(value.total, 0),
     cost: asNumber(value.cost, 0),
+    apiCost: asNumber(value.apiCost, 0),
     assistantMessages: asNumber(value.assistantMessages, 0),
   }
 }
@@ -333,6 +332,7 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
     cacheWrite: asNumber(value.cacheWrite, 0),
     total: asNumber(value.total, 0),
     cost: asNumber(value.cost, 0),
+    apiCost: asNumber(value.apiCost, 0),
     assistantMessages: asNumber(value.assistantMessages, 0),
     providers,
   }
@@ -381,6 +381,22 @@ function parseQuotaCache(value: unknown) {
         return acc
       }
       const label = typeof item.label === 'string' ? item.label : key
+      const adapterID =
+        typeof item.adapterID === 'string' ? item.adapterID : undefined
+      const shortLabel =
+        typeof item.shortLabel === 'string' ? item.shortLabel : undefined
+      const sortOrder =
+        typeof item.sortOrder === 'number' ? item.sortOrder : undefined
+      const balance = isRecord(item.balance)
+        ? {
+            amount:
+              typeof item.balance.amount === 'number' ? item.balance.amount : 0,
+            currency:
+              typeof item.balance.currency === 'string'
+                ? item.balance.currency
+                : '$',
+          }
+        : undefined
       const windows = Array.isArray(item.windows)
         ? item.windows
             .filter((window): window is Record<string, unknown> =>
@@ -388,6 +404,14 @@ function parseQuotaCache(value: unknown) {
             )
             .map((window) => ({
               label: typeof window.label === 'string' ? window.label : '',
+              showPercent:
+                typeof window.showPercent === 'boolean'
+                  ? window.showPercent
+                  : undefined,
+              resetLabel:
+                typeof window.resetLabel === 'string'
+                  ? window.resetLabel
+                  : undefined,
               remainingPercent:
                 typeof window.remainingPercent === 'number'
                   ? window.remainingPercent
@@ -405,7 +429,10 @@ function parseQuotaCache(value: unknown) {
         : undefined
       acc[key] = {
         providerID: typeof item.providerID === 'string' ? item.providerID : key,
+        adapterID,
         label,
+        shortLabel,
+        sortOrder,
         status,
         checkedAt,
         remainingPercent:
@@ -415,6 +442,7 @@ function parseQuotaCache(value: unknown) {
         usedPercent:
           typeof item.usedPercent === 'number' ? item.usedPercent : undefined,
         resetAt: typeof item.resetAt === 'string' ? item.resetAt : undefined,
+        balance,
         note: typeof item.note === 'string' ? item.note : undefined,
         windows,
       }
