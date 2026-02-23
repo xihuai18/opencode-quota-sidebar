@@ -1,25 +1,43 @@
 import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 
+import { asBoolean, asNumber, debug, isRecord, swallow } from './helpers.js'
 import {
-  asBoolean,
-  asNumber,
-  debug,
-  debugError,
-  isRecord,
-  swallow,
-} from './helpers.js'
+  discoverChunks,
+  readDayChunk,
+  safeWriteFile,
+  writeDayChunk,
+} from './storage_chunks.js'
+import {
+  dateKeyFromTimestamp,
+  dateKeysInRange,
+  dateStartFromKey,
+  isDateKey,
+  normalizeTimestampMs,
+} from './storage_dates.js'
+import {
+  parseQuotaCache,
+  parseSessionTitleForMigration,
+} from './storage_parse.js'
+import {
+  authFilePath,
+  chunkRootPathFromStateFile,
+  resolveOpencodeDataDir,
+  stateFilePath,
+} from './storage_paths.js'
 import type {
-  CachedProviderUsage,
-  CachedSessionUsage,
-  IncrementalCursor,
   QuotaSidebarConfig,
   QuotaSidebarState,
-  SessionDayChunk,
   SessionState,
-  SessionTitleState,
 } from './types.js'
+
+export {
+  authFilePath,
+  dateKeyFromTimestamp,
+  normalizeTimestampMs,
+  resolveOpencodeDataDir,
+  stateFilePath,
+}
 
 // ─── Default config ──────────────────────────────────────────────────────────
 
@@ -53,147 +71,6 @@ export function defaultState(): QuotaSidebarState {
     sessions: {},
     quotaCache: {},
   }
-}
-
-// ─── Timestamp helpers ───────────────────────────────────────────────────────
-
-export function normalizeTimestampMs(value: unknown, fallback = Date.now()) {
-  const num = asNumber(value)
-  if (num === undefined) return fallback
-  // Seconds -> ms heuristic
-  if (num > 0 && num < 1_000_000_000_000) return num * 1000
-  if (num > 0) return num
-  return fallback
-}
-
-function pad2(value: number) {
-  return `${value}`.padStart(2, '0')
-}
-
-/**
- * Extract date parts from a timestamp.
- * M12 fix: accepts already-normalized ms timestamp — no double normalization.
- */
-function datePartsFromMs(timestampMs: number) {
-  const date = new Date(timestampMs)
-  if (Number.isNaN(date.getTime())) {
-    const now = new Date()
-    return {
-      year: `${now.getFullYear()}`,
-      month: pad2(now.getMonth() + 1),
-      day: pad2(now.getDate()),
-    }
-  }
-  return {
-    year: `${date.getFullYear()}`,
-    month: pad2(date.getMonth() + 1),
-    day: pad2(date.getDate()),
-  }
-}
-
-function isDateKey(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [yearText, monthText, dayText] = value.split('-')
-  const year = Number(yearText)
-  const month = Number(monthText)
-  const day = Number(dayText)
-  if (!Number.isInteger(year)) return false
-  if (!Number.isInteger(month) || month < 1 || month > 12) return false
-  if (!Number.isInteger(day) || day < 1 || day > 31) return false
-  const probe = new Date(year, month - 1, day)
-  return (
-    probe.getFullYear() === year &&
-    probe.getMonth() === month - 1 &&
-    probe.getDate() === day
-  )
-}
-
-/**
- * Convert a timestamp (already in ms) to a date key string.
- * M12 fix: no double normalization — caller must pass ms.
- */
-export function dateKeyFromTimestamp(timestampMs: number) {
-  const { year, month, day } = datePartsFromMs(timestampMs)
-  return `${year}-${month}-${day}`
-}
-
-function dateStartFromKey(dateKey: string) {
-  if (!isDateKey(dateKey)) return 0
-  const [yearText, monthText, dayText] = dateKey.split('-')
-  return new Date(
-    Number(yearText),
-    Number(monthText) - 1,
-    Number(dayText),
-  ).getTime()
-}
-
-/** M7 fix: cap iteration at 400 days (~13 months). */
-const MAX_DATE_RANGE_DAYS = 400
-
-function dateKeysInRange(startAt: number, endAt: number) {
-  const startDate = new Date(startAt)
-  if (Number.isNaN(startDate.getTime())) return []
-
-  const endDate = new Date(endAt)
-  if (Number.isNaN(endDate.getTime())) return []
-
-  const cursor = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth(),
-    startDate.getDate(),
-  )
-  const endDay = new Date(
-    endDate.getFullYear(),
-    endDate.getMonth(),
-    endDate.getDate(),
-  )
-
-  const keys: string[] = []
-  let iterations = 0
-  while (
-    cursor.getTime() <= endDay.getTime() &&
-    iterations < MAX_DATE_RANGE_DAYS
-  ) {
-    keys.push(dateKeyFromTimestamp(cursor.getTime()))
-    cursor.setDate(cursor.getDate() + 1)
-    iterations++
-  }
-  return keys
-}
-
-// ─── Path helpers ────────────────────────────────────────────────────────────
-
-/**
- * Resolve the OpenCode data directory.
- *
- * OpenCode uses `xdg-basedir@5.1.0` which has NO platform-specific logic:
- *   xdgData = $XDG_DATA_HOME || $HOME/.local/share
- * This applies on all platforms including Windows and macOS.
- *
- * S4 fix: renamed env var from OPENCODE_TEST_HOME to OPENCODE_QUOTA_DATA_HOME.
- */
-export function resolveOpencodeDataDir() {
-  const home = process.env.OPENCODE_QUOTA_DATA_HOME || os.homedir()
-  const xdg = process.env.XDG_DATA_HOME
-  if (xdg) return path.join(xdg, 'opencode')
-  return path.join(home, '.local', 'share', 'opencode')
-}
-
-export function stateFilePath(dataDir: string) {
-  return path.join(dataDir, 'quota-sidebar.state.json')
-}
-
-export function authFilePath(dataDir: string) {
-  return path.join(dataDir, 'auth.json')
-}
-
-function chunkRootPathFromStateFile(statePath: string) {
-  return path.join(path.dirname(statePath), 'quota-sidebar-sessions')
-}
-
-function chunkFilePath(rootPath: string, dateKey: string) {
-  const [year, month, day] = dateKey.split('-')
-  return path.join(rootPath, year, month, `${day}.json`)
 }
 
 // ─── Config loading ──────────────────────────────────────────────────────────
@@ -280,314 +157,6 @@ export async function loadConfig(paths: string[]) {
   }
 }
 
-// ─── State parsing ───────────────────────────────────────────────────────────
-
-function parseSessionTitleState(value: unknown): SessionTitleState | undefined {
-  if (!isRecord(value)) return undefined
-  if (typeof value.baseTitle !== 'string') return undefined
-  if (
-    value.lastAppliedTitle !== undefined &&
-    typeof value.lastAppliedTitle !== 'string'
-  ) {
-    return undefined
-  }
-  return {
-    baseTitle: value.baseTitle,
-    lastAppliedTitle: value.lastAppliedTitle,
-  }
-}
-
-function parseProviderUsage(value: unknown): CachedProviderUsage | undefined {
-  if (!isRecord(value)) return undefined
-  return {
-    input: asNumber(value.input, 0),
-    output: asNumber(value.output, 0),
-    reasoning: asNumber(value.reasoning, 0),
-    cacheRead: asNumber(value.cacheRead, 0),
-    cacheWrite: asNumber(value.cacheWrite, 0),
-    total: asNumber(value.total, 0),
-    cost: asNumber(value.cost, 0),
-    apiCost: asNumber(value.apiCost, 0),
-    assistantMessages: asNumber(value.assistantMessages, 0),
-  }
-}
-
-function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
-  if (!isRecord(value)) return undefined
-  const providersRaw = isRecord(value.providers) ? value.providers : {}
-  const providers = Object.entries(providersRaw).reduce<
-    Record<string, CachedProviderUsage>
-  >((acc, [providerID, providerUsage]) => {
-    const parsed = parseProviderUsage(providerUsage)
-    if (!parsed) return acc
-    acc[providerID] = parsed
-    return acc
-  }, {})
-
-  return {
-    input: asNumber(value.input, 0),
-    output: asNumber(value.output, 0),
-    reasoning: asNumber(value.reasoning, 0),
-    cacheRead: asNumber(value.cacheRead, 0),
-    cacheWrite: asNumber(value.cacheWrite, 0),
-    total: asNumber(value.total, 0),
-    cost: asNumber(value.cost, 0),
-    apiCost: asNumber(value.apiCost, 0),
-    assistantMessages: asNumber(value.assistantMessages, 0),
-    providers,
-  }
-}
-
-function parseCursor(value: unknown): IncrementalCursor | undefined {
-  if (!isRecord(value)) return undefined
-  return {
-    lastMessageId:
-      typeof value.lastMessageId === 'string' ? value.lastMessageId : undefined,
-    lastMessageTime: asNumber(value.lastMessageTime),
-  }
-}
-
-function parseSessionState(value: unknown): SessionState | undefined {
-  if (!isRecord(value)) return undefined
-  const title = parseSessionTitleState(value)
-  if (!title) return undefined
-
-  const createdAt = asNumber(value.createdAt, 0)
-  if (!createdAt) return undefined
-
-  return {
-    ...title,
-    createdAt,
-    usage: parseCachedUsage(value.usage),
-    cursor: parseCursor(value.cursor),
-  }
-}
-
-function parseQuotaCache(value: unknown) {
-  const raw = isRecord(value) ? value : {}
-  return Object.entries(raw).reduce<QuotaSidebarState['quotaCache']>(
-    (acc, [key, item]) => {
-      if (!isRecord(item)) return acc
-
-      const checkedAt = asNumber(item.checkedAt, 0)
-      if (!checkedAt) return acc
-      const status = item.status
-      if (
-        status !== 'ok' &&
-        status !== 'unavailable' &&
-        status !== 'unsupported' &&
-        status !== 'error'
-      ) {
-        return acc
-      }
-      const label = typeof item.label === 'string' ? item.label : key
-      const adapterID =
-        typeof item.adapterID === 'string' ? item.adapterID : undefined
-      const shortLabel =
-        typeof item.shortLabel === 'string' ? item.shortLabel : undefined
-      const sortOrder =
-        typeof item.sortOrder === 'number' ? item.sortOrder : undefined
-      const balance = isRecord(item.balance)
-        ? {
-            amount:
-              typeof item.balance.amount === 'number' ? item.balance.amount : 0,
-            currency:
-              typeof item.balance.currency === 'string'
-                ? item.balance.currency
-                : '$',
-          }
-        : undefined
-      const windows = Array.isArray(item.windows)
-        ? item.windows
-            .filter((window): window is Record<string, unknown> =>
-              isRecord(window),
-            )
-            .map((window) => ({
-              label: typeof window.label === 'string' ? window.label : '',
-              showPercent:
-                typeof window.showPercent === 'boolean'
-                  ? window.showPercent
-                  : undefined,
-              resetLabel:
-                typeof window.resetLabel === 'string'
-                  ? window.resetLabel
-                  : undefined,
-              remainingPercent:
-                typeof window.remainingPercent === 'number'
-                  ? window.remainingPercent
-                  : undefined,
-              usedPercent:
-                typeof window.usedPercent === 'number'
-                  ? window.usedPercent
-                  : undefined,
-              resetAt:
-                typeof window.resetAt === 'string' ? window.resetAt : undefined,
-            }))
-            .filter(
-              (window) => window.label || window.remainingPercent !== undefined,
-            )
-        : undefined
-      acc[key] = {
-        providerID: typeof item.providerID === 'string' ? item.providerID : key,
-        adapterID,
-        label,
-        shortLabel,
-        sortOrder,
-        status,
-        checkedAt,
-        remainingPercent:
-          typeof item.remainingPercent === 'number'
-            ? item.remainingPercent
-            : undefined,
-        usedPercent:
-          typeof item.usedPercent === 'number' ? item.usedPercent : undefined,
-        resetAt: typeof item.resetAt === 'string' ? item.resetAt : undefined,
-        balance,
-        note: typeof item.note === 'string' ? item.note : undefined,
-        windows,
-      }
-      return acc
-    },
-    {},
-  )
-}
-
-// ─── Chunk I/O ───────────────────────────────────────────────────────────────
-
-/** P2: Simple LRU cache for loaded chunks. */
-class ChunkCache {
-  private cache = new Map<
-    string,
-    { sessions: Record<string, SessionState>; accessedAt: number }
-  >()
-  private maxSize: number
-
-  constructor(maxSize = 64) {
-    this.maxSize = maxSize
-  }
-
-  get(dateKey: string): Record<string, SessionState> | undefined {
-    const entry = this.cache.get(dateKey)
-    if (!entry) return undefined
-    entry.accessedAt = Date.now()
-    return entry.sessions
-  }
-
-  set(dateKey: string, sessions: Record<string, SessionState>) {
-    if (this.cache.size >= this.maxSize) {
-      // Evict least recently accessed
-      let oldestKey: string | undefined
-      let oldestTime = Infinity
-      for (const [key, entry] of this.cache) {
-        if (entry.accessedAt < oldestTime) {
-          oldestTime = entry.accessedAt
-          oldestKey = key
-        }
-      }
-      if (oldestKey) this.cache.delete(oldestKey)
-    }
-    this.cache.set(dateKey, { sessions, accessedAt: Date.now() })
-  }
-
-  invalidate(dateKey: string) {
-    this.cache.delete(dateKey)
-  }
-
-  clear() {
-    this.cache.clear()
-  }
-}
-
-const chunkCache = new ChunkCache()
-
-async function readDayChunk(
-  rootPath: string,
-  dateKey: string,
-): Promise<Record<string, SessionState>> {
-  const cached = chunkCache.get(dateKey)
-  if (cached) return cached
-
-  const filePath = chunkFilePath(rootPath, dateKey)
-  const parsed = await fs
-    .readFile(filePath, 'utf8')
-    .then((value) => JSON.parse(value) as unknown)
-    .catch(swallow('readDayChunk'))
-  if (!isRecord(parsed)) return {}
-  if (parsed.version !== 1) return {}
-
-  const sessionsRaw = isRecord(parsed.sessions) ? parsed.sessions : {}
-  const sessions = Object.entries(sessionsRaw).reduce<
-    Record<string, SessionState>
-  >((acc, [sessionID, value]) => {
-    const parsedSession = parseSessionState(value)
-    if (!parsedSession) return acc
-    acc[sessionID] = parsedSession
-    return acc
-  }, {})
-
-  chunkCache.set(dateKey, sessions)
-  return sessions
-}
-
-/**
- * S3 fix: check for symlink before writing.
- * M4 fix: write to temp file then rename for atomicity.
- */
-async function safeWriteFile(filePath: string, content: string) {
-  // S3: refuse to write through symlinks
-  const stat = await fs.lstat(filePath).catch(() => undefined)
-  if (stat?.isSymbolicLink()) {
-    debug(`refusing to write through symlink: ${filePath}`)
-    return
-  }
-
-  // M4: atomic write via temp + rename
-  const tmpPath = `${filePath}.tmp.${process.pid}`
-  await fs.writeFile(tmpPath, content, 'utf8')
-  await fs.rename(tmpPath, filePath)
-}
-
-async function writeDayChunk(
-  rootPath: string,
-  dateKey: string,
-  sessions: Record<string, SessionState>,
-) {
-  const filePath = chunkFilePath(rootPath, dateKey)
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const chunk: SessionDayChunk = {
-    version: 1,
-    dateKey,
-    sessions,
-  }
-  await safeWriteFile(filePath, `${JSON.stringify(chunk, null, 2)}\n`)
-  chunkCache.invalidate(dateKey)
-}
-
-async function discoverChunks(rootPath: string): Promise<string[]> {
-  const years = await fs.readdir(rootPath).catch(() => [])
-  const dateKeys: string[] = []
-
-  for (const year of years) {
-    if (!/^\d{4}$/.test(year)) continue
-    const yearPath = path.join(rootPath, year)
-    const months = await fs.readdir(yearPath).catch(() => [])
-    for (const month of months) {
-      if (!/^\d{2}$/.test(month)) continue
-      const monthPath = path.join(yearPath, month)
-      const days = await fs.readdir(monthPath).catch(() => [])
-      for (const dayFile of days) {
-        const match = dayFile.match(/^(\d{2})\.json$/)
-        if (!match) continue
-        const day = match[1]
-        const key = `${year}-${month}-${day}`
-        if (isDateKey(key)) dateKeys.push(key)
-      }
-    }
-  }
-
-  return Array.from(new Set(dateKeys)).sort()
-}
-
 // ─── State loading ───────────────────────────────────────────────────────────
 
 /** P2: Lazy chunk loading — only load chunks for sessions in sessionDateMap. */
@@ -618,6 +187,7 @@ async function loadVersion2State(
   const dateKeys: string[] = explicitDateKeys.length
     ? explicitDateKeys
     : discoveredDateKeys
+
   const chunks: Array<readonly [string, Record<string, SessionState>]> =
     await Promise.all(
       dateKeys.map(async (dateKey) => {
@@ -656,7 +226,7 @@ function migrateVersion1State(raw: Record<string, unknown>): QuotaSidebarState {
   const sessionDateMap: Record<string, string> = {}
 
   for (const [sessionID, value] of Object.entries(sessionsRaw)) {
-    const title = parseSessionTitleState(value)
+    const title = parseSessionTitleForMigration(value)
     if (!title) continue
     // M3: try to recover createdAt from v1 data
     const rawCreatedAt = isRecord(value) ? asNumber(value.createdAt) : undefined
@@ -815,8 +385,9 @@ export function evictOldSessions(
       evicted++
     }
   }
-  if (evicted > 0)
+  if (evicted > 0) {
     debug(`evicted ${evicted} sessions older than ${retentionDays} days`)
+  }
   return evicted
 }
 
@@ -834,12 +405,13 @@ export async function scanSessionsByCreatedRange(
 ) {
   const rootPath = chunkRootPathFromStateFile(statePath)
   const dateKeys = dateKeysInRange(startAt, endAt)
-  if (!dateKeys.length)
+  if (!dateKeys.length) {
     return [] as Array<{
       sessionID: string
       dateKey: string
       state: SessionState
     }>
+  }
 
   type SessionEntry = {
     sessionID: string
