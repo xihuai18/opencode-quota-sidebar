@@ -3,7 +3,13 @@ import type { UsageSummary } from './usage.js'
 
 function shortNumber(value: number, decimals = 1) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(decimals)}m`
-  if (value >= 1000) return `${(value / 1000).toFixed(decimals)}k`
+  if (value >= 1000) {
+    const k = value / 1000
+    // Avoid "1000.0k" — promote to "m" when rounding pushes past 999
+    if (Number(k.toFixed(decimals)) >= 1000)
+      return `${(value / 1_000_000).toFixed(decimals)}m`
+    return `${k.toFixed(decimals)}k`
+  }
   return `${Math.round(value)}`
 }
 

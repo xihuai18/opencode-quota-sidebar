@@ -117,9 +117,13 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       })
       .catch(() => undefined)
 
-    pricing = buildPricingTable(response?.data)
-    pricingExpiresAt = Date.now() + 10 * 60 * 1000
-    return pricing
+    const table = buildPricingTable(response?.data)
+    // Only cache if we got actual pricing data; otherwise retry next call
+    if (table.size > 0) {
+      pricing = table
+      pricingExpiresAt = Date.now() + 10 * 60 * 1000
+    }
+    return pricing.size > 0 ? pricing : table
   }
 
   const loadSessionEntries = async (sessionID: string) => {
@@ -358,6 +362,8 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       sessionState.baseTitle = normalizeBaseTitle(event.properties.info.title)
       sessionState.lastAppliedTitle = undefined
       scheduleSave()
+      // External rename detected — re-render sidebar with new base title
+      scheduleTitleRefresh(event.properties.info.id)
       return
     }
 

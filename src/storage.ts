@@ -27,10 +27,12 @@ export const defaultConfig: QuotaSidebarConfig = {
   },
 }
 
-export const defaultState: QuotaSidebarState = {
-  version: 1,
-  sessions: {},
-  quotaCache: {},
+export function defaultState(): QuotaSidebarState {
+  return {
+    version: 1,
+    sessions: {},
+    quotaCache: {},
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -161,8 +163,8 @@ export async function loadState(filePath: string) {
     .readFile(filePath, 'utf8')
     .then((value) => JSON.parse(value) as unknown)
     .catch(() => undefined)
-  if (!isRecord(raw)) return defaultState
-  if (raw.version !== 1) return defaultState
+  if (!isRecord(raw)) return defaultState()
+  if (raw.version !== 1) return defaultState()
 
   const sessions = isRecord(raw.sessions) ? raw.sessions : {}
   const quotaCache = isRecord(raw.quotaCache) ? raw.quotaCache : {}
