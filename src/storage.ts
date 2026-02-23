@@ -30,6 +30,7 @@ export const defaultConfig: QuotaSidebarConfig = {
 export function defaultState(): QuotaSidebarState {
   return {
     version: 1,
+    titleEnabled: true,
     sessions: {},
     quotaCache: {},
   }
@@ -171,6 +172,8 @@ export async function loadState(filePath: string) {
 
   return {
     version: 1 as const,
+    titleEnabled:
+      typeof raw.titleEnabled === 'boolean' ? raw.titleEnabled : true,
     sessions: Object.entries(sessions)
       .map(([key, value]) => {
         const parsed = parseSessionState(value)

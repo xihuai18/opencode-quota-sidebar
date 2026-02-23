@@ -18,6 +18,8 @@ export type SessionTitleState = {
 
 export type QuotaSidebarState = {
   version: 1
+  /** Global toggle — when false, sidebar titles are not modified */
+  titleEnabled: boolean
   sessions: Record<string, SessionTitleState>
   quotaCache: Record<string, QuotaSnapshot>
 }

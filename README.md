@@ -9,8 +9,8 @@ OpenCode plugin: show token usage and subscription quota in the session sidebar 
   - line 2: input/output/reasoning/cache/total tokens
   - line 3: estimated cost + compact quota percent
 - Custom tools:
-  - `quota_show` (period: `session|day|week|month`, optional toast)
-  - `quota_reset_title` (reset title to original first line)
+  - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
+  - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
@@ -39,22 +39,26 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 
 ## Optional commands
 
-You can add these command templates in `opencode.json` so you can run `/qday`, `/qweek`, `/qmonth`:
+You can add these command templates in `opencode.json` so you can run `/qday`, `/qweek`, `/qmonth`, `/qtoggle`:
 
 ```json
 {
   "command": {
     "qday": {
       "description": "Show today's usage and quota",
-      "template": "Call tool quota_show with period=day and toast=true."
+      "template": "Call tool quota_summary with period=day and toast=true."
     },
     "qweek": {
       "description": "Show this week's usage and quota",
-      "template": "Call tool quota_show with period=week and toast=true."
+      "template": "Call tool quota_summary with period=week and toast=true."
     },
     "qmonth": {
       "description": "Show this month's usage and quota",
-      "template": "Call tool quota_show with period=month and toast=true."
+      "template": "Call tool quota_summary with period=month and toast=true."
+    },
+    "qtoggle": {
+      "description": "Toggle sidebar usage display on/off",
+      "template": "Call tool quota_show (no arguments, it toggles)."
     }
   }
 }

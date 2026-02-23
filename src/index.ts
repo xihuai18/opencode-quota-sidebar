@@ -238,7 +238,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   }
 
   const applyTitle = async (sessionID: string) => {
-    if (!config.sidebar.enabled) return
+    if (!config.sidebar.enabled || !state.titleEnabled) return
 
     const session = await input.client.session
       .get({
@@ -292,7 +292,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     refreshTimer.set(sessionID, timer)
   }
 
-  const resetSessionTitle = async (sessionID: string) => {
+  const restoreSessionTitle = async (sessionID: string) => {
     const session = await input.client.session
       .get({
         path: { id: sessionID },
@@ -300,11 +300,13 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         throwOnError: true,
       })
       .catch(() => undefined)
-    if (!session) return false
+    if (!session) return
 
     const sessionState = ensureSessionState(sessionID, session.data.title)
     const baseTitle = normalizeBaseTitle(sessionState.baseTitle)
-    const updated = await input.client.session
+    if (session.data.title === baseTitle) return
+
+    await input.client.session
       .update({
         path: { id: sessionID },
         query: { directory: input.directory },
@@ -313,11 +315,23 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       })
       .catch(() => undefined)
 
-    if (!updated) return false
-    sessionState.baseTitle = baseTitle
     sessionState.lastAppliedTitle = undefined
     scheduleSave()
-    return true
+  }
+
+  const restoreAllVisibleTitles = async () => {
+    const list = await input.client.session
+      .list({
+        query: { directory: input.directory },
+        throwOnError: true,
+      })
+      .catch(() => undefined)
+    if (!list?.data) return
+    // Only restore sessions we've touched (have lastAppliedTitle)
+    const touched = list.data.filter(
+      (s) => state.sessions[s.id]?.lastAppliedTitle,
+    )
+    await Promise.all(touched.map((s) => restoreSessionTitle(s.id)))
   }
 
   const summarizeForTool = async (
@@ -329,7 +343,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   }
 
   const showToast = async (
-    period: 'session' | 'day' | 'week' | 'month',
+    period: 'session' | 'day' | 'week' | 'month' | 'toggle',
     message: string,
   ) => {
     await input.client.tui
@@ -383,7 +397,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       await onEvent(event)
     },
     tool: {
-      quota_show: tool({
+      quota_summary: tool({
         description: 'Show usage and quota summary for session/day/week/month.',
         args: {
           period: z.enum(['session', 'day', 'week', 'month']).optional(),
@@ -402,16 +416,32 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
           return markdown
         },
       }),
-      quota_reset_title: tool({
-        description: 'Reset current session title to its base line.',
+      quota_show: tool({
+        description:
+          'Toggle sidebar title display mode. When on, titles show token usage and quota; when off, titles revert to original.',
         args: {
-          session_id: z.string().optional(),
+          enabled: z
+            .boolean()
+            .optional()
+            .describe('Explicit on/off. Omit to toggle current state.'),
         },
         execute: async (args, context) => {
-          const sessionID = args.session_id || context.sessionID
-          const ok = await resetSessionTitle(sessionID)
-          if (!ok) return `Failed to reset title for session ${sessionID}.`
-          return `Reset title for session ${sessionID}.`
+          const next =
+            args.enabled !== undefined ? args.enabled : !state.titleEnabled
+          state.titleEnabled = next
+          scheduleSave()
+
+          if (next) {
+            // Turning on — re-render current session immediately
+            scheduleTitleRefresh(context.sessionID, 0)
+            await showToast('toggle', 'Sidebar usage display: ON')
+            return 'Sidebar usage display is now ON. Session titles will show token usage and quota.'
+          }
+
+          // Turning off — restore all touched sessions to base titles
+          await restoreAllVisibleTitles()
+          await showToast('toggle', 'Sidebar usage display: OFF')
+          return 'Sidebar usage display is now OFF. Session titles restored to original.'
         },
       }),
     },
