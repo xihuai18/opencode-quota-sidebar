@@ -2,12 +2,58 @@
 
 OpenCode plugin: show token usage and subscription quota in the session sidebar title.
 
+## Quickstart
+
+```bash
+npm install
+npm run build
+```
+
+Add the built plugin to your `opencode.json`:
+
+```json
+{
+  "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/index.js"]
+}
+```
+
+## Install from npm
+
+After publishing, you can install directly:
+
+```bash
+npm install opencode-quota-sidebar
+```
+
+Then point OpenCode to the installed dist file in your `opencode.json`:
+
+```json
+{
+  "plugin": [
+    "file:///PATH/TO/node_modules/opencode-quota-sidebar/dist/index.js"
+  ]
+}
+```
+
+## Supported quota providers
+
+| Provider         | Endpoint                               | Auth            | Status                                 |
+| ---------------- | -------------------------------------- | --------------- | -------------------------------------- |
+| OpenAI Codex     | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)     |
+| GitHub Copilot   | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                          |
+| Anthropic Claude | —                                      | —               | Unsupported (no public quota endpoint) |
+
+Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Features
 
 - Session title becomes multiline in sidebar:
   - line 1: original session title
-  - line 2: input/output/reasoning/cache/total tokens
-  - line 3: estimated cost + compact quota percent
+  - line 2: Input/Output tokens
+  - line 3: Cache Read tokens (only if non-zero)
+  - line 4: Cache Write tokens (only if non-zero)
+  - line 5: Reasoning tokens (only if non-zero)
+  - quota lines: subscription quota like `OpenAI Remaining 5h 80%` or `OpenAI 5h 80% - Weekly 70%` (only for subscription providers used in this session)
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
   - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
@@ -16,7 +62,46 @@ OpenCode plugin: show token usage and subscription quota in the session sidebar 
   - GitHub Copilot OAuth (`/copilot_internal/user`)
   - Anthropic: currently marked unsupported (no public quota endpoint)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
-- API key providers still show usage aggregation and estimated cost
+- API key providers still show usage aggregation (quota only applies to subscription providers)
+- Incremental usage aggregation — only processes new messages since last cursor
+- Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
+
+## Storage layout (v2)
+
+The plugin stores lightweight global state and date-partitioned session chunks.
+
+- Global metadata: `<opencode-data>/quota-sidebar.state.json`
+  - `titleEnabled`
+  - `sessionDateMap` (sessionID -> `YYYY-MM-DD`)
+  - `quotaCache`
+- Session chunks: `<opencode-data>/quota-sidebar-sessions/YYYY/MM/DD.json`
+  - per-session title state (`baseTitle`, `lastAppliedTitle`)
+  - `createdAt`
+  - cached usage summary used by `quota_summary`
+  - incremental aggregation cursor
+
+Example tree:
+
+```text
+~/.local/share/opencode/
+  quota-sidebar.state.json
+  quota-sidebar-sessions/
+    2026/
+      02/
+        23.json
+        24.json
+```
+
+This replaces the old fixed-entry cap approach. `quota_summary` now scans date chunks
+for day/week/month ranges by session creation date.
+
+Sessions older than `retentionDays` (default 730 days / 2 years) are evicted from
+memory on startup. Chunk files remain on disk for historical range scans.
+
+## Migration from v1
+
+If an old `quota-sidebar.state.json` exists (`version: 1`), the plugin migrates it
+to `version: 2` automatically on load and then persists data in the new chunked layout.
 
 ## Build
 
@@ -36,6 +121,11 @@ Add built plugin file into your `opencode.json`:
 ```
 
 On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/index.js"`
+
+## Compatibility
+
+- Node.js: >= 18 (for `fetch` + `AbortController`)
+- OpenCode: plugin SDK `@opencode-ai/plugin` ^1.2.10
 
 ## Optional commands
 
@@ -71,20 +161,67 @@ Create `quota-sidebar.config.json` under your project root:
 ```json
 {
   "sidebar": {
+    "enabled": true,
     "width": 36,
     "showCost": true,
     "showQuota": true,
     "maxQuotaProviders": 2
   },
   "quota": {
-    "refreshMs": 300000
+    "refreshMs": 300000,
+    "includeOpenAI": true,
+    "includeCopilot": true,
+    "includeAnthropic": true,
+    "refreshAccessToken": false,
+    "requestTimeoutMs": 8000
   },
   "toast": {
     "durationMs": 12000
-  }
+  },
+  "retentionDays": 730
 }
 ```
+
+Notes:
+
+- `sidebar.showCost` only affects whether `quota_summary` includes cost in the markdown report. The sidebar title never shows cost.
+
+## Debug logging
+
+Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
+
+- Chunk I/O operations
+- Auth refresh attempts and failures
+- Session eviction counts
+- Symlink write refusals
 
 ## Independent repository
 
 This folder is initialized as its own git repository.
+
+## Security & privacy notes
+
+- The plugin reads OpenCode credentials from `<opencode-data>/auth.json`.
+- If enabled, quota checks call external endpoints:
+  - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
+  - GitHub Copilot: `https://api.github.com/copilot_internal/user`
+- **Screen-sharing warning**: Session titles and toasts surface usage/quota
+  information. If you are screen-sharing or recording, consider toggling the
+  sidebar display off (`/qtoggle` or `quota_show` tool) to avoid leaking
+  subscription details.
+- State is persisted under `<opencode-data>/quota-sidebar.state.json` and
+  `<opencode-data>/quota-sidebar-sessions/` (see Storage layout).
+- OpenAI OAuth token refresh is disabled by default; set
+  `quota.refreshAccessToken=true` if you want the plugin to refresh access
+  tokens when expired.
+- State file writes refuse to follow symlinks to prevent symlink attacks.
+- The `OPENCODE_QUOTA_DATA_HOME` env var can override the home directory for
+  testing; do not set this in production.
+
+## Contributing
+
+Contributions are welcome — especially new quota provider connectors. See [CONTRIBUTING.md](CONTRIBUTING.md) for a step-by-step guide on adding support for a new provider.
+
+## License
+
+MIT. See `LICENSE`.

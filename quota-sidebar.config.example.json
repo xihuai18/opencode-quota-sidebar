@@ -10,9 +10,12 @@
     "refreshMs": 300000,
     "includeOpenAI": true,
     "includeCopilot": true,
-    "includeAnthropic": true
+    "includeAnthropic": true,
+    "refreshAccessToken": false,
+    "requestTimeoutMs": 8000
   },
   "toast": {
     "durationMs": 12000
-  }
+  },
+  "retentionDays": 730
 }

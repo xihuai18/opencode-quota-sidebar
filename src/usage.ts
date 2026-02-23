@@ -1,5 +1,11 @@
 import type { AssistantMessage, Message } from '@opencode-ai/sdk'
 
+import type {
+  CachedProviderUsage,
+  CachedSessionUsage,
+  IncrementalCursor,
+} from './types.js'
+
 export type ProviderUsage = {
   providerID: string
   input: number
@@ -24,15 +30,6 @@ export type UsageSummary = {
   sessionCount: number
   providers: Record<string, ProviderUsage>
 }
-
-export type ModelPricing = {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-}
-
-export type PricingTable = Map<string, ModelPricing>
 
 export function emptyUsageSummary(): UsageSummary {
   return {
@@ -63,35 +60,12 @@ function tokenTotal(message: AssistantMessage) {
   )
 }
 
-function modelKey(providerID: string, modelID: string) {
-  return `${providerID}:${modelID}`
-}
-
-export function estimateMessageCost(
-  message: AssistantMessage,
-  pricing: PricingTable,
-) {
-  const model = pricing.get(modelKey(message.providerID, message.modelID))
-  if (!model) return message.cost
-
-  const estimated =
-    (message.tokens.input * model.input +
-      (message.tokens.output + message.tokens.reasoning) * model.output +
-      message.tokens.cache.read * model.cacheRead +
-      message.tokens.cache.write * model.cacheWrite) /
-    1_000_000
-
-  if (!Number.isFinite(estimated) || estimated < 0) return message.cost
-  if (estimated === 0) return message.cost
-  return estimated
-}
-
-function addMessageUsage(
-  target: UsageSummary,
-  message: AssistantMessage,
-  cost: number,
-) {
+function addMessageUsage(target: UsageSummary, message: AssistantMessage) {
   const total = tokenTotal(message)
+  const cost =
+    typeof message.cost === 'number' && Number.isFinite(message.cost)
+      ? message.cost
+      : 0
   target.input += message.tokens.input
   target.output += message.tokens.output
   target.reasoning += message.tokens.reasoning
@@ -128,7 +102,6 @@ function addMessageUsage(
 
 export function summarizeMessages(
   entries: Array<{ info: Message }>,
-  pricing: PricingTable,
   startAt = 0,
   sessionCount = 1,
 ) {
@@ -139,14 +112,86 @@ export function summarizeMessages(
     if (!isAssistant(entry.info)) continue
     if (!entry.info.time.completed) continue
     if (entry.info.time.created < startAt) continue
-    addMessageUsage(
-      summary,
-      entry.info,
-      estimateMessageCost(entry.info, pricing),
-    )
+    addMessageUsage(summary, entry.info)
   }
 
   return summary
+}
+
+/**
+ * P1: Incremental usage aggregation.
+ * Only processes messages newer than the cursor. Returns updated cursor.
+ * If `forceRescan` is true (e.g. after message.removed), does a full rescan.
+ */
+export function summarizeMessagesIncremental(
+  entries: Array<{ info: Message }>,
+  existingUsage: CachedSessionUsage | undefined,
+  cursor: IncrementalCursor | undefined,
+  forceRescan: boolean,
+): { usage: UsageSummary; cursor: IncrementalCursor } {
+  // If no cursor or force rescan, do full scan
+  if (forceRescan || !cursor?.lastMessageId || !existingUsage) {
+    const usage = summarizeMessages(entries, 0, 1)
+    const lastMsg = findLastCompletedAssistant(entries)
+    return {
+      usage,
+      cursor: {
+        lastMessageId: lastMsg?.id,
+        lastMessageTime: lastMsg?.time.completed ?? undefined,
+      },
+    }
+  }
+
+  // Incremental: start from existing usage, only process new messages
+  const summary = fromCachedSessionUsage(existingUsage, 1)
+  let foundCursor = false
+  let newCursor: IncrementalCursor = { ...cursor }
+
+  for (const entry of entries) {
+    if (!isAssistant(entry.info)) continue
+    if (!entry.info.time.completed) continue
+
+    // Skip messages we've already processed
+    if (!foundCursor) {
+      if (entry.info.id === cursor.lastMessageId) {
+        foundCursor = true
+      }
+      continue
+    }
+
+    // Process new message
+    addMessageUsage(summary, entry.info)
+    newCursor = {
+      lastMessageId: entry.info.id,
+      lastMessageTime: entry.info.time.completed ?? undefined,
+    }
+  }
+
+  // If we never found the cursor message, the history may have been modified.
+  // Fall back to full rescan.
+  if (!foundCursor) {
+    const usage = summarizeMessages(entries, 0, 1)
+    const lastMsg = findLastCompletedAssistant(entries)
+    return {
+      usage,
+      cursor: {
+        lastMessageId: lastMsg?.id,
+        lastMessageTime: lastMsg?.time.completed ?? undefined,
+      },
+    }
+  }
+
+  return { usage: summary, cursor: newCursor }
+}
+
+function findLastCompletedAssistant(
+  entries: Array<{ info: Message }>,
+): AssistantMessage | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const msg = entries[i].info
+    if (isAssistant(msg) && msg.time.completed) return msg
+  }
+  return undefined
 }
 
 export function mergeUsage(target: UsageSummary, source: UsageSummary) {
@@ -188,39 +233,67 @@ export function mergeUsage(target: UsageSummary, source: UsageSummary) {
   return target
 }
 
-function asNumber(value: unknown) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 0
-  return value
-}
-
-function asRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-export function buildPricingTable(input: unknown) {
-  const map: PricingTable = new Map()
-  if (!asRecord(input)) return map
-  if (!Array.isArray(input.all)) return map
-
-  for (const provider of input.all) {
-    if (!asRecord(provider)) continue
-    if (typeof provider.id !== 'string') continue
-    if (!asRecord(provider.models)) continue
-
-    for (const [modelID, value] of Object.entries(provider.models)) {
-      if (!asRecord(value)) continue
-      if (!asRecord(value.cost)) continue
-      const cacheRead = asNumber(value.cost.cache_read)
-      const cacheWrite = asNumber(value.cost.cache_write)
-      const pricing: ModelPricing = {
-        input: asNumber(value.cost.input),
-        output: asNumber(value.cost.output),
-        cacheRead,
-        cacheWrite,
-      }
-      map.set(modelKey(provider.id, modelID), pricing)
+export function toCachedSessionUsage(
+  summary: UsageSummary,
+): CachedSessionUsage {
+  const providers = Object.entries(summary.providers).reduce<
+    Record<string, CachedProviderUsage>
+  >((acc, [providerID, provider]) => {
+    acc[providerID] = {
+      input: provider.input,
+      output: provider.output,
+      reasoning: provider.reasoning,
+      cacheRead: provider.cacheRead,
+      cacheWrite: provider.cacheWrite,
+      total: provider.total,
+      cost: provider.cost,
+      assistantMessages: provider.assistantMessages,
     }
-  }
+    return acc
+  }, {})
 
-  return map
+  return {
+    input: summary.input,
+    output: summary.output,
+    reasoning: summary.reasoning,
+    cacheRead: summary.cacheRead,
+    cacheWrite: summary.cacheWrite,
+    total: summary.total,
+    cost: summary.cost,
+    assistantMessages: summary.assistantMessages,
+    providers,
+  }
+}
+
+export function fromCachedSessionUsage(
+  cached: CachedSessionUsage,
+  sessionCount = 1,
+): UsageSummary {
+  return {
+    input: cached.input,
+    output: cached.output,
+    reasoning: cached.reasoning,
+    cacheRead: cached.cacheRead,
+    cacheWrite: cached.cacheWrite,
+    total: cached.total,
+    cost: cached.cost,
+    assistantMessages: cached.assistantMessages,
+    sessionCount,
+    providers: Object.entries(cached.providers).reduce<
+      Record<string, ProviderUsage>
+    >((acc, [providerID, provider]) => {
+      acc[providerID] = {
+        providerID,
+        input: provider.input,
+        output: provider.output,
+        reasoning: provider.reasoning,
+        cacheRead: provider.cacheRead,
+        cacheWrite: provider.cacheWrite,
+        total: provider.total,
+        cost: provider.cost,
+        assistantMessages: provider.assistantMessages,
+      }
+      return acc
+    }, {}),
+  }
 }
