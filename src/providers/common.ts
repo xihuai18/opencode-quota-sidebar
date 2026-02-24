@@ -1,5 +1,8 @@
 import { asNumber as asNumberShared, isRecord } from '../helpers.js'
 
+// Public OAuth client ID embedded in the ChatGPT web app (not a private secret).
+// Source: https://github.com/vbgate/opencode-mystatus (reverse-engineered from browser client).
+// If OpenAI rotates this value, update it here or expose it via quota-sidebar.config.json.
 export const OPENAI_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 
 export async function fetchWithTimeout(
