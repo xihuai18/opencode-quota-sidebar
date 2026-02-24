@@ -414,7 +414,7 @@ describe('renderMarkdownReport', () => {
     )
     assert.match(
       report,
-      /\| openai \| 100 \| 200 \| 0 \| 300 \| \$0\.120 \| \$0\.35 \|/,
+      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| \$0\.35 \|/,
     )
   })
 })

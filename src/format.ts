@@ -241,11 +241,29 @@ export function renderMarkdownReport(
   options?: { showCost?: boolean },
 ) {
   const showCost = options?.showCost !== false
-  const providers = Object.values(usage.providers)
+
+  const measuredCostCell = (providerID: string, cost: number) => {
+    const canonical = canonicalProviderID(providerID)
+    const isSubscription =
+      canonical === 'openai' ||
+      canonical === 'github-copilot' ||
+      providerID.startsWith('rightcode')
+    if (isSubscription) return '-'
+    return `$${cost.toFixed(3)}`
+  }
+
+  const apiCostCell = (providerID: string, apiCost: number) => {
+    const canonical = canonicalProviderID(providerID)
+    if (canonical === 'github-copilot') return '-'
+    if (!Number.isFinite(apiCost) || apiCost <= 0) return '$0.00'
+    return `$${apiCost.toFixed(2)}`
+  }
+
+  const providerRows = Object.values(usage.providers)
     .sort((a, b) => b.total - a.total)
     .map((provider) =>
       showCost
-        ? `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | $${provider.cost.toFixed(3)} | $${provider.apiCost.toFixed(2)} |`
+        ? `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
         : `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`,
     )
 
@@ -299,8 +317,8 @@ export function renderMarkdownReport(
     showCost
       ? '|---|---:|---:|---:|---:|---:|---:|'
       : '|---|---:|---:|---:|---:|',
-    ...(providers.length
-      ? providers
+    ...(providerRows.length
+      ? providerRows
       : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
     '',
     '### Subscription Quota',
