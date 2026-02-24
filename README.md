@@ -5,6 +5,8 @@
 
 OpenCode plugin: show token usage and subscription quota in the session sidebar title.
 
+![Example sidebar title with usage and quota](./assets/OpenCode-Quota-Sidebar.png)
+
 ## Install
 
 Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to install it automatically on startup:
