@@ -10,7 +10,7 @@ export type ProviderUsage = {
   providerID: string
   input: number
   output: number
-  /** Legacy field kept for cache compatibility; display merges into output. */
+  /** Reasoning tokens (merged into output for display; persisted as 0). */
   reasoning: number
   cacheRead: number
   cacheWrite: number
@@ -23,7 +23,7 @@ export type ProviderUsage = {
 export type UsageSummary = {
   input: number
   output: number
-  /** Legacy field kept for cache compatibility; display merges into output. */
+  /** Reasoning tokens (merged into output for display; persisted as 0). */
   reasoning: number
   cacheRead: number
   cacheWrite: number
@@ -269,7 +269,7 @@ export function toCachedSessionUsage(
     acc[providerID] = {
       input: provider.input,
       output: provider.output,
-      // Legacy persisted field for backward compatibility with old chunks.
+      // Always 0 after merge into output; kept for serialization shape.
       reasoning: provider.reasoning,
       cacheRead: provider.cacheRead,
       cacheWrite: provider.cacheWrite,
@@ -284,7 +284,7 @@ export function toCachedSessionUsage(
   return {
     input: summary.input,
     output: summary.output,
-    // Legacy persisted field for backward compatibility with old chunks.
+    // Always 0 after merge into output; kept for serialization shape.
     reasoning: summary.reasoning,
     cacheRead: summary.cacheRead,
     cacheWrite: summary.cacheWrite,
@@ -300,7 +300,7 @@ export function fromCachedSessionUsage(
   cached: CachedSessionUsage,
   sessionCount = 1,
 ): UsageSummary {
-  // Merge legacy cached reasoning into output for a single output metric.
+  // Merge cached reasoning into output for a single output metric.
   const mergedOutputValue = cached.output + cached.reasoning
   return {
     input: cached.input,

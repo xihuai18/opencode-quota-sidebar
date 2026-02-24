@@ -26,8 +26,6 @@ export function looksDecorated(title: string): boolean {
     if (/^Input\s+\S+\s+Output\s+\S+/.test(line)) return true
     if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
     if (/^\$\S+\s+as API cost/.test(line)) return true
-    // Backward compatibility: old plugin versions had a separate Reasoning line.
-    if (/^Reasoning\s+\S+/.test(line)) return true
     if (/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return true
     return false
   })

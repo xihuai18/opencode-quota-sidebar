@@ -89,12 +89,6 @@ export function parseSessionState(value: unknown): SessionState | undefined {
   }
 }
 
-export function parseSessionTitleForMigration(
-  value: unknown,
-): SessionTitleState | undefined {
-  return parseSessionTitleState(value)
-}
-
 export function parseQuotaCache(value: unknown) {
   const raw = isRecord(value) ? value : {}
   return Object.entries(raw).reduce<QuotaSidebarState['quotaCache']>(

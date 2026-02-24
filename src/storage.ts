@@ -15,10 +15,7 @@ import {
   isDateKey,
   normalizeTimestampMs,
 } from './storage_dates.js'
-import {
-  parseQuotaCache,
-  parseSessionTitleForMigration,
-} from './storage_parse.js'
+import { parseQuotaCache } from './storage_parse.js'
 import {
   authFilePath,
   chunkRootPathFromStateFile,
@@ -213,43 +210,6 @@ async function loadVersion2State(
   }
 }
 
-/**
- * M3 fix: use session.createdAt from v1 state if available,
- * otherwise fall back to Date.now() (unavoidable for truly missing data).
- */
-function migrateVersion1State(raw: Record<string, unknown>): QuotaSidebarState {
-  const titleEnabled = asBoolean(raw.titleEnabled, true)
-  const quotaCache = parseQuotaCache(raw.quotaCache)
-  const sessionsRaw = isRecord(raw.sessions) ? raw.sessions : {}
-
-  const sessions: Record<string, SessionState> = {}
-  const sessionDateMap: Record<string, string> = {}
-
-  for (const [sessionID, value] of Object.entries(sessionsRaw)) {
-    const title = parseSessionTitleForMigration(value)
-    if (!title) continue
-    // M3: try to recover createdAt from v1 data
-    const rawCreatedAt = isRecord(value) ? asNumber(value.createdAt) : undefined
-    const createdAt = rawCreatedAt
-      ? normalizeTimestampMs(rawCreatedAt)
-      : Date.now()
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    sessions[sessionID] = {
-      ...title,
-      createdAt,
-    }
-    sessionDateMap[sessionID] = dateKey
-  }
-
-  return {
-    version: 2,
-    titleEnabled,
-    sessionDateMap,
-    sessions,
-    quotaCache,
-  }
-}
-
 export async function loadState(statePath: string) {
   const raw = await fs
     .readFile(statePath, 'utf8')
@@ -258,14 +218,6 @@ export async function loadState(statePath: string) {
   if (!isRecord(raw)) return defaultState()
 
   if (raw.version === 2) return loadVersion2State(raw, statePath)
-  if (raw.version === 1) {
-    const migrated = migrateVersion1State(raw)
-    // Persist immediately so chunk files exist for range scans.
-    await saveState(statePath, migrated, { writeAll: true }).catch(
-      swallow('loadState:migrate'),
-    )
-    return migrated
-  }
 
   return defaultState()
 }

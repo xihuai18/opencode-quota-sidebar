@@ -1,5 +1,8 @@
 # opencode-quota-sidebar
 
+[![npm version](https://img.shields.io/npm/v/@leo000001/opencode-quota-sidebar.svg)](https://www.npmjs.com/package/@leo000001/opencode-quota-sidebar)
+[![license](https://img.shields.io/npm/l/@leo000001/opencode-quota-sidebar.svg)](https://github.com/xihuai18/opencode-quota-sidebar/blob/main/LICENSE)
+
 OpenCode plugin: show token usage and subscription quota in the session sidebar title.
 
 ## Install
@@ -26,6 +29,8 @@ Add the built file to your `opencode.json`:
   "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/index.js"]
 }
 ```
+
+On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/index.js"`
 
 ## Supported quota providers
 
@@ -63,7 +68,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Incremental usage aggregation — only processes new messages since last cursor
 - Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
 
-## Storage layout (v2)
+## Storage layout
 
 The plugin stores lightweight global state and date-partitioned session chunks.
 
@@ -89,18 +94,8 @@ Example tree:
         24.json
 ```
 
-This replaces the old fixed-entry cap approach. `quota_summary` now scans date chunks
-for day/week/month ranges by session creation date.
-
 Sessions older than `retentionDays` (default 730 days / 2 years) are evicted from
 memory on startup. Chunk files remain on disk for historical range scans.
-
-## Migration from v1
-
-If an old `quota-sidebar.state.json` exists (`version: 1`), the plugin migrates it
-to `version: 2` automatically on load and then persists data in the new chunked layout.
-
-On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/index.js"`
 
 ## Compatibility
 
@@ -182,10 +177,6 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - Auth refresh attempts and failures
 - Session eviction counts
 - Symlink write refusals
-
-## Independent repository
-
-This folder is initialized as its own git repository.
 
 ## Security & privacy notes
 
