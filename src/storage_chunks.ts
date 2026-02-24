@@ -8,6 +8,39 @@ import { parseSessionState } from './storage_parse.js'
 import { chunkFilePath } from './storage_paths.js'
 import type { SessionDayChunk, SessionState } from './types.js'
 
+async function mkdirpNoSymlink(rootPath: string, dirPath: string) {
+  const rel = path.relative(rootPath, dirPath)
+  if (!rel || rel === '.') return
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`refusing to mkdir outside root: ${dirPath}`)
+  }
+
+  let current = rootPath
+  const parts = rel.split(path.sep).filter(Boolean)
+  for (const part of parts) {
+    current = path.join(current, part)
+    const stat = await fs.lstat(current).catch(() => undefined)
+    if (stat) {
+      if (stat.isSymbolicLink()) {
+        throw new Error(`refusing to write through symlink dir: ${current}`)
+      }
+      if (!stat.isDirectory()) {
+        throw new Error(`expected directory at ${current}`)
+      }
+      continue
+    }
+    await fs.mkdir(current).catch((error) => {
+      const code = (error as { code?: string }).code
+      if (code === 'EEXIST') return
+      throw error
+    })
+    const created = await fs.lstat(current).catch(() => undefined)
+    if (!created || created.isSymbolicLink() || !created.isDirectory()) {
+      throw new Error(`unsafe directory created at ${current}`)
+    }
+  }
+}
+
 /** P2: Simple LRU cache for loaded chunks. */
 class ChunkCache {
   private cache = new Map<
@@ -54,10 +87,16 @@ export async function readDayChunk(
   rootPath: string,
   dateKey: string,
 ): Promise<Record<string, SessionState>> {
+  if (!isDateKey(dateKey)) return {}
   const cached = chunkCache.get(dateKey)
   if (cached) return cached
 
   const filePath = chunkFilePath(rootPath, dateKey)
+  const stat = await fs.lstat(filePath).catch(() => undefined)
+  if (stat?.isSymbolicLink()) {
+    debug(`refusing to read symlink chunk: ${filePath}`)
+    return {}
+  }
   const parsed = await fs
     .readFile(filePath, 'utf8')
     .then((value) => JSON.parse(value) as unknown)
@@ -88,6 +127,13 @@ export async function safeWriteFile(filePath: string, content: string) {
   const stat = await fs.lstat(filePath).catch(() => undefined)
   if (stat?.isSymbolicLink()) {
     const message = `refusing to write through symlink: ${filePath}`
+    debug(message)
+    throw new Error(message)
+  }
+
+  const dirStat = await fs.lstat(path.dirname(filePath)).catch(() => undefined)
+  if (dirStat?.isSymbolicLink()) {
+    const message = `refusing to write through symlink dir: ${path.dirname(filePath)}`
     debug(message)
     throw new Error(message)
   }
@@ -132,8 +178,29 @@ export async function writeDayChunk(
   dateKey: string,
   sessions: Record<string, SessionState>,
 ) {
+  if (!isDateKey(dateKey)) {
+    throw new Error(`invalid dateKey: ${dateKey}`)
+  }
   const filePath = chunkFilePath(rootPath, dateKey)
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
+
+  const rootStat = await fs.lstat(rootPath).catch(() => undefined)
+  if (rootStat?.isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink dir: ${rootPath}`)
+  }
+  if (rootStat && !rootStat.isDirectory()) {
+    throw new Error(`expected directory at ${rootPath}`)
+  }
+
+  await fs.mkdir(rootPath, { recursive: true })
+  const createdRoot = await fs.lstat(rootPath).catch(() => undefined)
+  if (
+    !createdRoot ||
+    createdRoot.isSymbolicLink() ||
+    !createdRoot.isDirectory()
+  ) {
+    throw new Error(`unsafe chunk root at ${rootPath}`)
+  }
+  await mkdirpNoSymlink(rootPath, path.dirname(filePath))
   const chunk: SessionDayChunk = {
     version: 1,
     dateKey,
@@ -150,10 +217,22 @@ export async function discoverChunks(rootPath: string): Promise<string[]> {
   for (const year of years) {
     if (!/^\d{4}$/.test(year)) continue
     const yearPath = path.join(rootPath, year)
+    const yearStat = await fs.lstat(yearPath).catch(() => undefined)
+    if (!yearStat || yearStat.isSymbolicLink() || !yearStat.isDirectory()) {
+      continue
+    }
     const months = await fs.readdir(yearPath).catch(() => [])
     for (const month of months) {
       if (!/^\d{2}$/.test(month)) continue
       const monthPath = path.join(yearPath, month)
+      const monthStat = await fs.lstat(monthPath).catch(() => undefined)
+      if (
+        !monthStat ||
+        monthStat.isSymbolicLink() ||
+        !monthStat.isDirectory()
+      ) {
+        continue
+      }
       const days = await fs.readdir(monthPath).catch(() => [])
       for (const dayFile of days) {
         const match = dayFile.match(/^(\d{2})\.json$/)

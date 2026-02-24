@@ -66,10 +66,20 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
 
 function parseCursor(value: unknown): IncrementalCursor | undefined {
   if (!isRecord(value)) return undefined
+  const idsRaw = value.lastMessageIdsAtTime
+  const lastMessageIdsAtTime = Array.isArray(idsRaw)
+    ? idsRaw.filter(
+        (item): item is string => typeof item === 'string' && !!item,
+      )
+    : undefined
   return {
     lastMessageId:
       typeof value.lastMessageId === 'string' ? value.lastMessageId : undefined,
     lastMessageTime: asNumber(value.lastMessageTime),
+    lastMessageIdsAtTime:
+      lastMessageIdsAtTime && lastMessageIdsAtTime.length
+        ? Array.from(new Set(lastMessageIdsAtTime)).sort()
+        : undefined,
   }
 }
 
@@ -84,6 +94,7 @@ export function parseSessionState(value: unknown): SessionState | undefined {
   return {
     ...title,
     createdAt,
+    parentID: typeof value.parentID === 'string' ? value.parentID : undefined,
     usage: parseCachedUsage(value.usage),
     cursor: parseCursor(value.cursor),
   }

@@ -84,7 +84,23 @@ export function createQuotaRuntime() {
     const adapter = resolveQuotaAdapter(providerID, providerOptions)
     const normalizedProviderID = normalizeProviderID(providerID)
     const baseURL = sanitizeBaseURL(providerOptions?.baseURL)
-    const keyBase = adapter?.id || normalizedProviderID
+    let keyBase = adapter?.id || normalizedProviderID
+
+    // Some adapters normalize multiple provider IDs into one canonical ID.
+    // Preserve the original providerID in the cache key to avoid collisions
+    // when different auth entries are used (e.g. Copilot enterprise variants).
+    if (adapter?.id && normalizedProviderID !== providerID) {
+      keyBase = `${adapter.id}:${providerID}`
+    }
+
+    // RightCode variants intentionally keep provider-specific labels (RC-openai,
+    // RC-foo). Preserve that identity in cache keys so snapshots don't collide.
+    if (
+      adapter?.id === 'rightcode' &&
+      normalizedProviderID.startsWith('rightcode-')
+    ) {
+      keyBase = normalizedProviderID
+    }
     return baseURL ? `${keyBase}@${baseURL}` : keyBase
   }
 
@@ -132,30 +148,24 @@ export function createQuotaRuntime() {
 
 type QuotaRuntime = ReturnType<typeof createQuotaRuntime>
 
-function withRuntime<T>(fn: (runtime: QuotaRuntime) => T) {
-  return fn(createQuotaRuntime())
-}
+const defaultRuntime: QuotaRuntime = createQuotaRuntime()
 
 export function normalizeProviderID(providerID: string) {
-  return withRuntime((runtime) => runtime.normalizeProviderID(providerID))
+  return defaultRuntime.normalizeProviderID(providerID)
 }
 
 export function resolveQuotaAdapter(
   providerID: string,
   providerOptions?: Record<string, unknown>,
 ) {
-  return withRuntime((runtime) =>
-    runtime.resolveQuotaAdapter(providerID, providerOptions),
-  )
+  return defaultRuntime.resolveQuotaAdapter(providerID, providerOptions)
 }
 
 export function quotaCacheKey(
   providerID: string,
   providerOptions?: Record<string, unknown>,
 ) {
-  return withRuntime((runtime) =>
-    runtime.quotaCacheKey(providerID, providerOptions),
-  )
+  return defaultRuntime.quotaCacheKey(providerID, providerOptions)
 }
 
 export async function loadAuthMap(authPath: string) {
@@ -185,13 +195,11 @@ export async function fetchQuotaSnapshot(
   updateAuth?: AuthUpdate,
   providerOptions?: Record<string, unknown>,
 ) {
-  return withRuntime((runtime) =>
-    runtime.fetchQuotaSnapshot(
-      providerID,
-      authMap,
-      config,
-      updateAuth,
-      providerOptions,
-    ),
+  return defaultRuntime.fetchQuotaSnapshot(
+    providerID,
+    authMap,
+    config,
+    updateAuth,
+    providerOptions,
   )
 }

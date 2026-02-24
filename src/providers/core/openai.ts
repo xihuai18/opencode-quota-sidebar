@@ -23,6 +23,7 @@ async function fetchOpenAIQuota(ctx: {
         refresh?: string
         expires?: number
         accountId?: string
+        enterpriseUrl?: string
       }
     | undefined
   config: QuotaSidebarConfig
@@ -118,12 +119,13 @@ async function fetchOpenAIQuota(ctx: {
 
         if (ctx.updateAuth && ctx.auth.refresh && ctx.auth.expires) {
           try {
-            await ctx.updateAuth('openai', {
+            await ctx.updateAuth(ctx.providerID, {
               type: 'oauth',
               access: ctx.auth.access,
               refresh: ctx.auth.refresh,
               expires: ctx.auth.expires,
               accountId: ctx.auth.accountId,
+              enterpriseUrl: ctx.auth.enterpriseUrl,
             })
             debug('openai oauth token refreshed and persisted')
           } catch (error) {

@@ -27,16 +27,121 @@ function sidebarNumber(value: number) {
   return shortNumber(value, 1)
 }
 
+function sanitizeLine(value: string) {
+  // Sidebars/titles must be plain text: no ANSI and no embedded newlines.
+  return (
+    stripAnsi(value)
+      .replace(/\r?\n/g, ' ')
+      // Remove control characters that can corrupt TUI rendering.
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+  )
+}
+
+function isCombiningCodePoint(codePoint: number) {
+  return (
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+    (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+    (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+    (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
+  )
+}
+
+function isVariationSelector(codePoint: number) {
+  return (
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+    (codePoint >= 0xe0100 && codePoint <= 0xe01ef)
+  )
+}
+
+function isWideCodePoint(codePoint: number) {
+  // Based on commonly used fullwidth ranges (similar to string-width).
+  // This intentionally errs toward width=2 to avoid sidebar overflow.
+  if (codePoint >= 0x1100) {
+    if (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+    ) {
+      return true
+    }
+  }
+
+  // Emoji/symbol ranges (best-effort).
+  if (
+    (codePoint >= 0x1f300 && codePoint <= 0x1f5ff) ||
+    (codePoint >= 0x1f600 && codePoint <= 0x1f64f) ||
+    (codePoint >= 0x1f680 && codePoint <= 0x1f6ff) ||
+    (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+    (codePoint >= 0x1fa70 && codePoint <= 0x1faff) ||
+    (codePoint >= 0x2600 && codePoint <= 0x26ff) ||
+    (codePoint >= 0x2700 && codePoint <= 0x27bf)
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function cellWidthOfCodePoint(codePoint: number) {
+  if (codePoint === 0) return 0
+  // ZWJ sequences should not add width (best-effort).
+  if (codePoint === 0x200d) return 0
+  if (codePoint < 32 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0
+  if (isCombiningCodePoint(codePoint)) return 0
+  if (isVariationSelector(codePoint)) return 0
+  return isWideCodePoint(codePoint) ? 2 : 1
+}
+
+function stringCellWidth(value: string) {
+  let width = 0
+  for (const char of value) {
+    width += cellWidthOfCodePoint(char.codePointAt(0) || 0)
+  }
+  return width
+}
+
+function padEndCells(value: string, targetWidth: number) {
+  const current = stringCellWidth(value)
+  if (current >= targetWidth) return value
+  return `${value}${' '.repeat(targetWidth - current)}`
+}
+
+function truncateToCellWidth(value: string, width: number) {
+  if (width <= 0) return ''
+  let used = 0
+  let out = ''
+  for (const char of value) {
+    const w = cellWidthOfCodePoint(char.codePointAt(0) || 0)
+    if (used + w > width) break
+    used += w
+    out += char
+  }
+  return out
+}
+
 /**
- * Truncate `value` to at most `width` visible characters.
+ * Truncate `value` to at most `width` terminal cells.
  * Keep plain text only (no ANSI) to avoid renderer corruption.
  */
 function fitLine(value: string, width: number) {
   if (width <= 0) return ''
-  if (value.length > width) {
-    return width <= 1 ? value.slice(0, width) : `${value.slice(0, width - 1)}~`
-  }
-  return value
+  const safe = sanitizeLine(value)
+  if (stringCellWidth(safe) <= width) return safe
+  if (width <= 1) return truncateToCellWidth(safe, width)
+  const head = truncateToCellWidth(safe, width - 1)
+  // If we couldn't fit any characters with a suffix reserved, fall back to a
+  // best-effort truncation without the suffix.
+  if (!head) return truncateToCellWidth(safe, width)
+  return `${head}~`
 }
 
 function formatApiCostValue(value: number) {
@@ -53,12 +158,19 @@ function alignPairs(
   indent = '  ',
 ) {
   if (pairs.length === 0) return [] as string[]
-  const labelWidth = Math.max(...pairs.map((pair) => pair.label.length), 0)
-  return pairs.map((pair) => {
+  const safePairs = pairs.map((pair) => ({
+    label: sanitizeLine(pair.label || ''),
+    value: sanitizeLine(pair.value || ''),
+  }))
+  const labelWidth = Math.max(
+    ...safePairs.map((pair) => stringCellWidth(pair.label)),
+    0,
+  )
+  return safePairs.map((pair) => {
     if (!pair.label) {
       return `${indent}${' '.repeat(labelWidth)}  ${pair.value}`
     }
-    return `${indent}${pair.label.padEnd(labelWidth)}  ${pair.value}`
+    return `${indent}${padEndCells(pair.label, labelWidth)}  ${pair.value}`
   })
 }
 
@@ -108,8 +220,8 @@ export function renderSidebarTitle(
       ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
     )
     const labelWidth = visibleQuotas.reduce((max, item) => {
-      const label = quotaDisplayLabel(item)
-      return Math.max(max, label.length)
+      const label = sanitizeLine(quotaDisplayLabel(item))
+      return Math.max(max, stringCellWidth(label))
     }, 0)
 
     const quotaItems = visibleQuotas
@@ -133,10 +245,10 @@ export function renderSidebarTitle(
  * Copilot:        "Copilot Monthly 70% Rst 03-01"
  */
 function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
-  const label = quotaDisplayLabel(quota)
+  const label = sanitizeLine(quotaDisplayLabel(quota))
 
-  const labelPadding = ' '.repeat(Math.max(0, labelWidth - label.length))
-  const withLabel = (content: string) => `${label}${labelPadding} ${content}`
+  const labelPadded = padEndCells(label, labelWidth)
+  const withLabel = (content: string) => `${labelPadded} ${content}`
 
   if (quota.status === 'error') return [withLabel('Remaining ?')]
   if (quota.status === 'unsupported') return [withLabel('unsupported')]
@@ -155,12 +267,12 @@ function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
         : `${Math.round(win.remainingPercent)}%`
     const parts = win.label
       ? showPercent
-        ? [win.label, pct]
-        : [win.label]
+        ? [sanitizeLine(win.label), pct]
+        : [sanitizeLine(win.label)]
       : [pct]
     const reset = compactReset(win.resetAt)
     if (reset) {
-      parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
+      parts.push(`${sanitizeLine(win.resetLabel || 'Rst')} ${reset}`)
     }
     return parts.join(' ')
   }
@@ -242,6 +354,8 @@ export function renderMarkdownReport(
 ) {
   const showCost = options?.showCost !== false
 
+  const mdCell = (value: string) => sanitizeLine(value).replace(/\|/g, '\\|')
+
   const rightCodeSubscriptionProviderIDs = new Set(
     collapseQuotaSnapshots(quotas)
       .filter((quota) => quota.adapterID === 'rightcode')
@@ -300,11 +414,12 @@ export function renderMarkdownReport(
 
   const providerRows = Object.values(usage.providers)
     .sort((a, b) => b.total - a.total)
-    .map((provider) =>
-      showCost
-        ? `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
-        : `| ${provider.providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`,
-    )
+    .map((provider) => {
+      const providerID = mdCell(provider.providerID)
+      return showCost
+        ? `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
+        : `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`
+    })
 
   const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
     // Multi-window detail
@@ -312,19 +427,25 @@ export function renderMarkdownReport(
       return quota.windows.map((win) => {
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
-          return `- ${quota.label}${winLabel}: ${quota.status} | reset ${dateLine(win.resetAt)}`
+          return mdCell(
+            `- ${quota.label}${winLabel}: ${quota.status} | reset ${dateLine(win.resetAt)}`,
+          )
         }
         const remaining =
           win.remainingPercent === undefined
             ? '-'
             : `${win.remainingPercent.toFixed(1)}%`
         const winLabel = win.label ? ` (${win.label})` : ''
-        return `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${dateLine(win.resetAt)}`
+        return mdCell(
+          `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${dateLine(win.resetAt)}`,
+        )
       })
     }
     if (quota.status === 'ok' && quota.balance) {
       return [
-        `- ${quota.label}: ${quota.status} | balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`,
+        mdCell(
+          `- ${quota.label}: ${quota.status} | balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`,
+        ),
       ]
     }
     const remaining =
@@ -332,7 +453,9 @@ export function renderMarkdownReport(
         ? '-'
         : `${quota.remainingPercent.toFixed(1)}%`
     return [
-      `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${dateLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+      mdCell(
+        `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${dateLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+      ),
     ]
   })
 

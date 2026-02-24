@@ -1,6 +1,8 @@
 import os from 'node:os'
 import path from 'node:path'
 
+import { isDateKey } from './storage_dates.js'
+
 /**
  * Resolve the OpenCode data directory.
  *
@@ -9,12 +11,16 @@ import path from 'node:path'
  * This applies on all platforms including Windows and macOS.
  *
  * S4 fix: renamed env var from OPENCODE_TEST_HOME to OPENCODE_QUOTA_DATA_HOME.
+ * OPENCODE_QUOTA_DATA_HOME overrides the full data directory path.
  */
 export function resolveOpencodeDataDir() {
-  const home = process.env.OPENCODE_QUOTA_DATA_HOME || os.homedir()
-  const xdg = process.env.XDG_DATA_HOME
-  if (xdg) return path.join(xdg, 'opencode')
-  return path.join(home, '.local', 'share', 'opencode')
+  const override = process.env.OPENCODE_QUOTA_DATA_HOME?.trim()
+  if (override) return path.resolve(override)
+
+  const xdg = process.env.XDG_DATA_HOME?.trim()
+  if (xdg) return path.join(path.resolve(xdg), 'opencode')
+
+  return path.join(os.homedir(), '.local', 'share', 'opencode')
 }
 
 export function stateFilePath(dataDir: string) {
@@ -30,6 +36,10 @@ export function chunkRootPathFromStateFile(statePath: string) {
 }
 
 export function chunkFilePath(rootPath: string, dateKey: string) {
+  // Defense-in-depth: ensure we never build paths from untrusted inputs.
+  if (!isDateKey(dateKey)) {
+    throw new Error(`invalid dateKey: ${dateKey}`)
+  }
   const [year, month, day] = dateKey.split('-')
   return path.join(rootPath, year, month, `${day}.json`)
 }

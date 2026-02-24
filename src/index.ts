@@ -1,62 +1,36 @@
 import path from 'node:path'
 
-import type { AssistantMessage, Event, Message } from '@opencode-ai/sdk'
+import type { Session } from '@opencode-ai/sdk'
 import { type Hooks, type PluginInput } from '@opencode-ai/plugin'
-import { tool } from '@opencode-ai/plugin/tool'
 
 import {
   renderMarkdownReport,
   renderSidebarTitle,
   renderToastMessage,
 } from './format.js'
-import {
-  createQuotaRuntime,
-  listDefaultQuotaProviderIDs,
-  loadAuthMap,
-  quotaSort,
-} from './quota.js'
+import { createQuotaRuntime } from './quota.js'
 import {
   authFilePath,
   dateKeyFromTimestamp,
+  deleteSessionFromDayChunk,
   evictOldSessions,
   loadConfig,
   loadState,
   normalizeTimestampMs,
   resolveOpencodeDataDir,
   saveState,
-  scanSessionsByCreatedRange,
   stateFilePath,
 } from './storage.js'
-import { asNumber, debug, isRecord, mapConcurrent, swallow } from './helpers.js'
-import type { CachedSessionUsage, QuotaSnapshot } from './types.js'
-import {
-  calcEquivalentApiCostForMessage,
-  canonicalApiCostProviderID,
-  modelCostKey,
-  type ModelCostRates,
-  parseModelCostRates,
-  SUBSCRIPTION_API_COST_PROVIDERS,
-} from './cost.js'
-import {
-  canonicalizeTitle,
-  looksDecorated,
-  normalizeBaseTitle,
-} from './title.js'
-import { periodStart } from './period.js'
-import {
-  emptyUsageSummary,
-  fromCachedSessionUsage,
-  mergeUsage,
-  summarizeMessagesIncremental,
-  toCachedSessionUsage,
-} from './usage.js'
-import { TtlValueCache } from './cache.js'
-
-const z = tool.schema
-
-function isAssistantMessage(message: Message): message is AssistantMessage {
-  return message.role === 'assistant'
-}
+import { debug, swallow } from './helpers.js'
+import { normalizeBaseTitle } from './title.js'
+import { createDescendantsResolver } from './descendants.js'
+import { createTitleRefreshScheduler } from './title_refresh.js'
+import { createQuotaSidebarTools } from './tools.js'
+import { createEventDispatcher } from './events.js'
+import { createPersistenceScheduler } from './persistence.js'
+import { createQuotaService } from './quota_service.js'
+import { createUsageService } from './usage_service.js'
+import { createTitleApplicator } from './title_apply.js'
 
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const quotaRuntime = createQuotaRuntime()
@@ -74,241 +48,54 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   // M2: evict old sessions on startup
   evictOldSessions(state, config.retentionDays)
 
-  const refreshTimer = new Map<string, ReturnType<typeof setTimeout>>()
-  const pendingAppliedTitle = new Map<
-    string,
-    { title: string; expiresAt: number }
-  >()
-  const dirtyDateKeys = new Set<string>()
+  const persistence = createPersistenceScheduler({
+    statePath,
+    state,
+    saveState: (path, st, options) => saveState(path, st, options),
+  })
+  const markDirty = persistence.markDirty
+  const scheduleSave = persistence.scheduleSave
+  const flushSave = persistence.flushSave
 
-  // Per-session queue for applyTitle
-  const applyTitleLocks = new Map<string, Promise<void>>()
+  const RESTORE_TITLE_CONCURRENCY = 5
 
-  // M1: track sessions that have been cleaned up from refreshTimer
-  // (we clean up on each scheduleTitleRefresh call)
-
-  // P1: track sessions needing full rescan (after message.removed)
-  const forceRescanSessions = new Set<string>()
-
-  const authCache = new TtlValueCache<Awaited<ReturnType<typeof loadAuthMap>>>()
-  const getAuthMap = async () => {
-    const cached = authCache.get()
-    if (cached) return cached
-    const value = await loadAuthMap(authPath)
-    return authCache.set(value, 30_000)
-  }
-
-  const providerOptionsCache = new TtlValueCache<
-    Record<string, Record<string, unknown>>
-  >()
-
-  const getProviderOptionsMap = async () => {
-    const cached = providerOptionsCache.get()
-    if (cached) return cached
-
-    const configClient = input.client as unknown as {
-      config?: {
-        providers?: (args: {
-          query: { directory: string }
-          throwOnError: true
-        }) => Promise<unknown>
-      }
-    }
-
-    if (!configClient.config?.providers) {
-      return providerOptionsCache.set({}, 30_000)
-    }
-
-    const response = await configClient.config
-      .providers({
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('getProviderOptionsMap'))
-
-    const data =
-      response &&
-      typeof response === 'object' &&
-      'data' in response &&
-      response.data &&
-      typeof response.data === 'object' &&
-      'providers' in response.data
-        ? (response.data.providers as unknown)
-        : undefined
-
-    const map = Array.isArray(data)
-      ? data.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
-          if (!item || typeof item !== 'object') return acc
-          const record = item as Record<string, unknown>
-          const id = record.id
-          const options = record.options
-          if (typeof id !== 'string') return acc
-          if (
-            !options ||
-            typeof options !== 'object' ||
-            Array.isArray(options)
-          ) {
-            acc[id] = {}
-            return acc
-          }
-          acc[id] = options as Record<string, unknown>
-          return acc
-        }, {})
-      : {}
-
-    return providerOptionsCache.set(map, 30_000)
-  }
-
-  const modelCostCache = new TtlValueCache<Record<string, ModelCostRates>>()
-  const missingApiCostRateKeys = new Set<string>()
-
-  const getModelCostMap = async () => {
-    const cached = modelCostCache.get()
-    if (cached) return cached
-
-    const providerClient = input.client as unknown as {
-      provider?: {
-        list?: (args: {
-          query: { directory: string }
-          throwOnError: true
-        }) => Promise<unknown>
-      }
-    }
-
-    if (!providerClient.provider?.list) {
-      return modelCostCache.set({}, 30_000)
-    }
-
-    const response = await providerClient.provider
-      .list({
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('getModelCostMap'))
-
-    const all =
-      response &&
-      typeof response === 'object' &&
-      'data' in response &&
-      isRecord(response.data) &&
-      Array.isArray(response.data.all)
-        ? response.data.all
-        : []
-
-    const map = all.reduce<Record<string, ModelCostRates>>((acc, provider) => {
-      if (!isRecord(provider)) return acc
-      const providerID =
-        typeof provider.id === 'string'
-          ? canonicalApiCostProviderID(provider.id)
-          : undefined
-      if (!providerID) return acc
-      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
-      const models = isRecord(provider.models) ? provider.models : undefined
-      if (!models) return acc
-
-      for (const [modelKey, modelValue] of Object.entries(models)) {
-        if (!isRecord(modelValue)) continue
-        const rates = parseModelCostRates(modelValue.cost)
-        if (!rates) continue
-
-        const modelID =
-          typeof modelValue.id === 'string' ? modelValue.id : modelKey
-        acc[modelCostKey(providerID, modelID)] = rates
-        if (modelKey !== modelID) {
-          acc[modelCostKey(providerID, modelKey)] = rates
-        }
-      }
-
-      return acc
-    }, {})
-
-    return modelCostCache.set(map, Math.max(30_000, config.quota.refreshMs))
-  }
-
-  const calcEquivalentApiCost = (
-    message: AssistantMessage,
-    modelCostMap: Record<string, ModelCostRates>,
-  ) => {
-    const providerID = canonicalApiCostProviderID(message.providerID)
-    if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return 0
-
-    const rates = modelCostMap[modelCostKey(providerID, message.modelID)]
-    if (!rates) {
-      const key = modelCostKey(providerID, message.modelID)
-      if (!missingApiCostRateKeys.has(key)) {
-        missingApiCostRateKeys.add(key)
-        debug(`apiCost skipped: no model price for ${key}`)
-      }
-      return 0
-    }
-
-    return calcEquivalentApiCostForMessage(message, rates)
-  }
-
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
-  let saveInFlight = Promise.resolve()
-
-  /**
-   * H2 fix: capture and delete specific dirty keys instead of clearing the whole set.
-   * Keys added between capture and write completion are preserved.
-   */
-  const persistState = () => {
-    const dirty = Array.from(dirtyDateKeys)
-    if (dirty.length === 0) return saveInFlight
-    // H2: delete only the captured keys, not clear()
-    for (const key of dirty) {
-      dirtyDateKeys.delete(key)
-    }
-    const write = saveInFlight
-      .catch(swallow('persistState:wait'))
-      .then(() => saveState(statePath, state, { dirtyDateKeys: dirty }))
-      .catch((error) => {
-        // Re-add captured keys so they are not lost on failed persistence.
-        for (const key of dirty) {
-          dirtyDateKeys.add(key)
-        }
-        throw error
-      })
-      .catch(swallow('persistState:save'))
-    saveInFlight = write
-    return write
-  }
-
-  const scheduleSave = () => {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      saveTimer = undefined
-      void persistState()
-    }, 200)
-  }
-
-  /**
-   * M5 fix: always flush current dirty keys, even when no timer is pending.
-   */
-  const flushSave = async () => {
-    if (saveTimer) {
-      clearTimeout(saveTimer)
-      saveTimer = undefined
-    }
-    // M5: always persist if there are dirty keys, regardless of timer state
-    if (dirtyDateKeys.size > 0) {
-      await persistState()
-      return
-    }
-    await saveInFlight
-  }
+  const quotaService = createQuotaService({
+    quotaRuntime,
+    config,
+    state,
+    authPath,
+    client: input.client,
+    directory: input.directory,
+    scheduleSave,
+  })
+  const getQuotaSnapshots = quotaService.getQuotaSnapshots
 
   const ensureSessionState = (
     sessionID: string,
     title: string,
     createdAt = Date.now(),
+    parentID?: string | null,
   ) => {
     const existing = state.sessions[sessionID]
     if (existing) {
+      if (parentID !== undefined) {
+        const nextParentID = parentID ?? undefined
+        if (existing.parentID !== nextParentID) {
+          existing.parentID = nextParentID
+          const dateKey =
+            state.sessionDateMap[sessionID] ||
+            dateKeyFromTimestamp(existing.createdAt)
+          state.sessionDateMap[sessionID] = dateKey
+          markDirty(dateKey)
+          scheduleSave()
+        }
+      }
       if (!state.sessionDateMap[sessionID]) {
         state.sessionDateMap[sessionID] = dateKeyFromTimestamp(
           existing.createdAt,
         )
+        markDirty(state.sessionDateMap[sessionID])
+        scheduleSave()
       }
       return existing
     }
@@ -317,433 +104,123 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       createdAt: normalizedCreatedAt,
       baseTitle: normalizeBaseTitle(title),
       lastAppliedTitle: undefined as string | undefined,
+      parentID: parentID ?? undefined,
       usage: undefined,
       cursor: undefined,
     }
     state.sessions[sessionID] = created
     state.sessionDateMap[sessionID] = dateKeyFromTimestamp(normalizedCreatedAt)
-    dirtyDateKeys.add(state.sessionDateMap[sessionID])
+    markDirty(state.sessionDateMap[sessionID])
+    scheduleSave()
     return created
   }
 
-  const loadSessionEntries = async (sessionID: string) => {
-    const response = await input.client.session
-      .messages({
-        path: { id: sessionID },
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('loadSessionEntries'))
-    return response?.data ?? []
-  }
-
-  /**
-   * P1: Incremental usage aggregation for current session.
-   */
-  const summarizeSessionUsage = async (sessionID: string) => {
-    const entries = await loadSessionEntries(sessionID)
-    const modelCostMap = await getModelCostMap()
-
-    const sessionState = state.sessions[sessionID]
-    const forceRescan = forceRescanSessions.has(sessionID)
-    if (forceRescan) forceRescanSessions.delete(sessionID)
-
-    const { usage, cursor } = summarizeMessagesIncremental(
-      entries,
-      sessionState?.usage,
-      sessionState?.cursor,
-      forceRescan,
-      {
-        calcApiCost: (message) => calcEquivalentApiCost(message, modelCostMap),
-      },
-    )
-    usage.sessionCount = 1
-
-    // Update cursor in state
-    if (sessionState) {
-      sessionState.cursor = cursor
-    }
-
-    return usage
-  }
-
-  /**
-   * M10 fix: parallelize API calls for range usage with concurrency limit.
-   */
-  const summarizeRangeUsage = async (period: 'day' | 'week' | 'month') => {
-    const startAt = periodStart(period)
-    await flushSave()
-    // M9: pass memoryState so we prefer in-memory data
-    const sessions = await scanSessionsByCreatedRange(
-      statePath,
-      startAt,
-      Date.now(),
-      state,
-    )
-    const usage = emptyUsageSummary()
-    usage.sessionCount = sessions.length
-    const modelCostMap = await getModelCostMap()
-
-    const shouldRecomputeApiCost = (cached: CachedSessionUsage) => {
-      if (cached.assistantMessages <= 0) return false
-      if (cached.apiCost > 0) return false
-      if (cached.total <= 0) return false
-      return true
-    }
-
-    // Separate sessions with cached usage from those needing API calls
-    const needsFetch: typeof sessions = []
-    for (const session of sessions) {
-      if (session.state.usage) {
-        if (shouldRecomputeApiCost(session.state.usage)) {
-          needsFetch.push(session)
-        } else {
-          mergeUsage(usage, fromCachedSessionUsage(session.state.usage, 0))
-        }
-      } else {
-        needsFetch.push(session)
-      }
-    }
-
-    // M10: fetch in parallel with concurrency limit
-    if (needsFetch.length > 0) {
-      const fetched = await mapConcurrent(needsFetch, 5, async (session) => {
-        const entries = await loadSessionEntries(session.sessionID)
-        const { usage: computed } = summarizeMessagesIncremental(
-          entries,
-          undefined,
-          undefined,
-          true,
-          {
-            calcApiCost: (message) =>
-              calcEquivalentApiCost(message, modelCostMap),
-          },
-        )
-        return { sessionID: session.sessionID, computed }
-      })
-
-      let dirty = false
-      for (const { sessionID, computed } of fetched) {
-        // Range stats already know the session count (sessions.length).
-        // Do not double-count sessionCount when merging per-session summaries.
-        mergeUsage(usage, { ...computed, sessionCount: 0 })
-        const memoryState = state.sessions[sessionID]
-        if (memoryState) {
-          memoryState.usage = toCachedSessionUsage(computed)
-          const dateKey =
-            state.sessionDateMap[sessionID] ||
-            dateKeyFromTimestamp(memoryState.createdAt)
-          state.sessionDateMap[sessionID] = dateKey
-          dirtyDateKeys.add(dateKey)
-          dirty = true
+  const descendantsResolver = createDescendantsResolver({
+    listChildren: async (sessionID: string) => {
+      const sessionClient = input.client as unknown as {
+        session?: {
+          children?: (args: {
+            path: { id: string }
+            query: { directory: string }
+            throwOnError: true
+          }) => Promise<{ data?: Session[] }>
         }
       }
-      if (dirty) scheduleSave()
-    }
+      if (!sessionClient.session?.children) return []
 
-    return usage
-  }
-
-  const getQuotaSnapshots = async (
-    providerIDs: string[],
-    options?: { allowDefault?: boolean },
-  ) => {
-    const isValidQuotaCache = (snapshot: QuotaSnapshot) => {
-      // Guard against stale RightCode cache entries from pre-daily format.
-      if (snapshot.adapterID !== 'rightcode' || snapshot.status !== 'ok') {
-        return true
-      }
-      if (!snapshot.windows || snapshot.windows.length === 0) return true
-      const primary = snapshot.windows[0]
-      if (!primary.label.startsWith('Daily $')) return false
-      if (primary.showPercent !== false) return false
-      return true
-    }
-
-    const [authMap, providerOptionsMap] = await Promise.all([
-      getAuthMap(),
-      getProviderOptionsMap(),
-    ])
-
-    const optionsForProvider = (providerID: string) => {
-      return (
-        providerOptionsMap[providerID] ||
-        providerOptionsMap[quotaRuntime.normalizeProviderID(providerID)]
+      const response = await sessionClient.session
+        .children({
+          path: { id: sessionID },
+          query: { directory: input.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('listSessionChildren'))
+      return response?.data ?? []
+    },
+    getParentID: (sessionID: string) => state.sessions[sessionID]?.parentID,
+    onDiscover: (session) => {
+      ensureSessionState(
+        session.id,
+        session.title,
+        session.createdAt,
+        session.parentID ?? null,
       )
-    }
+    },
+    debug,
+  })
+  const usageService = createUsageService({
+    state,
+    config,
+    statePath,
+    client: input.client,
+    directory: input.directory,
+    persistence: {
+      markDirty,
+      scheduleSave,
+      flushSave,
+    },
+    descendantsResolver,
+  })
 
-    const directCandidates = providerIDs.map((providerID) => ({
-      providerID,
-      providerOptions: optionsForProvider(providerID),
-    }))
+  const summarizeSessionUsageForDisplay =
+    usageService.summarizeSessionUsageForDisplay
+  const summarizeForTool = usageService.summarizeForTool
 
-    const defaultCandidates = options?.allowDefault
-      ? [
-          ...Object.keys(providerOptionsMap).map((providerID) => ({
-            providerID,
-            providerOptions: providerOptionsMap[providerID],
-          })),
-          ...listDefaultQuotaProviderIDs().map((providerID) => ({
-            providerID,
-            providerOptions: optionsForProvider(providerID),
-          })),
-        ]
-      : []
-
-    const rawCandidates = directCandidates.length
-      ? directCandidates
-      : defaultCandidates
-
-    const matchedCandidates = rawCandidates.filter((candidate) =>
-      Boolean(
-        quotaRuntime.resolveQuotaAdapter(
-          candidate.providerID,
-          candidate.providerOptions,
-        ),
-      ),
-    )
-
-    const dedupedCandidates = Array.from(
-      matchedCandidates
-        .reduce((acc, candidate) => {
-          const key = quotaRuntime.quotaCacheKey(
-            candidate.providerID,
-            candidate.providerOptions,
-          )
-          if (!acc.has(key)) acc.set(key, candidate)
-          return acc
-        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
-        .values(),
-    )
-
-    const fetched = await Promise.all(
-      dedupedCandidates.map(async ({ providerID, providerOptions }) => {
-        const cacheKey = quotaRuntime.quotaCacheKey(providerID, providerOptions)
-        const cached = state.quotaCache[cacheKey]
-        if (cached && Date.now() - cached.checkedAt <= config.quota.refreshMs) {
-          if (isValidQuotaCache(cached)) {
-            return cached
-          }
-          delete state.quotaCache[cacheKey]
-        }
-
-        const latest = await quotaRuntime.fetchQuotaSnapshot(
-          providerID,
-          authMap,
-          config,
-          async (id, auth) => {
-            await input.client.auth
-              .set({
-                path: { id },
-                query: { directory: input.directory },
-                body: {
-                  type: auth.type,
-                  access: auth.access,
-                  refresh: auth.refresh,
-                  expires: auth.expires,
-                  enterpriseUrl: auth.enterpriseUrl,
-                },
-                throwOnError: true,
-              })
-              .catch(swallow('getQuotaSnapshots:authSet'))
-          },
-          providerOptions,
-        )
-        if (!latest) return undefined
-        state.quotaCache[cacheKey] = latest
-        return latest
-      }),
-    )
-
-    const snapshots = fetched.filter((value): value is QuotaSnapshot =>
-      Boolean(value),
-    )
-    snapshots.sort(quotaSort)
-    scheduleSave()
-    return snapshots
+  // title apply / refresh lifecycle
+  let scheduleTitleRefresh = (sessionID: string, delay = 250) => {
+    void sessionID
+    void delay
   }
 
-  /**
-   * Per-session apply queue.
-   * New updates chain behind the previous one to preserve ordering.
-   */
-  const applyTitle = async (sessionID: string) => {
-    const previous = applyTitleLocks.get(sessionID) ?? Promise.resolve()
-    const promise = previous
-      .catch(() => undefined)
-      .then(() => applyTitleInner(sessionID))
-    applyTitleLocks.set(sessionID, promise)
-    try {
-      await promise
-    } finally {
-      if (applyTitleLocks.get(sessionID) === promise) {
-        applyTitleLocks.delete(sessionID)
-      }
-    }
-  }
-
-  const applyTitleInner = async (sessionID: string) => {
-    if (!config.sidebar.enabled || !state.titleEnabled) return
-
-    const session = await input.client.session
-      .get({
-        path: { id: sessionID },
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('applyTitle:getSession'))
-
-    if (!session) return
-
-    const sessionState = ensureSessionState(
-      sessionID,
-      session.data.title,
-      session.data.time.created,
-    )
-
-    // Detect whether the current title is our own decorated form.
-    const currentTitle = session.data.title
-    if (
-      canonicalizeTitle(currentTitle) !==
-      canonicalizeTitle(sessionState.lastAppliedTitle || '')
-    ) {
-      if (looksDecorated(currentTitle)) {
-        // Ignore decorated echoes as base-title source.
-        debug(`ignoring decorated current title for session ${sessionID}`)
-      } else {
-        sessionState.baseTitle = normalizeBaseTitle(currentTitle)
-      }
-      sessionState.lastAppliedTitle = undefined
-    }
-
-    const usage = await summarizeSessionUsage(sessionID)
-    const quotaProviders = Array.from(
-      new Set(
-        Object.keys(usage.providers).map((id) =>
-          quotaRuntime.normalizeProviderID(id),
-        ),
-      ),
-    )
-    const quotas =
-      config.sidebar.showQuota && quotaProviders.length > 0
-        ? await getQuotaSnapshots(quotaProviders)
-        : ([] as QuotaSnapshot[])
-    const nextTitle = renderSidebarTitle(
-      sessionState.baseTitle,
-      usage,
-      quotas,
-      config,
-    )
-    sessionState.usage = toCachedSessionUsage(usage)
-    dirtyDateKeys.add(state.sessionDateMap[sessionID])
-
-    if (
-      canonicalizeTitle(nextTitle) === canonicalizeTitle(session.data.title)
-    ) {
-      scheduleSave()
-      return
-    }
-
-    // Mark pending title to ignore the immediate echo `session.updated` event.
-    // H3 fix: use longer TTL (15s) and add decoration detection as backup.
-    pendingAppliedTitle.set(sessionID, {
-      title: nextTitle,
-      expiresAt: Date.now() + 15_000,
-    })
-    const previousApplied = sessionState.lastAppliedTitle
-    sessionState.lastAppliedTitle = nextTitle
-    dirtyDateKeys.add(state.sessionDateMap[sessionID])
-
-    const updated = await input.client.session
-      .update({
-        path: { id: sessionID },
-        query: { directory: input.directory },
-        body: { title: nextTitle },
-        throwOnError: true,
-      })
-      .catch(swallow('applyTitle:update'))
-
-    if (!updated) {
-      pendingAppliedTitle.delete(sessionID)
-      sessionState.lastAppliedTitle = previousApplied
-      scheduleSave()
-      return
-    }
-    pendingAppliedTitle.delete(sessionID)
-    scheduleSave()
-  }
-
-  const scheduleTitleRefresh = (sessionID: string, delay = 250) => {
-    // M1: clean up completed timer entry before setting new one
-    const previous = refreshTimer.get(sessionID)
-    if (previous) clearTimeout(previous)
-    const timer = setTimeout(() => {
-      refreshTimer.delete(sessionID)
-      void applyTitle(sessionID).catch(swallow('scheduleTitleRefresh'))
-    }, delay)
-    refreshTimer.set(sessionID, timer)
-  }
-
-  const restoreSessionTitle = async (sessionID: string) => {
-    const session = await input.client.session
-      .get({
-        path: { id: sessionID },
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('restoreSessionTitle:get'))
-    if (!session) return
-
-    const sessionState = ensureSessionState(
-      sessionID,
-      session.data.title,
-      session.data.time.created,
-    )
-    const baseTitle = normalizeBaseTitle(sessionState.baseTitle)
-    if (session.data.title === baseTitle) return
-
-    await input.client.session
-      .update({
-        path: { id: sessionID },
-        query: { directory: input.directory },
-        body: { title: baseTitle },
-        throwOnError: true,
-      })
-      .catch(swallow('restoreSessionTitle:update'))
-
-    sessionState.lastAppliedTitle = undefined
-    dirtyDateKeys.add(state.sessionDateMap[sessionID])
-    scheduleSave()
-  }
-
-  /**
-   * P3 fix: concurrency-limited title restoration.
-   */
-  const restoreAllVisibleTitles = async () => {
-    const list = await input.client.session
-      .list({
-        query: { directory: input.directory },
-        throwOnError: true,
-      })
-      .catch(swallow('restoreAllVisibleTitles:list'))
-    if (!list?.data) return
-    // Only restore sessions we've touched (have lastAppliedTitle)
-    const touched = list.data.filter(
-      (s) => state.sessions[s.id]?.lastAppliedTitle,
-    )
-    // P3: limit concurrency to 5
-    await mapConcurrent(touched, 5, async (s) => {
-      await restoreSessionTitle(s.id)
-    })
-  }
-
-  const summarizeForTool = async (
-    period: 'session' | 'day' | 'week' | 'month',
+  const scheduleParentRefreshIfSafe = (
     sessionID: string,
+    parentID: string | undefined,
   ) => {
-    if (period === 'session') return summarizeSessionUsage(sessionID)
-    return summarizeRangeUsage(period)
+    if (!config.sidebar.includeChildren) return
+    if (!parentID) return
+    if (parentID === sessionID) return
+
+    // Guard against cycles in parent chains that would cause endless refresh.
+    const seen = new Set<string>([sessionID])
+    let current: string | undefined = parentID
+    const maxHops = 512
+    for (let i = 0; i < maxHops && current; i++) {
+      if (seen.has(current)) {
+        debug(
+          `skip parent refresh due to parentID cycle: ${sessionID} -> ${parentID}`,
+        )
+        return
+      }
+      seen.add(current)
+      current = state.sessions[current]?.parentID
+    }
+
+    scheduleTitleRefresh(parentID, 0)
   }
+
+  const titleApplicator = createTitleApplicator({
+    state,
+    config,
+    client: input.client,
+    directory: input.directory,
+    ensureSessionState,
+    markDirty,
+    scheduleSave,
+    renderSidebarTitle,
+    quotaRuntime,
+    getQuotaSnapshots,
+    summarizeSessionUsageForDisplay,
+    scheduleParentRefreshIfSafe,
+    restoreConcurrency: RESTORE_TITLE_CONCURRENCY,
+  })
+
+  const titleRefresh = createTitleRefreshScheduler({
+    apply: titleApplicator.applyTitle,
+    onError: swallow('titleRefresh'),
+  })
+  scheduleTitleRefresh = titleRefresh.schedule
+
+  const restoreAllVisibleTitles = titleApplicator.restoreAllVisibleTitles
 
   const showToast = async (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
@@ -763,162 +240,111 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       .catch(swallow('showToast'))
   }
 
-  const onEvent = async (event: Event) => {
-    if (event.type === 'session.created') {
+  const dispatchEvent = createEventDispatcher({
+    onSessionCreated: async (session) => {
       ensureSessionState(
-        event.properties.info.id,
-        event.properties.info.title,
-        event.properties.info.time.created,
+        session.id,
+        session.title,
+        session.time.created,
+        session.parentID ?? null,
       )
+      descendantsResolver.invalidateForAncestors(session.parentID)
       scheduleSave()
-      return
-    }
+      scheduleParentRefreshIfSafe(session.id, session.parentID)
+    },
 
-    if (event.type === 'session.updated') {
+    onSessionUpdated: async (session) => {
+      const existing = state.sessions[session.id]
+      const oldParentID = existing?.parentID
       const sessionState = ensureSessionState(
-        event.properties.info.id,
-        event.properties.info.title,
-        event.properties.info.time.created,
+        session.id,
+        session.title,
+        session.time.created,
+        session.parentID ?? null,
       )
-      const pending = pendingAppliedTitle.get(event.properties.info.id)
-      if (pending) {
-        if (pending.expiresAt > Date.now()) {
-          if (
-            canonicalizeTitle(event.properties.info.title) ===
-            canonicalizeTitle(pending.title)
-          ) {
-            pendingAppliedTitle.delete(event.properties.info.id)
-            sessionState.lastAppliedTitle = pending.title
-            dirtyDateKeys.add(state.sessionDateMap[event.properties.info.id])
-            scheduleSave()
-            return
-          }
-        } else {
-          pendingAppliedTitle.delete(event.properties.info.id)
-        }
+      const newParentID = sessionState.parentID
+      const parentMoved =
+        config.sidebar.includeChildren && oldParentID !== newParentID
+
+      descendantsResolver.invalidateForAncestors(oldParentID)
+      descendantsResolver.invalidateForAncestors(newParentID)
+
+      // If this session moved between parents, refresh both sides even if we
+      // later return early due to title echo/decorated-title handling.
+      if (parentMoved) {
+        scheduleParentRefreshIfSafe(session.id, oldParentID)
+        scheduleParentRefreshIfSafe(session.id, newParentID)
       }
 
-      // H3 fix: if the incoming title looks decorated, it's likely a late echo
-      // of our own update. Extract the base title from line 1 instead of
-      // treating the whole decorated string as the new base title.
-      const incomingTitle = event.properties.info.title
-      if (
-        canonicalizeTitle(incomingTitle) ===
-        canonicalizeTitle(sessionState.lastAppliedTitle || '')
-      ) {
-        return
-      }
+      await titleApplicator.handleSessionUpdatedTitle({
+        sessionID: session.id,
+        incomingTitle: session.title,
+        sessionState,
+        scheduleRefresh: titleRefresh.schedule,
+      })
+    },
 
-      if (looksDecorated(incomingTitle)) {
-        // Late echo — ignore as base-title source.
-        debug(
-          `ignoring late decorated echo for session ${event.properties.info.id}`,
-        )
-        return
-      } else {
-        sessionState.baseTitle = normalizeBaseTitle(incomingTitle)
-      }
+    onSessionDeleted: async (session) => {
+      await flushSave().catch(swallow('onSessionDeleted:flushSave'))
 
-      sessionState.lastAppliedTitle = undefined
-      dirtyDateKeys.add(state.sessionDateMap[event.properties.info.id])
+      descendantsResolver.invalidateForAncestors(session.parentID)
+      descendantsResolver.invalidateForAncestors(session.id)
+      usageService.forgetSession(session.id)
+      titleApplicator.forgetSession(session.id)
+      titleRefresh.cancel(session.id)
+
+      const dateKey =
+        state.sessionDateMap[session.id] ||
+        dateKeyFromTimestamp(session.time.created)
+
+      delete state.sessions[session.id]
+      delete state.sessionDateMap[session.id]
       scheduleSave()
-      // External rename detected — re-render sidebar with new base title
-      scheduleTitleRefresh(event.properties.info.id)
-      return
-    }
 
-    if (event.type === 'message.removed') {
-      // P1: mark session for full rescan since message order changed
-      forceRescanSessions.add(event.properties.sessionID)
-      // Also invalidate cached usage
-      const sessionState = state.sessions[event.properties.sessionID]
-      if (sessionState) {
-        sessionState.usage = undefined
-        sessionState.cursor = undefined
-        const dateKey =
-          state.sessionDateMap[event.properties.sessionID] ||
-          dateKeyFromTimestamp(sessionState.createdAt)
-        state.sessionDateMap[event.properties.sessionID] = dateKey
-        dirtyDateKeys.add(dateKey)
-        scheduleSave()
+      await deleteSessionFromDayChunk(statePath, session.id, dateKey).catch(
+        swallow('deleteSessionFromDayChunk'),
+      )
+
+      if (config.sidebar.includeChildren && session.parentID) {
+        titleRefresh.schedule(session.parentID, 0)
       }
-      scheduleTitleRefresh(event.properties.sessionID)
-      return
-    }
+    },
 
-    if (event.type !== 'message.updated') return
-    if (!isAssistantMessage(event.properties.info)) return
-    if (!event.properties.info.time.completed) return
-    scheduleTitleRefresh(event.properties.info.sessionID)
-  }
+    onMessageRemoved: async (sessionID) => {
+      usageService.markForceRescan(sessionID)
+      titleRefresh.schedule(sessionID)
+    },
+
+    onAssistantMessageCompleted: async (message) => {
+      usageService.markSessionDirty(message.sessionID)
+      titleRefresh.schedule(message.sessionID)
+    },
+  })
 
   return {
     event: async ({ event }) => {
       try {
-        await onEvent(event)
+        await dispatchEvent(event)
       } catch (error) {
         debug(`event handler failed: ${String(error)}`)
       }
     },
-    tool: {
-      quota_summary: tool({
-        description: 'Show usage and quota summary for session/day/week/month.',
-        args: {
-          period: z.enum(['session', 'day', 'week', 'month']).optional(),
-          toast: z.boolean().optional(),
-        },
-        execute: async (args, context) => {
-          const period = args.period || 'session'
-          const usage = await summarizeForTool(period, context.sessionID)
-          // For quota_summary, always show all subscription quota balances,
-          // regardless of which providers were used in the session.
-          const quotas = await getQuotaSnapshots([], { allowDefault: true })
-          const markdown = renderMarkdownReport(period, usage, quotas, {
-            showCost: config.sidebar.showCost,
-          })
-
-          if (args.toast !== false) {
-            await showToast(
-              period,
-              renderToastMessage(period, usage, quotas, {
-                showCost: config.sidebar.showCost,
-                width: Math.max(44, config.sidebar.width + 18),
-              }),
-            )
-          }
-
-          return markdown
-        },
-      }),
-      quota_show: tool({
-        description:
-          'Toggle sidebar title display mode. When on, titles show token usage and quota; when off, titles revert to original.',
-        args: {
-          enabled: z
-            .boolean()
-            .optional()
-            .describe('Explicit on/off. Omit to toggle current state.'),
-        },
-        execute: async (args, context) => {
-          const next =
-            args.enabled !== undefined ? args.enabled : !state.titleEnabled
-          state.titleEnabled = next
-          scheduleSave()
-
-          if (next) {
-            // Turning on — re-render current session immediately
-            scheduleTitleRefresh(context.sessionID, 0)
-            await showToast('toggle', 'Sidebar usage display: ON')
-            return 'Sidebar usage display is now ON. Session titles will show token usage and quota.'
-          }
-
-          // Turning off — restore all touched sessions to base titles
-          await restoreAllVisibleTitles()
-          await showToast('toggle', 'Sidebar usage display: OFF')
-          return 'Sidebar usage display is now OFF. Session titles restored to original.'
-        },
-      }),
-    },
+    tool: createQuotaSidebarTools({
+      getTitleEnabled: () => state.titleEnabled,
+      setTitleEnabled: (enabled) => {
+        state.titleEnabled = enabled
+      },
+      scheduleSave,
+      refreshSessionTitle: (sessionID, delay) =>
+        titleRefresh.schedule(sessionID, delay ?? 250),
+      restoreAllVisibleTitles,
+      showToast,
+      summarizeForTool,
+      getQuotaSnapshots,
+      renderMarkdownReport,
+      renderToastMessage,
+      config,
+    }),
   }
 }
 

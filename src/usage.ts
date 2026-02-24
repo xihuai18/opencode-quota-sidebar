@@ -56,6 +56,21 @@ export function emptyUsageSummary(): UsageSummary {
   }
 }
 
+function emptyProviderUsage(providerID: string): ProviderUsage {
+  return {
+    providerID,
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+    cost: 0,
+    apiCost: 0,
+    assistantMessages: 0,
+  }
+}
+
 function isAssistant(message: Message): message is AssistantMessage {
   return message.role === 'assistant'
 }
@@ -99,18 +114,7 @@ function addMessageUsage(
 
   const provider =
     target.providers[message.providerID] ||
-    ({
-      providerID: message.providerID,
-      input: 0,
-      output: 0,
-      reasoning: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      total: 0,
-      cost: 0,
-      apiCost: 0,
-      assistantMessages: 0,
-    } as ProviderUsage)
+    emptyProviderUsage(message.providerID)
 
   provider.input += message.tokens.input
   provider.output += output
@@ -134,7 +138,8 @@ export function summarizeMessages(
 
   for (const entry of entries) {
     if (!isAssistant(entry.info)) continue
-    if (!entry.info.time.completed) continue
+    if (typeof entry.info.time.completed !== 'number') continue
+    if (!Number.isFinite(entry.info.time.completed)) continue
     if (entry.info.time.created < startAt) continue
     addMessageUsage(summary, entry.info, options)
   }
@@ -155,7 +160,13 @@ export function summarizeMessagesIncremental(
   options?: UsageOptions,
 ): { usage: UsageSummary; cursor: IncrementalCursor } {
   // If no cursor or force rescan, do full scan
-  if (forceRescan || !cursor?.lastMessageId || !existingUsage) {
+  if (
+    forceRescan ||
+    !cursor?.lastMessageId ||
+    typeof cursor.lastMessageTime !== 'number' ||
+    !Number.isFinite(cursor.lastMessageTime) ||
+    !existingUsage
+  ) {
     const usage = summarizeMessages(entries, 0, 1, options)
     const lastMsg = findLastCompletedAssistant(entries)
     return {
@@ -163,32 +174,106 @@ export function summarizeMessagesIncremental(
       cursor: {
         lastMessageId: lastMsg?.id,
         lastMessageTime: lastMsg?.time.completed ?? undefined,
+        lastMessageIdsAtTime:
+          lastMsg?.time.completed === undefined
+            ? undefined
+            : collectCompletedAssistantIdsAt(entries, lastMsg.time.completed),
       },
     }
   }
 
-  // Incremental: start from existing usage, only process new messages
+  // Incremental: start from existing usage, only process new messages.
+  // Order-independent: use completed-time cursor (with id tie-breaker).
   const summary = fromCachedSessionUsage(existingUsage, 1)
+  const cursorTime = cursor.lastMessageTime
+  const cursorID = cursor.lastMessageId
+  const cursorIDsAtTime = Array.isArray(cursor.lastMessageIdsAtTime)
+    ? new Set(cursor.lastMessageIdsAtTime)
+    : undefined
+
+  // If the cursor doesn't record ids-at-time, and we see other messages with the
+  // same completed timestamp but "earlier" ids, the id tie-breaker can miss
+  // newly-arrived messages. Force a full rescan once to initialize ids-at-time.
+  if (!cursorIDsAtTime) {
+    for (const entry of entries) {
+      const msg = entry.info
+      if (!isAssistant(msg)) continue
+      if (typeof msg.time.completed !== 'number') continue
+      if (!Number.isFinite(msg.time.completed)) continue
+      if (msg.id === cursorID) continue
+      if (
+        msg.time.completed === cursorTime &&
+        msg.id.localeCompare(cursorID) < 0
+      ) {
+        const usage = summarizeMessages(entries, 0, 1, options)
+        const lastMsg = findLastCompletedAssistant(entries)
+        return {
+          usage,
+          cursor: {
+            lastMessageId: lastMsg?.id,
+            lastMessageTime: lastMsg?.time.completed ?? undefined,
+            lastMessageIdsAtTime:
+              lastMsg?.time.completed === undefined
+                ? undefined
+                : collectCompletedAssistantIdsAt(
+                    entries,
+                    lastMsg.time.completed,
+                  ),
+          },
+        }
+      }
+    }
+  }
+
+  const isAfterCursor = (message: AssistantMessage) => {
+    const completed = message.time.completed
+    if (typeof completed !== 'number' || !Number.isFinite(completed))
+      return false
+    if (completed > cursorTime) return true
+    if (completed < cursorTime) return false
+    if (cursorIDsAtTime) {
+      return !cursorIDsAtTime.has(message.id)
+    }
+    // Same timestamp: best-effort tie-breaker.
+    return message.id.localeCompare(cursorID) > 0
+  }
+
+  const newerThan = (
+    left: { id: string; time: number },
+    right: { id: string; time: number },
+  ) => {
+    if (left.time !== right.time) return left.time > right.time
+    return left.id.localeCompare(right.id) > 0
+  }
+
   let foundCursor = false
-  let newCursor: IncrementalCursor = { ...cursor }
+  let nextCursor: IncrementalCursor = { ...cursor }
 
   for (const entry of entries) {
-    if (!isAssistant(entry.info)) continue
-    if (!entry.info.time.completed) continue
+    const msg = entry.info
+    if (!isAssistant(msg)) continue
+    if (typeof msg.time.completed !== 'number') continue
+    if (!Number.isFinite(msg.time.completed)) continue
 
-    // Skip messages we've already processed
-    if (!foundCursor) {
-      if (entry.info.id === cursor.lastMessageId) {
-        foundCursor = true
-      }
-      continue
+    if (msg.id === cursorID) foundCursor = true
+    if (!isAfterCursor(msg)) continue
+
+    addMessageUsage(summary, msg, options)
+    const candidate = { id: msg.id, time: msg.time.completed }
+    const current = {
+      id: nextCursor.lastMessageId || cursorID,
+      time: nextCursor.lastMessageTime ?? cursorTime,
     }
-
-    // Process new message
-    addMessageUsage(summary, entry.info, options)
-    newCursor = {
-      lastMessageId: entry.info.id,
-      lastMessageTime: entry.info.time.completed ?? undefined,
+    if (newerThan(candidate, current)) {
+      nextCursor = {
+        lastMessageId: msg.id,
+        lastMessageTime: msg.time.completed,
+        lastMessageIdsAtTime: [msg.id],
+      }
+    } else if (nextCursor.lastMessageTime === msg.time.completed) {
+      const ids = new Set(nextCursor.lastMessageIdsAtTime || [])
+      ids.add(msg.id)
+      nextCursor.lastMessageIdsAtTime = Array.from(ids).sort()
     }
   }
 
@@ -202,21 +287,52 @@ export function summarizeMessagesIncremental(
       cursor: {
         lastMessageId: lastMsg?.id,
         lastMessageTime: lastMsg?.time.completed ?? undefined,
+        lastMessageIdsAtTime:
+          lastMsg?.time.completed === undefined
+            ? undefined
+            : collectCompletedAssistantIdsAt(entries, lastMsg.time.completed),
       },
     }
   }
 
-  return { usage: summary, cursor: newCursor }
+  return { usage: summary, cursor: nextCursor }
+}
+
+function collectCompletedAssistantIdsAt(
+  entries: Array<{ info: Message }>,
+  completedTime: number,
+) {
+  const ids: string[] = []
+  for (const entry of entries) {
+    const msg = entry.info
+    if (!isAssistant(msg)) continue
+    if (typeof msg.time.completed !== 'number') continue
+    if (!Number.isFinite(msg.time.completed)) continue
+    if (msg.time.completed !== completedTime) continue
+    ids.push(msg.id)
+  }
+  return Array.from(new Set(ids)).sort()
 }
 
 function findLastCompletedAssistant(
   entries: Array<{ info: Message }>,
 ): AssistantMessage | undefined {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const msg = entries[i].info
-    if (isAssistant(msg) && msg.time.completed) return msg
+  let best: AssistantMessage | undefined
+  let bestTime = -Infinity
+  let bestID = ''
+  for (const entry of entries) {
+    const msg = entry.info
+    if (!isAssistant(msg)) continue
+    if (typeof msg.time.completed !== 'number') continue
+    if (!Number.isFinite(msg.time.completed)) continue
+    const t = msg.time.completed
+    if (t > bestTime || (t === bestTime && msg.id.localeCompare(bestID) > 0)) {
+      best = msg
+      bestTime = t
+      bestID = msg.id
+    }
   }
-  return undefined
+  return best
 }
 
 export function mergeUsage(target: UsageSummary, source: UsageSummary) {
@@ -233,18 +349,7 @@ export function mergeUsage(target: UsageSummary, source: UsageSummary) {
   for (const provider of Object.values(source.providers)) {
     const existing =
       target.providers[provider.providerID] ||
-      ({
-        providerID: provider.providerID,
-        input: 0,
-        output: 0,
-        reasoning: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        total: 0,
-        cost: 0,
-        apiCost: 0,
-        assistantMessages: 0,
-      } as ProviderUsage)
+      emptyProviderUsage(provider.providerID)
 
     existing.input += provider.input
     existing.output += provider.output

@@ -1,15 +1,42 @@
 export function normalizeBaseTitle(title: string) {
-  return stripAnsi(title).split(/\r?\n/, 1)[0] || 'Session'
+  const firstLine = stripAnsi(title).split(/\r?\n/, 1)[0] || 'Session'
+  return firstLine.replace(/[\x00-\x1F\x7F-\x9F]/g, ' ').trimEnd() || 'Session'
 }
 
 export function stripAnsi(value: string) {
-  return value.replace(/\u001b\[[0-9;]*m/g, '')
+  // Remove terminal escape sequences. Sidebar titles must be plain text.
+  // We intentionally strip more than SGR to avoid resize/render corruption.
+  return (
+    value
+      // OSC: ESC ] ... BEL or ST (ESC \)
+      .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
+      // CSI: ESC [ ... final byte
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+      // 2-byte escapes and other single-ESC controls
+      .replace(/\u001b[@-Z\\-_]/g, '')
+      // Any leftover ESC
+      .replace(/\u001b/g, '')
+  )
 }
 
 export function canonicalizeTitle(value: string) {
   return stripAnsi(value)
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
+    .join('\n')
+}
+
+/**
+ * Comparison canonicalizer for decorated titles.
+ * OpenCode may normalize runs of spaces; treat those as equivalent.
+ */
+export function canonicalizeTitleForCompare(value: string) {
+  const lines = stripAnsi(value).split(/\r?\n/)
+  return lines
+    .map((line, index) => {
+      const safe = line.replace(/[\x00-\x1F\x7F-\x9F]/g, ' ').trimEnd()
+      return safe.trim().replace(/[ \t]+/g, ' ')
+    })
     .join('\n')
 }
 

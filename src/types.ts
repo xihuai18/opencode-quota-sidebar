@@ -73,10 +73,14 @@ export type IncrementalCursor = {
   lastMessageId?: string
   /** Timestamp of the last processed assistant message. */
   lastMessageTime?: number
+  /** IDs processed at lastMessageTime (for same-timestamp correctness). */
+  lastMessageIdsAtTime?: string[]
 }
 
 export type SessionState = SessionTitleState & {
   createdAt: number
+  /** Parent session ID for subagent child sessions. */
+  parentID?: string
   usage?: CachedSessionUsage
   /** Incremental aggregation cursor (P1). */
   cursor?: IncrementalCursor
@@ -103,6 +107,14 @@ export type QuotaSidebarConfig = {
     width: number
     showCost: boolean
     showQuota: boolean
+    /** Include descendant subagent sessions in session-scoped usage/quota. */
+    includeChildren: boolean
+    /** Max descendant traversal depth when includeChildren is enabled. */
+    childrenMaxDepth: number
+    /** Max number of descendant sessions to include when includeChildren is enabled. */
+    childrenMaxSessions: number
+    /** Concurrency for fetching descendant session messages (bounded). */
+    childrenConcurrency: number
   }
   quota: {
     refreshMs: number
