@@ -58,9 +58,9 @@ Sidebar container: width=42
 
 ### 3.3 固定宽度行（防抖动）
 
-每行必须通过 `fitLine()` 截断到不超过 `width` 字符：
+每行必须通过 `fitLine()` 截断到不超过 `width` 个终端 cell（列宽）：
 
-- 长行截断，防止溢出
+- 长行截断，防止溢出（对 CJK/emoji 做 best-effort 的宽字符处理）
 - 不使用 ANSI 样式码，避免 SolidJS terminal renderer 在 resize 时产生字符污染
 
 ### 3.4 ANSI 转义码
@@ -205,7 +205,7 @@ Copilot-Integration-Id: vscode-chat
 
 ### 6.4 并发控制
 
-- `applyTitle` 有 per-session 锁（`applyTitleLocks`），防止并发写入
+- title 刷新调度器有 per-session 锁（`src/title_refresh.ts`），防止并发写入
 - `persistState` 有 dirty key 捕获机制，写入期间新增的 dirty key 不会丢失
 - 范围查询（day/week/month）使用 `mapConcurrent` 限制并发为 5
 
@@ -216,15 +216,23 @@ Copilot-Integration-Id: vscode-chat
 | 文件                    | 职责                                                            |
 | ----------------------- | --------------------------------------------------------------- |
 | `src/index.ts`          | 插件入口，事件处理，工具注册，并发锁，增量聚合编排              |
+| `src/descendants.ts`    | 子 session（subagent）树遍历、缓存与失效策略                    |
 | `src/format.ts`         | Sidebar title 渲染，markdown report，toast 格式化               |
 | `src/quota.ts`          | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发 |
+| `src/quota_service.ts`  | Quota snapshot 拉取与缓存（sidebar/toast/report 复用）          |
 | `src/cost.ts`           | API 等价成本计算（pricing 解析、provider 归一、计费单位启发式） |
 | `src/title.ts`          | Session title 规范化与装饰检测（去 ANSI、去抖动）               |
+| `src/title_apply.ts`    | session title 应用与还原（含 echo 防护与父 session 刷新传播）   |
+| `src/title_refresh.ts`  | title 刷新调度（debounce + per-session 锁）                     |
 | `src/period.ts`         | day/week/month 的时间范围起点计算                               |
+| `src/tools.ts`          | quota_summary / quota_show 工具定义                             |
+| `src/events.ts`         | OpenCode event 路由与过滤（session/message 事件）               |
+| `src/persistence.ts`    | 脏日期键追踪与持久化调度（markDirty/scheduleSave/flushSave）    |
 | `src/cache.ts`          | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）       |
 | `src/quota_render.ts`   | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）   |
 | `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/RightCode）         |
 | `src/usage.ts`          | Token 聚合，增量 cursor，UsageSummary 类型                      |
+| `src/usage_service.ts`  | session/range 用量聚合服务（session+subagent merge 与范围统计） |
 | `src/storage.ts`        | v2 存储门面：config/state/save/load/scan/evict 编排             |
 | `src/storage_dates.ts`  | 时间戳与日期 key 工具（normalize/date range）                   |
 | `src/storage_paths.ts`  | OpenCode 数据路径与 chunk 路径解析                              |
@@ -232,7 +240,7 @@ Copilot-Integration-Id: vscode-chat
 | `src/storage_chunks.ts` | chunk 读写、LRU 缓存、原子写入与 symlink 防护                   |
 | `src/types.ts`          | 共享类型定义                                                    |
 | `src/helpers.ts`        | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
-| `src/__tests__/`        | 单元测试（当前 86 个）                                          |
+| `src/__tests__/`        | 单元测试（当前 110 个）                                         |
 
 ---
 
@@ -254,7 +262,7 @@ Copilot-Integration-Id: vscode-chat
 
 ### 8.3 宽度安全
 
-- Sidebar 所有行必须通过 `fitLine()` 保证不超过 `config.sidebar.width`（默认 36）
+- Sidebar 所有行必须通过 `fitLine()` 保证不超过 `config.sidebar.width`（默认 36，按终端 cell 计）
 - 不做 `padEnd`，避免 trailing space 标准化导致的回写抖动
 - quota 主行一 provider 一行；多窗口可用缩进续行
 
@@ -262,7 +270,7 @@ Copilot-Integration-Id: vscode-chat
 
 ```bash
 npm run build    # tsc 编译
-npm test         # node --test (dist)，当前 86/86 pass
+npm test         # node --test (dist)，当前 110/110 pass
 ```
 
 修改后必须 build + test 通过才算完成。

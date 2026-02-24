@@ -3,7 +3,11 @@
     "enabled": true,
     "width": 36,
     "showCost": true,
-    "showQuota": true
+    "showQuota": true,
+    "includeChildren": true,
+    "childrenMaxDepth": 6,
+    "childrenMaxSessions": 128,
+    "childrenConcurrency": 5
   },
   "quota": {
     "refreshMs": 300000,

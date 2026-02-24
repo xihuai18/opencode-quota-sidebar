@@ -55,6 +55,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - line 5: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`, with multi-window continuation lines indented (e.g. `       Weekly 70% Rst 03-01`)
   - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available
+- Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message includes three sections: `Token Usage`, `Cost as API` (per provider), and `Quota`
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
@@ -81,6 +82,7 @@ The plugin stores lightweight global state and date-partitioned session chunks.
 - Session chunks: `<opencode-data>/quota-sidebar-sessions/YYYY/MM/DD.json`
   - per-session title state (`baseTitle`, `lastAppliedTitle`)
   - `createdAt`
+  - `parentID` (when the session is a subagent child session)
   - cached usage summary used by `quota_summary`
   - incremental aggregation cursor
 
@@ -141,7 +143,11 @@ Create `quota-sidebar.config.json` under your project root:
     "enabled": true,
     "width": 36,
     "showCost": true,
-    "showQuota": true
+    "showQuota": true,
+    "includeChildren": true,
+    "childrenMaxDepth": 6,
+    "childrenMaxSessions": 128,
+    "childrenConcurrency": 5
   },
   "quota": {
     "refreshMs": 300000,
@@ -166,10 +172,17 @@ Create `quota-sidebar.config.json` under your project root:
 Notes:
 
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
+- `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
+- `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
+- `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
+- `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
+- `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
 - `output` now includes reasoning tokens. Reasoning is no longer rendered as a separate line.
 - API cost excludes reasoning tokens from output billing (uses `tokens.output` only for output-price multiplication).
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
+
+`quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 
 ## Debug logging
 
@@ -196,9 +209,9 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - OpenAI OAuth token refresh is disabled by default; set
   `quota.refreshAccessToken=true` if you want the plugin to refresh access
   tokens when expired.
-- State file writes refuse to follow symlinks to prevent symlink attacks.
-- The `OPENCODE_QUOTA_DATA_HOME` env var can override the home directory for
-  testing; do not set this in production.
+- State/chunk file writes refuse to write through symlinked targets (best-effort defense-in-depth).
+- The `OPENCODE_QUOTA_DATA_HOME` env var overrides the OpenCode data directory
+  path (for testing); do not set this in production.
 
 ## Contributing
 

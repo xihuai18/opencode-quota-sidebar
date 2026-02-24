@@ -8,3 +8,4 @@ coverage/
 .env.*
 *.tgz
 quota-sidebar.config.json
+nul
