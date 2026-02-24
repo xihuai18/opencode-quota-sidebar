@@ -2,36 +2,28 @@
 
 OpenCode plugin: show token usage and subscription quota in the session sidebar title.
 
-## Quickstart
+## Install
+
+Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to install it automatically on startup:
+
+```json
+{
+  "plugin": ["@leo000001/opencode-quota-sidebar"]
+}
+```
+
+## Development (build from source)
 
 ```bash
 npm install
 npm run build
 ```
 
-Add the built plugin to your `opencode.json`:
+Add the built file to your `opencode.json`:
 
 ```json
 {
   "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/index.js"]
-}
-```
-
-## Install from npm
-
-After publishing, you can install directly:
-
-```bash
-npm install opencode-quota-sidebar
-```
-
-Then point OpenCode to the installed dist file in your `opencode.json`:
-
-```json
-{
-  "plugin": [
-    "file:///PATH/TO/node_modules/opencode-quota-sidebar/dist/index.js"
-  ]
 }
 ```
 
@@ -107,23 +99,6 @@ memory on startup. Chunk files remain on disk for historical range scans.
 
 If an old `quota-sidebar.state.json` exists (`version: 1`), the plugin migrates it
 to `version: 2` automatically on load and then persists data in the new chunked layout.
-
-## Build
-
-```bash
-npm install
-npm run build
-```
-
-## OpenCode config
-
-Add built plugin file into your `opencode.json`:
-
-```json
-{
-  "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/index.js"]
-}
-```
 
 On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/index.js"`
 

@@ -1,5 +1,5 @@
 {
-  "name": "opencode-quota-sidebar",
+  "name": "@leo000001/opencode-quota-sidebar",
   "version": "0.1.0",
   "description": "OpenCode plugin that shows quota and token usage in session titles",
   "type": "module",
@@ -42,13 +42,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicepkg/opencode-quota-sidebar.git"
+    "url": "https://github.com/xihuai18/opencode-quota-sidebar.git"
   },
-  "homepage": "https://github.com/nicepkg/opencode-quota-sidebar#readme",
+  "homepage": "https://github.com/xihuai18/opencode-quota-sidebar#readme",
   "bugs": {
-    "url": "https://github.com/nicepkg/opencode-quota-sidebar/issues"
+    "url": "https://github.com/xihuai18/opencode-quota-sidebar/issues"
   },
-  "author": "opencode-quota-sidebar contributors",
+  "author": "xihuai18",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
