@@ -242,14 +242,32 @@ export function renderMarkdownReport(
 ) {
   const showCost = options?.showCost !== false
 
+  const rightCodeSubscriptionProviderIDs = new Set(
+    collapseQuotaSnapshots(quotas)
+      .filter((quota) => quota.adapterID === 'rightcode')
+      .filter((quota) => quota.status === 'ok')
+      .filter((quota) => Array.isArray(quota.windows) && quota.windows.length)
+      .filter((quota) => quota.windows![0].label.startsWith('Daily $'))
+      .map((quota) => quota.providerID),
+  )
+
   const measuredCostCell = (providerID: string, cost: number) => {
     const canonical = canonicalProviderID(providerID)
     const isSubscription =
       canonical === 'openai' ||
       canonical === 'github-copilot' ||
-      providerID.startsWith('rightcode')
+      rightCodeSubscriptionProviderIDs.has(providerID)
     if (isSubscription) return '-'
     return `$${cost.toFixed(3)}`
+  }
+
+  const isSubscriptionMeasuredProvider = (providerID: string) => {
+    const canonical = canonicalProviderID(providerID)
+    return (
+      canonical === 'openai' ||
+      canonical === 'github-copilot' ||
+      rightCodeSubscriptionProviderIDs.has(providerID)
+    )
   }
 
   const apiCostCell = (providerID: string, apiCost: number) => {
@@ -257,6 +275,27 @@ export function renderMarkdownReport(
     if (canonical === 'github-copilot') return '-'
     if (!Number.isFinite(apiCost) || apiCost <= 0) return '$0.00'
     return `$${apiCost.toFixed(2)}`
+  }
+
+  const measuredCostSummaryValue = () => {
+    const providers = Object.values(usage.providers)
+    if (providers.length === 0) return `$${usage.cost.toFixed(4)}`
+    const hasNonSubscription = providers.some(
+      (provider) => !isSubscriptionMeasuredProvider(provider.providerID),
+    )
+    if (!hasNonSubscription) return '-'
+    return `$${usage.cost.toFixed(4)}`
+  }
+
+  const apiCostSummaryValue = () => {
+    const providers = Object.values(usage.providers)
+    if (providers.length === 0) return formatApiCostValue(usage.apiCost)
+    const hasNonCopilot = providers.some(
+      (provider) =>
+        canonicalProviderID(provider.providerID) !== 'github-copilot',
+    )
+    if (!hasNonCopilot) return '-'
+    return formatApiCostValue(usage.apiCost)
   }
 
   const providerRows = Object.values(usage.providers)
@@ -305,8 +344,8 @@ export function renderMarkdownReport(
     `- Tokens: input ${usage.input}, output ${usage.output}, cache_read ${usage.cacheRead}, cache_write ${usage.cacheWrite}, total ${usage.total}`,
     ...(showCost
       ? [
-          `- Measured cost: $${usage.cost.toFixed(4)}`,
-          `- API cost: ${formatApiCostValue(usage.apiCost)}`,
+          `- Measured cost: ${measuredCostSummaryValue()}`,
+          `- API cost: ${apiCostSummaryValue()}`,
         ]
       : []),
     '',
@@ -391,7 +430,8 @@ export function renderToastMessage(
     if (costPairs.length > 0) {
       lines.push(...alignPairs(costPairs).map((line) => fitLine(line, width)))
     } else {
-      lines.push(fitLine('  No provider usage in this range', width))
+      const hasAnyUsage = Object.keys(usage.providers).length > 0
+      lines.push(fitLine(hasAnyUsage ? '  N/A (Copilot)' : '  -', width))
     }
   }
 

@@ -402,12 +402,25 @@ describe('renderMarkdownReport', () => {
             apiCost: 0.3456,
             assistantMessages: 1,
           },
+          'github-copilot': {
+            providerID: 'github-copilot',
+            input: 10,
+            output: 20,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 30,
+            cost: 0.01,
+            apiCost: 0.02,
+            assistantMessages: 1,
+          },
         },
       }),
       [],
       { showCost: true },
     )
     assert.match(report, /API cost: \$2\.34/)
+    assert.match(report, /Measured cost: -/)
     assert.match(
       report,
       /\| Provider \| Input \| Output \| Cache \| Total \| Measured Cost \| API Cost \|/,
@@ -415,6 +428,120 @@ describe('renderMarkdownReport', () => {
     assert.match(
       report,
       /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| \$0\.35 \|/,
+    )
+    assert.match(
+      report,
+      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \|/,
+    )
+  })
+
+  it('uses N/A values when only Copilot usage exists', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage({
+        cost: 0,
+        apiCost: 0,
+        providers: {
+          'github-copilot': {
+            providerID: 'github-copilot',
+            input: 10,
+            output: 20,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 30,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [],
+      { showCost: true },
+    )
+    assert.match(report, /Measured cost: -/)
+    assert.match(report, /API cost: -/)
+  })
+
+  it('treats RightCode daily window providers as subscription for measured cost', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage({
+        cost: 1.2345,
+        apiCost: 2.34,
+        providers: {
+          'rightcode-openai': {
+            providerID: 'rightcode-openai',
+            input: 100,
+            output: 200,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 300,
+            cost: 9.876,
+            apiCost: 4.567,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [
+        {
+          providerID: 'rightcode-openai',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC-openai',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: 'Daily $55.55/$60', showPercent: false }],
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| \$4\.57 \|/,
+    )
+  })
+
+  it('does not treat RightCode balance-only providers as subscription for measured cost', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage({
+        cost: 1.2345,
+        apiCost: 2.34,
+        providers: {
+          'rightcode-openai': {
+            providerID: 'rightcode-openai',
+            input: 100,
+            output: 200,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 300,
+            cost: 9.876,
+            apiCost: 4.567,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [
+        {
+          providerID: 'rightcode-openai',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC-openai',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 123.45, currency: '$' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.876 \| \$4\.57 \|/,
     )
   })
 })
@@ -531,6 +658,31 @@ describe('renderToastMessage', () => {
     assert.match(toast, /OpenAI\s+\$1\.23/)
     assert.match(toast, /Anthropic\s+\$0\.20/)
     assert.doesNotMatch(toast, /Copilot\s+/)
+  })
+
+  it('renders N/A for Cost as API when only Copilot usage exists', () => {
+    const toast = renderToastMessage(
+      'week',
+      makeUsage({
+        providers: {
+          'github-copilot': {
+            providerID: 'github-copilot',
+            input: 50,
+            output: 80,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 130,
+            cost: 0.05,
+            apiCost: 0.45,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [],
+    )
+    assert.match(toast, /Cost as API/)
+    assert.match(toast, /N\/A \(Copilot\)/)
   })
 
   it('collapses duplicate RightCode quota snapshots in toast', () => {
