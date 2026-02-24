@@ -7,12 +7,14 @@ import { afterEach, describe, it } from 'node:test'
 import {
   dateKeyFromTimestamp,
   defaultState,
+  deleteSessionFromDayChunk,
   evictOldSessions,
   loadState,
   saveState,
   scanSessionsByCreatedRange,
   stateFilePath,
 } from '../storage.js'
+import { chunkFilePath, chunkRootPathFromStateFile } from '../storage_paths.js'
 import type { QuotaSidebarState, SessionState } from '../types.js'
 
 const tmpDirs: string[] = []
@@ -23,11 +25,16 @@ async function makeTempDir() {
   return dir
 }
 
-function makeSession(createdAt: number, baseTitle = 'Session'): SessionState {
+function makeSession(
+  createdAt: number,
+  baseTitle = 'Session',
+  parentID?: string,
+): SessionState {
   return {
     createdAt,
     baseTitle,
     lastAppliedTitle: undefined,
+    parentID,
   }
 }
 
@@ -66,6 +73,90 @@ describe('storage state persistence', () => {
     assert.equal(loaded.quotaCache.openai.windows!.length, 2)
     assert.equal(loaded.quotaCache.openai.windows![0].label, '5h')
     assert.equal(loaded.quotaCache.openai.windows![1].label, 'Weekly')
+  })
+
+  it('round-trips session parentID through saveState/loadState', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.child = makeSession(createdAt, 'Child', 'parent')
+    state.sessionDateMap.child = dateKey
+
+    await saveState(statePath, state, { writeAll: true })
+    const loaded = await loadState(statePath)
+    assert.equal(loaded.sessions.child?.parentID, 'parent')
+  })
+
+  it('does not resurrect deleted sessions from day chunks', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.s1 = makeSession(createdAt, 'S1')
+    state.sessionDateMap.s1 = dateKey
+
+    await saveState(statePath, state, { writeAll: true })
+
+    delete state.sessions.s1
+    delete state.sessionDateMap.s1
+
+    // Persist the state-file deletion.
+    await saveState(statePath, state, { dirtyDateKeys: [] })
+    // Remove from day chunk on disk.
+    await deleteSessionFromDayChunk(statePath, 's1', dateKey)
+    const loaded = await loadState(statePath)
+    assert.equal(loaded.sessions.s1, undefined)
+    assert.equal(loaded.sessionDateMap.s1, undefined)
+  })
+
+  it('does not discover disk chunks when sessionDateMap exists but is empty', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const rootPath = chunkRootPathFromStateFile(statePath)
+    const dateKey = '2026-02-01'
+    const filePath = chunkFilePath(rootPath, dateKey)
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          dateKey,
+          sessions: {
+            s1: makeSession(Date.now(), 'From Disk'),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    await fs.mkdir(path.dirname(statePath), { recursive: true })
+    await fs.writeFile(
+      statePath,
+      `${JSON.stringify(
+        {
+          version: 2,
+          titleEnabled: true,
+          sessionDateMap: {},
+          quotaCache: {},
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    const loaded = await loadState(statePath)
+    assert.deepEqual(loaded.sessions, {})
+    assert.deepEqual(loaded.sessionDateMap, {})
   })
 
   it('skipChunks path does not write day chunk files', async () => {

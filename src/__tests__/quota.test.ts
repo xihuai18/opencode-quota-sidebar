@@ -15,6 +15,10 @@ function makeConfig(
       width: 36,
       showCost: true,
       showQuota: true,
+      includeChildren: true,
+      childrenMaxDepth: 6,
+      childrenMaxSessions: 128,
+      childrenConcurrency: 5,
     },
     quota: {
       refreshMs: 300_000,
@@ -233,6 +237,18 @@ describe('fetchQuotaSnapshot', () => {
         baseURL: 'https://www.right.codes/codex/v1',
       }),
       'rightcode@https://www.right.codes/codex/v1',
+    )
+
+    assert.equal(
+      quota.quotaCacheKey('rightcode-openai', {
+        baseURL: 'https://www.right.codes/codex/v1',
+      }),
+      'rightcode-openai@https://www.right.codes/codex/v1',
+    )
+
+    assert.equal(
+      quota.quotaCacheKey('github-copilot-enterprise'),
+      'github-copilot:github-copilot-enterprise',
     )
   })
 

@@ -145,6 +145,64 @@ describe('summarizeMessagesIncremental', () => {
     assert.equal(cursor.lastMessageId, 'a3')
   })
 
+  it('is order-independent when entries are reversed', () => {
+    const baselineEntries = [
+      { info: assistantMessage('a1', 1000, 1100, { input: 10 }) },
+      { info: assistantMessage('a2', 1200, 1300, { input: 20 }) },
+    ]
+    const baseline = summarizeMessages(baselineEntries, 0, 1)
+
+    const reversed = [
+      { info: assistantMessage('a3', 1400, 1500, { input: 30, output: 1 }) },
+      { info: assistantMessage('a2', 1200, 1300, { input: 20 }) },
+      { info: assistantMessage('a1', 1000, 1100, { input: 10 }) },
+    ]
+
+    const { usage, cursor } = summarizeMessagesIncremental(
+      reversed,
+      toCachedSessionUsage(baseline),
+      { lastMessageId: 'a2', lastMessageTime: 1300 },
+      false,
+    )
+
+    assert.equal(usage.assistantMessages, 3)
+    assert.equal(usage.input, 60)
+    assert.equal(cursor.lastMessageId, 'a3')
+  })
+
+  it('counts new messages at the same completed timestamp even with smaller ids', () => {
+    const t = 1000
+    const entries = [
+      { info: assistantMessage('b', 900, t, { input: 10 }) },
+      { info: assistantMessage('c', 901, t, { input: 20 }) },
+    ]
+
+    const { usage: baseline, cursor } = summarizeMessagesIncremental(
+      entries,
+      undefined,
+      undefined,
+      false,
+    )
+    assert.equal(baseline.assistantMessages, 2)
+    assert.ok(cursor.lastMessageTime)
+    assert.ok(cursor.lastMessageIdsAtTime)
+
+    const nextEntries = [
+      ...entries,
+      { info: assistantMessage('a', 902, t, { input: 30 }) },
+    ]
+
+    const { usage: next } = summarizeMessagesIncremental(
+      nextEntries,
+      toCachedSessionUsage(baseline),
+      cursor,
+      false,
+    )
+
+    assert.equal(next.assistantMessages, 3)
+    assert.equal(next.input, 60)
+  })
+
   it('falls back to full rescan when cursor message is missing', () => {
     const entries = [
       { info: assistantMessage('a1', 1000, 1100, { input: 10 }) },

@@ -16,6 +16,10 @@ function makeConfig(width = 36): QuotaSidebarConfig {
       width,
       showCost: true,
       showQuota: true,
+      includeChildren: true,
+      childrenMaxDepth: 6,
+      childrenMaxSessions: 128,
+      childrenConcurrency: 5,
     },
     quota: {
       refreshMs: 300_000,
@@ -157,7 +161,7 @@ describe('renderSidebarTitle', () => {
       [],
       makeConfig(20),
     )
-    assert.doesNotMatch(title, /\u001b\[[0-9;]*m/)
+    assert.doesNotMatch(title, /\u001b/)
     for (const line of title.split('\n')) {
       assert.ok(line.length <= 20)
     }
@@ -170,8 +174,19 @@ describe('renderSidebarTitle', () => {
       [],
       makeConfig(60),
     )
-    assert.doesNotMatch(title, /\u001b\[[0-9;]*m/)
+    assert.doesNotMatch(title, /\u001b/)
     assert.equal(title.split('\n')[0], 'Session')
+  })
+
+  it('truncates base title by terminal cell width (CJK safe)', () => {
+    const title = renderSidebarTitle(
+      '你好你好你好',
+      makeUsage(),
+      [],
+      // Sidebar width is clamped to a safe minimum (8).
+      makeConfig(8),
+    )
+    assert.equal(title.split('\n')[0], '你好你~')
   })
 
   it('omits reasoning/cache write lines when value is zero', () => {
