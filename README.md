@@ -180,8 +180,8 @@ Notes:
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
 - `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
-- `output` now includes reasoning tokens. Reasoning is no longer rendered as a separate line.
-- API cost excludes reasoning tokens from output billing (uses `tokens.output` only for output-price multiplication).
+- `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
+- API cost bills reasoning tokens at the output rate (same as completion tokens).
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
 

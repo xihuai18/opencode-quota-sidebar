@@ -105,7 +105,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 - Measured Cost：使用 OpenCode 官方 `AssistantMessage.cost` 字段聚合
 - API Cost：按 model `input/output/cache` 单价估算（用于订阅制 provider 的 API 等价成本观察）
-- API Cost 中 Output 单价仅乘 `tokens.output`（Reasoning 不单列计费）
+- API Cost 中 Output 单价乘 `(tokens.output + tokens.reasoning)`（Reasoning 按 output/completion 单价计费）
 - `sidebar.showCost` 同时影响 sidebar title、toast、`quota_summary` markdown report
 - Copilot 暂不显示 `Cost as API`（OpenCode pricing 输出格式不稳定/可能缺失）
 - 若模型缺少单价映射或 provider 不在订阅制范围，API Cost 可能显示为 `0.00`
