@@ -52,9 +52,9 @@ describe('cost', () => {
       cacheWrite: 0,
     })
 
-    // (1,000,000 * 2 + 500,000 * 4) / 1,000,000 = 4
-    // Note: reasoning intentionally excluded.
-    assert.equal(cost, 4)
+    // (1,000,000 * 2 + (500,000 + 999,999) * 4) / 1,000,000 = 7.999996
+    // Reasoning is billed as output.
+    assert.equal(cost, 7.999996)
   })
 
   it('keeps equivalent API cost for per-token pricing', () => {

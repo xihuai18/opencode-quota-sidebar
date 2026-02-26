@@ -337,6 +337,35 @@ describe('renderSidebarTitle', () => {
     assert.doesNotMatch(title, /RC\s+Daily \$88\.88\/\$60\s+148%/)
   })
 
+  it('renders Exp+ for RightCode when multiple expiries exist', () => {
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        adapterID: 'rightcode',
+        label: 'RightCode',
+        shortLabel: 'RC',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          {
+            label: 'Daily $88.88/$60',
+            showPercent: false,
+            resetAt: '2026-02-27T02:50:08Z',
+            resetLabel: 'Exp+',
+          },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    assert.match(title, /RC\s+Daily \$88\.88\/\$60 Exp\+ 02-27/)
+  })
+
   it('shows all used providers in sidebar', () => {
     const config = makeConfig(60)
     const quotas: QuotaSnapshot[] = [
@@ -621,6 +650,29 @@ describe('renderToastMessage', () => {
     assert.match(toast, /RC\s+Daily \$83\.37\/\$60 Exp 02-27/)
     assert.match(toast, /\s+Balance \$248\.40/)
     assert.doesNotMatch(toast, /Daily \$83\.37\/\$60\s+138\.9%/)
+  })
+
+  it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'openai',
+        adapterID: 'rightcode',
+        label: 'RightCode',
+        shortLabel: 'RC',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          {
+            label: 'Daily $83.37/$60',
+            showPercent: false,
+            resetAt: '2026-02-27T02:50:08Z',
+            resetLabel: 'Exp+',
+          },
+        ],
+      },
+    ])
+
+    assert.match(toast, /RC\s+Daily \$83\.37\/\$60 Exp\+ 02-27/)
   })
 
   it('renders per-provider Cost as API section in toast', () => {

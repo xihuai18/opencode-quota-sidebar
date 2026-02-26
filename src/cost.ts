@@ -103,10 +103,13 @@ export function calcEquivalentApiCostForMessage(
   message: AssistantMessage,
   rates: ModelCostRates,
 ) {
+  // For providers that expose reasoning tokens separately, they are still
+  // billed as output/completion tokens (same unit price). Our UI also merges
+  // reasoning into the single Output statistic, so API cost should match that.
+  const billedOutput = message.tokens.output + message.tokens.reasoning
   const rawCost =
     message.tokens.input * rates.input +
-    // API cost intentionally excludes reasoning tokens.
-    message.tokens.output * rates.output +
+    billedOutput * rates.output +
     message.tokens.cache.read * rates.cacheRead +
     message.tokens.cache.write * rates.cacheWrite
 

@@ -301,6 +301,50 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.balance?.amount, 258.31)
   })
 
+  it('uses Exp+ when multiple matched subscriptions have different expiries', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        balance: 10,
+        subscriptions: [
+          {
+            name: 'Codex Plan A',
+            total_quota: 60,
+            remaining_quota: 45,
+            reset_today: false,
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
+          },
+          {
+            name: 'Codex Plan B',
+            total_quota: 60,
+            remaining_quota: 45,
+            reset_today: false,
+            expired_at: '2026-03-01T00:00:00Z',
+            available_prefixes: ['/codex'],
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'api', key: 'rc-key' },
+      },
+      makeConfig(),
+      undefined,
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 1)
+    assert.equal(snapshot!.windows![0].resetLabel, 'Exp+')
+    assert.equal(snapshot!.windows![0].resetAt, '2026-02-27T02:50:08.000Z')
+  })
+
   it('falls back to balance for RightCode when subscription prefix does not match', async () => {
     setFetch(async () =>
       jsonResponse({

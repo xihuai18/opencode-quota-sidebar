@@ -225,15 +225,19 @@ async function fetchRightCodeQuota(ctx: {
     )
     const dailyPercent =
       dailyTotal > 0 ? (dailyRemaining / dailyTotal) * 100 : undefined
-    const expiry = matched.reduce<string | undefined>((acc, subscription) => {
-      if (!subscription.expiresAt) return acc
-      const current = Date.parse(subscription.expiresAt)
-      if (Number.isNaN(current)) return acc
-      if (!acc) return subscription.expiresAt
+    const parsedExpiries = matched
+      .map((subscription) => subscription.expiresAt)
+      .filter((iso): iso is string => typeof iso === 'string' && !!iso)
+      .map((iso) => ({ iso, ts: Date.parse(iso) }))
+      .filter((item) => !Number.isNaN(item.ts))
+
+    const uniqueExpiryTimestamps = new Set(parsedExpiries.map((e) => e.ts))
+    const hasMultipleExpiries = uniqueExpiryTimestamps.size > 1
+
+    const expiry = parsedExpiries.reduce<string | undefined>((acc, item) => {
+      if (!acc) return item.iso
       const existing = Date.parse(acc)
-      if (Number.isNaN(existing) || current < existing) {
-        return subscription.expiresAt
-      }
+      if (Number.isNaN(existing) || item.ts < existing) return item.iso
       return acc
     }, undefined)
 
@@ -243,7 +247,7 @@ async function fetchRightCodeQuota(ctx: {
         showPercent: false,
         remainingPercent: dailyPercent,
         resetAt: expiry,
-        resetLabel: 'Exp',
+        resetLabel: hasMultipleExpiries ? 'Exp+' : 'Exp',
       },
     ]
 

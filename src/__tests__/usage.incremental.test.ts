@@ -97,10 +97,11 @@ describe('summarizeMessages', () => {
     ]
 
     const summary = summarizeMessages(entries, 0, 1, {
-      // Excludes reasoning by using output token count only.
-      calcApiCost: (message) => message.tokens.output * 0.01,
+      // Reasoning is billed as output.
+      calcApiCost: (message) =>
+        (message.tokens.output + message.tokens.reasoning) * 0.01,
     })
-    assert.equal(summary.apiCost, 0.7)
+    assert.equal(summary.apiCost, 1.9)
   })
 })
 
