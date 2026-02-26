@@ -771,4 +771,195 @@ describe('subagent aggregation integration', () => {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
+
+  it('recomputes parent aggregation after child message.removed', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: { includeChildren: true, showQuota: false },
+          quota: {
+            includeOpenAI: false,
+            includeCopilot: false,
+            includeAnthropic: false,
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    try {
+      const sessions = {
+        p1: {
+          id: 'p1',
+          title: 'Parent',
+          parentID: undefined as string | undefined,
+          time: { created: Date.now() - 30_000 },
+        },
+        c1: {
+          id: 'c1',
+          title: 'Child',
+          parentID: 'p1',
+          time: { created: Date.now() - 10_000 },
+        },
+      }
+
+      const updates: Array<{ id: string; title: string }> = []
+
+      const parentMessage = {
+        id: 'm-p1',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 'p1',
+        time: { created: Date.now() - 9_000, completed: Date.now() - 8_900 },
+        tokens: {
+          input: 10,
+          output: 1,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0,
+      }
+
+      const childMessage = {
+        id: 'm-c1',
+        role: 'assistant',
+        providerID: 'github-copilot',
+        modelID: 'gpt-4.1',
+        sessionID: 'c1',
+        time: { created: Date.now() - 2_000, completed: Date.now() - 1_900 },
+        tokens: {
+          input: 100,
+          output: 10,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0,
+      }
+
+      let childEntries: Array<{ info: typeof childMessage }> = [
+        { info: childMessage },
+      ]
+
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: { input: 1, output: 2, cache_read: 0, cache_write: 0 },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+          {
+            id: 'github-copilot',
+            name: 'GitHub Copilot',
+            env: [],
+            models: {
+              'gpt-4.1': {
+                id: 'gpt-4.1',
+                name: 'GPT-4.1',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai', 'github-copilot'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async (args: { path: { id: string } }) => ({
+              data: sessions[args.path.id as 'p1' | 'c1'],
+            }),
+            update: async (args: {
+              path: { id: string }
+              body: { title: string }
+            }) => {
+              const id = args.path.id as 'p1' | 'c1'
+              sessions[id].title = args.body.title
+              updates.push({ id, title: args.body.title })
+              return { data: { ok: true } }
+            },
+            messages: async (args: { path: { id: string } }) => {
+              const id = args.path.id
+              if (id === 'p1') return { data: [{ info: parentMessage }] }
+              if (id === 'c1') return { data: childEntries }
+              return { data: [] }
+            },
+            children: async (args: { path: { id: string } }) => {
+              if (args.path.id === 'p1') return { data: [sessions.c1] }
+              return { data: [] }
+            },
+            list: async () => ({ data: [{ id: 'p1' }, { id: 'c1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: childMessage } },
+      } as never)
+
+      await waitFor(() =>
+        updates.some(
+          (u) => u.id === 'p1' && /Input 110\s+Output 11\b/.test(u.title),
+        ),
+      )
+
+      childEntries = []
+      await hooks.event!({
+        event: { type: 'message.removed', properties: { sessionID: 'c1' } },
+      } as never)
+
+      await waitFor(() =>
+        updates.some(
+          (u) => u.id === 'p1' && /Input 10\s+Output 1\b/.test(u.title),
+        ),
+      )
+
+      const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
+      assert.ok(latestP1)
+      assert.match(latestP1!.title, /Input 10\s+Output 1\b/)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
 })

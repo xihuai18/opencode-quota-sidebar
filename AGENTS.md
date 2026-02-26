@@ -270,7 +270,7 @@ Copilot-Integration-Id: vscode-chat
 
 ```bash
 npm run build    # tsc 编译
-npm test         # node --test (dist)，当前 110/110 pass
+npm test         # node --test (dist)，当前 114/114 pass
 ```
 
 修改后必须 build + test 通过才算完成。

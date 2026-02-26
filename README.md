@@ -17,6 +17,8 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 }
 ```
 
+Note for OpenCode `>=1.2.15`: TUI settings (`theme`/`keybinds`/`tui`) moved to `tui.json`, but plugin loading still stays in `opencode.json` (`plugin: []`).
+
 ## Development (build from source)
 
 ```bash
@@ -105,6 +107,7 @@ memory on startup. Chunk files remain on disk for historical range scans.
 
 - Node.js: >= 18 (for `fetch` + `AbortController`)
 - OpenCode: plugin SDK `@opencode-ai/plugin` ^1.2.10
+- OpenCode config split: if you are on `>=1.2.15`, keep this plugin in `opencode.json` and keep TUI-only keys in `tui.json`.
 
 ## Optional commands
 
