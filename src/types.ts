@@ -54,6 +54,8 @@ export type CachedProviderUsage = {
 }
 
 export type CachedSessionUsage = {
+  /** Billing aggregation cache version for cost/apiCost refresh migrations. */
+  billingVersion?: number
   input: number
   output: number
   reasoning: number

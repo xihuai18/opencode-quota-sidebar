@@ -10,7 +10,11 @@ import {
   SUBSCRIPTION_API_COST_PROVIDERS,
   type ModelCostRates,
 } from './cost.js'
-import { dateKeyFromTimestamp, scanSessionsByCreatedRange } from './storage.js'
+import {
+  dateKeyFromTimestamp,
+  scanSessionsByCreatedRange,
+  updateSessionsInDayChunks,
+} from './storage.js'
 import { periodStart } from './period.js'
 import { debug, isRecord, mapConcurrent, swallow } from './helpers.js'
 import {
@@ -19,10 +23,12 @@ import {
   mergeUsage,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
+  USAGE_BILLING_CACHE_VERSION,
   type UsageSummary,
 } from './usage.js'
 import type {
   CachedSessionUsage,
+  IncrementalCursor,
   QuotaSidebarConfig,
   QuotaSidebarState,
 } from './types.js'
@@ -277,6 +283,11 @@ export function createUsageService(deps: {
     deps.persistence.markDirty(dateKey)
   }
 
+  const isUsageBillingCurrent = (cached: CachedSessionUsage | undefined) => {
+    if (!cached) return false
+    return cached.billingVersion === USAGE_BILLING_CACHE_VERSION
+  }
+
   type SessionUsageResult = { usage: UsageSummary; persist: boolean }
 
   const summarizeSessionUsage = async (
@@ -302,8 +313,15 @@ export function createUsageService(deps: {
 
     const modelCostMap = await getModelCostMap()
 
-    const forceRescan = forceRescanSessions.has(sessionID)
+    const staleBillingCache =
+      Boolean(sessionState?.usage) &&
+      !isUsageBillingCurrent(sessionState?.usage)
+    const forceRescan = forceRescanSessions.has(sessionID) || staleBillingCache
     if (forceRescan) forceRescanSessions.delete(sessionID)
+
+    if (staleBillingCache) {
+      debug(`usage cache billing refresh for session ${sessionID}`)
+    }
 
     const { usage, cursor } = summarizeMessagesIncremental(
       entries,
@@ -382,7 +400,7 @@ export function createUsageService(deps: {
     const needsFetch: string[] = []
     for (const childID of descendantIDs) {
       const cached = deps.state.sessions[childID]?.usage
-      if (cached && !isDirty(childID)) {
+      if (cached && !isDirty(childID) && isUsageBillingCurrent(cached)) {
         mergeUsage(merged, fromCachedSessionUsage(cached, 1))
       } else {
         needsFetch.push(childID)
@@ -437,7 +455,8 @@ export function createUsageService(deps: {
       })
     }
 
-    const shouldRecomputeApiCost = (cached: CachedSessionUsage) => {
+    const shouldRecomputeUsageCache = (cached: CachedSessionUsage) => {
+      if (!isUsageBillingCurrent(cached)) return true
       if (!hasPricing) return false
       if (cached.assistantMessages <= 0) return false
       if (cached.apiCost > 0) return false
@@ -449,7 +468,7 @@ export function createUsageService(deps: {
     const needsFetch: typeof sessions = []
     for (const session of sessions) {
       if (session.state.usage) {
-        if (shouldRecomputeApiCost(session.state.usage)) {
+        if (shouldRecomputeUsageCache(session.state.usage)) {
           needsFetch.push(session)
         } else {
           mergeUsage(usage, fromCachedSessionUsage(session.state.usage, 0))
@@ -469,20 +488,24 @@ export function createUsageService(deps: {
             if (session.state.usage) {
               return {
                 sessionID: session.sessionID,
+                dateKey: session.dateKey,
                 computed: fromCachedSessionUsage(session.state.usage, 1),
                 persist: false,
+                cursor: session.state.cursor,
               }
             }
             const empty = emptyUsageSummary()
             empty.sessionCount = 1
             return {
               sessionID: session.sessionID,
+              dateKey: session.dateKey,
               computed: empty,
               persist: false,
+              cursor: undefined,
             }
           }
 
-          const { usage: computed } = summarizeMessagesIncremental(
+          const { usage: computed, cursor } = summarizeMessagesIncremental(
             entries,
             undefined,
             undefined,
@@ -492,24 +515,52 @@ export function createUsageService(deps: {
                 calcEquivalentApiCost(message, modelCostMap),
             },
           )
-          return { sessionID: session.sessionID, computed, persist: true }
+          return {
+            sessionID: session.sessionID,
+            dateKey: session.dateKey,
+            computed,
+            persist: true,
+            cursor,
+          }
         },
       )
 
       let dirty = false
-      for (const { sessionID, computed, persist } of fetched) {
+      const diskOnlyUpdates: Array<{
+        sessionID: string
+        dateKey: string
+        usage: CachedSessionUsage
+        cursor: IncrementalCursor | undefined
+      }> = []
+
+      for (const { sessionID, dateKey, computed, persist, cursor } of fetched) {
         mergeUsage(usage, { ...computed, sessionCount: 0 })
         const memoryState = deps.state.sessions[sessionID]
         if (persist && memoryState) {
           memoryState.usage = toCachedSessionUsage(computed)
-          const dateKey =
+          memoryState.cursor = cursor
+          const resolvedDateKey =
             deps.state.sessionDateMap[sessionID] ||
             dateKeyFromTimestamp(memoryState.createdAt)
-          deps.state.sessionDateMap[sessionID] = dateKey
-          deps.persistence.markDirty(dateKey)
+          deps.state.sessionDateMap[sessionID] = resolvedDateKey
+          deps.persistence.markDirty(resolvedDateKey)
           dirty = true
+        } else if (persist) {
+          diskOnlyUpdates.push({
+            sessionID,
+            dateKey,
+            usage: toCachedSessionUsage(computed),
+            cursor,
+          })
         }
       }
+
+      if (diskOnlyUpdates.length > 0) {
+        await updateSessionsInDayChunks(deps.statePath, diskOnlyUpdates).catch(
+          swallow('updateSessionsInDayChunks'),
+        )
+      }
+
       if (dirty) deps.persistence.scheduleSave()
     }
 

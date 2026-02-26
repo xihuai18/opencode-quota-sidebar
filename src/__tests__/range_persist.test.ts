@@ -10,6 +10,7 @@ import {
   resolveOpencodeDataDir,
   stateFilePath,
 } from '../storage.js'
+import { USAGE_BILLING_CACHE_VERSION } from '../usage.js'
 
 const tmpDirs: string[] = []
 
@@ -167,6 +168,158 @@ describe('range usage persistence', () => {
 
       const updated = JSON.parse(await fs.readFile(chunkPath, 'utf8')) as any
       assert.ok(updated.sessions?.s1?.usage?.apiCost > 0)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('persists recomputed usage for disk-only sessions not loaded in memory', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+
+    try {
+      const dataDir = resolveOpencodeDataDir()
+      await fs.mkdir(dataDir, { recursive: true })
+      const statePath = stateFilePath(dataDir)
+
+      const createdAt = Date.now() - 10_000
+      const dateKey = dateKeyFromTimestamp(createdAt)
+      const [year, month, day] = dateKey.split('-')
+      const chunkRoot = path.join(dataDir, 'quota-sidebar-sessions')
+      const chunkPath = path.join(chunkRoot, year, month, `${day}.json`)
+      await fs.mkdir(path.dirname(chunkPath), { recursive: true })
+
+      // Keep sessionDateMap empty so this session remains disk-only during
+      // plugin load (not materialized into state.sessions memory cache).
+      await fs.writeFile(
+        statePath,
+        `${JSON.stringify(
+          {
+            version: 2,
+            titleEnabled: true,
+            sessionDateMap: {},
+            quotaCache: {},
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      await fs.writeFile(
+        chunkPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            dateKey,
+            sessions: {
+              's-disk': {
+                createdAt,
+                baseTitle: 'Disk Session',
+                usage: {
+                  billingVersion: 0,
+                  input: 1,
+                  output: 1,
+                  reasoning: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 2,
+                  cost: 0,
+                  apiCost: 0,
+                  assistantMessages: 1,
+                  providers: {},
+                },
+                cursor: {
+                  lastMessageId: 'old',
+                  lastMessageTime: createdAt,
+                  lastMessageIdsAtTime: ['old'],
+                },
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      const msg = {
+        id: 'm1',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's-disk',
+        time: {
+          created: createdAt + 1000,
+          completed: createdAt + 1100,
+        },
+        tokens: {
+          input: 1_000_000,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            messages: async () => ({ data: [{ info: msg }] }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await hooks.tool!.quota_summary.execute({ period: 'day', toast: false }, {
+        sessionID: 's-disk',
+      } as never)
+
+      await delay(600)
+
+      const updated = JSON.parse(await fs.readFile(chunkPath, 'utf8')) as any
+      const usage = updated.sessions?.['s-disk']?.usage
+      assert.ok(usage)
+      assert.equal(usage.billingVersion, USAGE_BILLING_CACHE_VERSION)
+      assert.ok(usage.apiCost > 0)
+      assert.equal(updated.sessions?.['s-disk']?.cursor?.lastMessageId, 'm1')
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

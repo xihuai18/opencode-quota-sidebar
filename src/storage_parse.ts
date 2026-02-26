@@ -51,6 +51,7 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
   }, {})
 
   return {
+    billingVersion: asNumber(value.billingVersion),
     input: asNumber(value.input, 0),
     output: asNumber(value.output, 0),
     reasoning: asNumber(value.reasoning, 0),

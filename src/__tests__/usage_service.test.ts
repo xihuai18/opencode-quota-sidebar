@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { createUsageService } from '../usage_service.js'
+import { USAGE_BILLING_CACHE_VERSION } from '../usage.js'
 import type { QuotaSidebarConfig, QuotaSidebarState } from '../types.js'
 
 function delay(ms: number) {
@@ -66,6 +67,104 @@ function entry(sessionID: string, messageID: string, input: number) {
 }
 
 describe('usage service', () => {
+  it('forces a full rescan when cached billing version is stale', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: 0,
+        input: 999,
+        output: 999,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 1998,
+        cost: 99,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {
+          openai: {
+            input: 999,
+            output: 999,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 1998,
+            cost: 99,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'm1',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['m1'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm1',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'openai',
+                  modelID: 'gpt-5',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 10,
+                    output: 5,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  cost: 0.2,
+                },
+              },
+            ],
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.input, 10)
+    assert.equal(usage.output, 5)
+    assert.equal(usage.cost, 0.2)
+    assert.equal(
+      state.sessions[sessionID].usage?.billingVersion,
+      USAGE_BILLING_CACHE_VERSION,
+    )
+  })
+
   it('does not reuse an in-flight computation after session becomes dirty', async () => {
     const state = makeState()
     const config = makeConfig()

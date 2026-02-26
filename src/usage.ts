@@ -6,6 +6,8 @@ import type {
   IncrementalCursor,
 } from './types.js'
 
+export const USAGE_BILLING_CACHE_VERSION = 1
+
 export type ProviderUsage = {
   providerID: string
   input: number
@@ -265,10 +267,19 @@ export function summarizeMessagesIncremental(
       time: nextCursor.lastMessageTime ?? cursorTime,
     }
     if (newerThan(candidate, current)) {
+      const idsAtCursorTime = new Set(
+        nextCursor.lastMessageIdsAtTime ||
+          cursor.lastMessageIdsAtTime ||
+          (current.id ? [current.id] : []),
+      )
+      idsAtCursorTime.add(msg.id)
       nextCursor = {
         lastMessageId: msg.id,
         lastMessageTime: msg.time.completed,
-        lastMessageIdsAtTime: [msg.id],
+        lastMessageIdsAtTime:
+          candidate.time > current.time
+            ? [msg.id]
+            : Array.from(idsAtCursorTime).sort(),
       }
     } else if (nextCursor.lastMessageTime === msg.time.completed) {
       const ids = new Set(nextCursor.lastMessageIdsAtTime || [])
@@ -387,6 +398,7 @@ export function toCachedSessionUsage(
   }, {})
 
   return {
+    billingVersion: USAGE_BILLING_CACHE_VERSION,
     input: summary.input,
     output: summary.output,
     // Always 0 after merge into output; kept for serialization shape.

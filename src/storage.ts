@@ -30,6 +30,8 @@ import {
   stateFilePath,
 } from './storage_paths.js'
 import type {
+  CachedSessionUsage,
+  IncrementalCursor,
   QuotaSidebarConfig,
   QuotaSidebarState,
   SessionState,
@@ -291,6 +293,29 @@ export async function loadState(statePath: string) {
 
 const MAX_QUOTA_CACHE_AGE_MS = 24 * 60 * 60 * 1000
 
+const dayChunkWriteLocks = new Map<string, Promise<void>>()
+
+async function withDayChunkWriteLock<T>(
+  dateKey: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = dayChunkWriteLocks.get(dateKey) || Promise.resolve()
+  const run = previous.then(() => fn())
+  const release = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  dayChunkWriteLocks.set(dateKey, release)
+
+  try {
+    return await run
+  } finally {
+    if (dayChunkWriteLocks.get(dateKey) === release) {
+      dayChunkWriteLocks.delete(dateKey)
+    }
+  }
+}
+
 function pruneState(state: QuotaSidebarState) {
   const now = Date.now()
   for (const [key, value] of Object.entries(state.quotaCache)) {
@@ -361,7 +386,7 @@ export async function saveState(
           if (!Object.prototype.hasOwnProperty.call(sessionsByDate, dateKey)) {
             return undefined
           }
-          return (async () => {
+          return withDayChunkWriteLock(dateKey, async () => {
             const memorySessions = sessionsByDate[dateKey] || {}
             const next = writeAll
               ? memorySessions
@@ -370,7 +395,7 @@ export async function saveState(
                   ...memorySessions,
                 }
             await writeDayChunk(rootPath, dateKey, next)
-          })()
+          })
         })
         .filter((promise): promise is Promise<void> => Boolean(promise)),
     )
@@ -509,10 +534,64 @@ export async function deleteSessionFromDayChunk(
   dateKey: string,
 ) {
   const rootPath = chunkRootPathFromStateFile(statePath)
-  const sessions = await readDayChunk(rootPath, dateKey)
-  if (!Object.prototype.hasOwnProperty.call(sessions, sessionID)) return false
-  const next = { ...sessions }
-  delete next[sessionID]
-  await writeDayChunk(rootPath, dateKey, next)
-  return true
+  return withDayChunkWriteLock(dateKey, async () => {
+    const sessions = await readDayChunk(rootPath, dateKey)
+    if (!Object.prototype.hasOwnProperty.call(sessions, sessionID)) return false
+    const next = { ...sessions }
+    delete next[sessionID]
+    await writeDayChunk(rootPath, dateKey, next)
+    return true
+  })
+}
+
+/** Best-effort: persist recomputed usage/cursor for sessions loaded from disk-only chunks. */
+export async function updateSessionsInDayChunks(
+  statePath: string,
+  updates: Array<{
+    sessionID: string
+    dateKey: string
+    usage: CachedSessionUsage
+    cursor: IncrementalCursor | undefined
+  }>,
+) {
+  if (updates.length === 0) return 0
+
+  const rootPath = chunkRootPathFromStateFile(statePath)
+  const byDate = updates.reduce<Record<string, typeof updates>>((acc, item) => {
+    const bucket = acc[item.dateKey] || []
+    bucket.push(item)
+    acc[item.dateKey] = bucket
+    return acc
+  }, {})
+
+  let written = 0
+  const WRITE_CONCURRENCY = 5
+  await mapConcurrent(
+    Object.entries(byDate),
+    WRITE_CONCURRENCY,
+    async ([dateKey, dateUpdates]) => {
+      await withDayChunkWriteLock(dateKey, async () => {
+        const sessions = await readDayChunk(rootPath, dateKey)
+        const next = { ...sessions }
+        let changed = false
+
+        for (const item of dateUpdates) {
+          const existing = next[item.sessionID]
+          if (!existing) continue
+          next[item.sessionID] = {
+            ...existing,
+            usage: item.usage,
+            cursor: item.cursor,
+          }
+          changed = true
+        }
+
+        if (!changed) return
+        await writeDayChunk(rootPath, dateKey, next)
+        written++
+      })
+    },
+  )
+
+  return written
 }

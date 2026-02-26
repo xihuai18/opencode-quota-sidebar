@@ -204,6 +204,44 @@ describe('summarizeMessagesIncremental', () => {
     assert.equal(next.input, 60)
   })
 
+  it('does not double-count older ids after adding a larger id at same timestamp', () => {
+    const t = 1000
+    const baselineEntries = [
+      { info: assistantMessage('b', 900, t, { input: 10 }) },
+      { info: assistantMessage('c', 901, t, { input: 20 }) },
+    ]
+
+    const { usage: baseline, cursor: baselineCursor } =
+      summarizeMessagesIncremental(baselineEntries, undefined, undefined, false)
+
+    const withNewLargerID = [
+      ...baselineEntries,
+      { info: assistantMessage('d', 902, t, { input: 40 }) },
+    ]
+
+    const { usage: afterFirstIncremental, cursor: nextCursor } =
+      summarizeMessagesIncremental(
+        withNewLargerID,
+        toCachedSessionUsage(baseline),
+        baselineCursor,
+        false,
+      )
+
+    assert.equal(afterFirstIncremental.assistantMessages, 3)
+    assert.equal(afterFirstIncremental.input, 70)
+
+    const { usage: afterSecondIncremental } = summarizeMessagesIncremental(
+      withNewLargerID,
+      toCachedSessionUsage(afterFirstIncremental),
+      nextCursor,
+      false,
+    )
+
+    // Same entries again should not add anything.
+    assert.equal(afterSecondIncremental.assistantMessages, 3)
+    assert.equal(afterSecondIncremental.input, 70)
+  })
+
   it('falls back to full rescan when cursor message is missing', () => {
     const entries = [
       { info: assistantMessage('a1', 1000, 1100, { input: 10 }) },
