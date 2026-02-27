@@ -50,17 +50,18 @@ describe('loadConfig', () => {
     const filePath = path.join(dir, 'quota-sidebar.config.json')
     await fs.writeFile(
       filePath,
-      JSON.stringify({
-        sidebar: {
-          enabled: false,
-          width: 1,
-          showCost: false,
+        JSON.stringify({
+          sidebar: {
+            enabled: false,
+            width: 1,
+            showCost: false,
           showQuota: false,
-          includeChildren: false,
-          childrenMaxDepth: 0,
-          childrenMaxSessions: -1,
-          childrenConcurrency: 999,
-        },
+          wrapQuotaLines: true,
+            includeChildren: false,
+            childrenMaxDepth: 0,
+            childrenMaxSessions: -1,
+            childrenConcurrency: 999,
+          },
         quota: {
           refreshMs: 100,
           requestTimeoutMs: 100,
@@ -82,6 +83,7 @@ describe('loadConfig', () => {
     assert.equal(config.sidebar.width, 20)
     assert.equal(config.sidebar.showCost, false)
     assert.equal(config.sidebar.showQuota, false)
+    assert.equal(config.sidebar.wrapQuotaLines, true)
     assert.equal(config.sidebar.includeChildren, false)
     assert.equal(config.sidebar.childrenMaxDepth, 1)
     assert.equal(config.sidebar.childrenMaxSessions, 0)

@@ -63,6 +63,11 @@ Sidebar container: width=42
 - 长行截断，防止溢出（对 CJK/emoji 做 best-effort 的宽字符处理）
 - 不使用 ANSI 样式码，避免 SolidJS terminal renderer 在 resize 时产生字符污染
 
+补充：为减少长 quota 行被 `~` 截断造成的信息丢失，插件支持对 quota 行做“自动换行 + 续行缩进”。
+
+- 配置项：`sidebar.wrapQuotaLines`（默认 `true`）
+- 行为：仅对 quota 行生效；续行使用空格缩进到 quota 内容区；每行仍会通过 `fitLine()` 确保不超过 `width` 个 cell
+
 ### 3.4 ANSI 转义码
 
 - Sidebar title 中默认**不使用 ANSI 样式码**。
@@ -128,6 +133,8 @@ MCP 条目通过 JSX 结构实现两种字体：
   - `       Weekly 70% Rst 03-01`
 - Copilot：`Copilot Monthly 70% Rst 03-01`
 - RightCode（日额度）：`RC Daily $105/$60 Exp 02-27`（不追加百分比）
+
+当 `sidebar.wrapQuotaLines=true` 且单行过长时，会拆成多行显示；续行缩进对齐。
 
 ### 5.3 Toast 格式
 

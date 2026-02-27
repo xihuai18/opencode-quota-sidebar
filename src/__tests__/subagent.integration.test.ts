@@ -44,7 +44,11 @@ describe('subagent aggregation integration', () => {
 
     await fs.writeFile(
       path.join(projectDir, 'quota-sidebar.config.json'),
-      JSON.stringify({ sidebar: { includeChildren: false } }, null, 2),
+      JSON.stringify(
+        { sidebar: { includeChildren: false, wrapQuotaLines: true } },
+        null,
+        2,
+      ),
     )
 
     try {
@@ -207,7 +211,7 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true },
+          sidebar: { includeChildren: true, wrapQuotaLines: true },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,
@@ -376,7 +380,7 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false },
+          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,
@@ -560,7 +564,7 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false },
+          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,
@@ -782,7 +786,7 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false },
+          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,

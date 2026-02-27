@@ -224,9 +224,14 @@ export function renderSidebarTitle(
       return Math.max(max, stringCellWidth(label))
     }, 0)
 
-    const quotaItems = visibleQuotas
-      .flatMap((item) => compactQuotaWide(item, labelWidth))
-      .filter((s): s is string => Boolean(s))
+      const quotaItems = visibleQuotas
+        .flatMap((item) =>
+          compactQuotaWide(item, labelWidth, {
+            width,
+            wrapLines: config.sidebar.wrapQuotaLines,
+          }),
+        )
+        .filter((s): s is string => Boolean(s))
     if (quotaItems.length > 0) {
       lines.push('')
     }
@@ -240,15 +245,38 @@ export function renderSidebarTitle(
 
 /**
  * Multi-window quota format for sidebar.
- * Single window:  "OpenAI 5h 80% Rst 16:20"
- * Multi window:   "OpenAI 5h 80% Rst 16:20" + indented next line
- * Copilot:        "Copilot Monthly 70% Rst 03-01"
+ *
+ * When wrapLines=false (or content fits):
+ *   "OpenAI 5h 80% Rst 16:20"
+ *   "       Weekly 70% Rst 03-01"
+ *
+ * When wrapLines=true and label+content overflows width:
+ *   "RC-openai"
+ *   "  Daily $349.66/$180 Exp+ 02-27"
+ *   "  Balance $108.88"
  */
-function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
+function compactQuotaWide(
+  quota: QuotaSnapshot,
+  labelWidth = 0,
+  options?: { width?: number; wrapLines?: boolean },
+) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
-
   const labelPadded = padEndCells(label, labelWidth)
+  const indent = ' '.repeat(labelWidth + 1)
+  const detailIndent = '  '
   const withLabel = (content: string) => `${labelPadded} ${content}`
+  const wrap = options?.wrapLines === true && (options?.width || 0) > 0
+  const width = options?.width || 0
+
+  /** If inline version overflows, break into label-line + indented detail lines. */
+  const maybeBreak = (
+    inlineText: string,
+    detailLines: string[],
+  ): string[] => {
+    const inline = withLabel(inlineText)
+    if (!wrap || stringCellWidth(inline) <= width) return [inline]
+    return [label, ...detailLines.map((d) => `${detailIndent}${d}`)]
+  }
 
   if (quota.status === 'error') return [withLabel('Remaining ?')]
   if (quota.status === 'unsupported') return [withLabel('unsupported')]
@@ -270,7 +298,7 @@ function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
         ? [sanitizeLine(win.label), pct]
         : [sanitizeLine(win.label)]
       : [pct]
-    const reset = compactReset(win.resetAt)
+    const reset = compactReset(win.resetAt, win.resetLabel)
     if (reset) {
       parts.push(`${sanitizeLine(win.resetLabel || 'Rst')} ${reset}`)
     }
@@ -280,28 +308,47 @@ function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
   // Multi-window rendering
   if (quota.windows && quota.windows.length > 0) {
     const parts = quota.windows.map(renderWindow)
+
+    // Build the detail lines (window texts + optional balance)
+    const details = [...parts]
+    if (balanceText && !parts.some((p) => p.includes('Balance '))) {
+      details.push(balanceText)
+    }
+
+    // Try inline first (single window, fits in one line)
     if (parts.length === 1) {
-      const first = withLabel(parts[0])
-      if (balanceText && !parts[0].includes('Balance ')) {
-        const indent = ' '.repeat(labelWidth + 1)
-        return [first, `${indent}${balanceText}`]
+      const firstInline = withLabel(parts[0])
+      if (!wrap || stringCellWidth(firstInline) <= width) {
+        // Inline fits — use classic layout
+        const lines = [firstInline]
+        if (balanceText && !parts[0].includes('Balance ')) {
+          lines.push(`${indent}${balanceText}`)
+        }
+        return lines
       }
-      return [first]
+      // Overflow — break: label on its own line, details indented
+      return [label, ...details.map((d) => `${detailIndent}${d}`)]
     }
-    const indent = ' '.repeat(labelWidth + 1)
-    const lines = [
-      withLabel(parts[0]),
-      ...parts.slice(1).map((part) => `${indent}${part}`),
-    ]
-    const alreadyHasBalance = parts.some((part) => part.includes('Balance '))
-    if (balanceText && !alreadyHasBalance) {
-      lines.push(`${indent}${balanceText}`)
+
+    // Multiple windows: try classic inline layout first
+    const firstInline = withLabel(parts[0])
+    if (!wrap || stringCellWidth(firstInline) <= width) {
+      const lines = [
+        firstInline,
+        ...parts.slice(1).map((part) => `${indent}${part}`),
+      ]
+      if (balanceText && !parts.some((p) => p.includes('Balance '))) {
+        lines.push(`${indent}${balanceText}`)
+      }
+      return lines
     }
-    return lines
+
+    // Overflow — break all
+    return [label, ...details.map((d) => `${detailIndent}${d}`)]
   }
 
   if (balanceText) {
-    return [withLabel(balanceText)]
+    return maybeBreak(balanceText, [balanceText])
   }
 
   // Fallback: single value from top-level remainingPercent
@@ -309,16 +356,24 @@ function compactQuotaWide(quota: QuotaSnapshot, labelWidth = 0) {
     quota.remainingPercent === undefined
       ? '?'
       : `${Math.round(quota.remainingPercent)}%`
-  const reset = compactReset(quota.resetAt)
-  return [withLabel(`Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`)]
+  const reset = compactReset(quota.resetAt, 'Rst')
+  const fallbackText = `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
+  return maybeBreak(fallbackText, [fallbackText])
 }
-
-function compactReset(iso: string | undefined) {
+function compactReset(iso: string | undefined, resetLabel?: string) {
   if (!iso) return undefined
   const timestamp = Date.parse(iso)
   if (Number.isNaN(timestamp)) return undefined
 
   const value = new Date(timestamp)
+
+  // RightCode subscriptions are displayed as an expiry date (MM-DD), not a time.
+  // Using UTC here makes the output stable across time zones for ISO `...Z` input.
+  if (typeof resetLabel === 'string' && resetLabel.startsWith('Exp')) {
+    const two = (num: number) => `${num}`.padStart(2, '0')
+    return `${two(value.getUTCMonth() + 1)}-${two(value.getUTCDate())}`
+  }
+
   const now = new Date()
   const sameDay =
     value.getFullYear() === now.getFullYear() &&
@@ -567,7 +622,7 @@ export function renderToastMessage(
             win.remainingPercent === undefined
               ? '-'
               : `${win.remainingPercent.toFixed(1)}%`
-          const reset = compactReset(win.resetAt)
+          const reset = compactReset(win.resetAt, win.resetLabel)
           const parts = [win.label]
           if (showPercent) parts.push(pct)
           if (reset) parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
@@ -600,7 +655,7 @@ export function renderToastMessage(
         item.remainingPercent === undefined
           ? '-'
           : `${item.remainingPercent.toFixed(1)}%`
-      const reset = compactReset(item.resetAt)
+      const reset = compactReset(item.resetAt, 'Rst')
       return [
         {
           label: quotaDisplayLabel(item),

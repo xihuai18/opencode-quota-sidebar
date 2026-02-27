@@ -109,6 +109,8 @@ export type QuotaSidebarConfig = {
     width: number
     showCost: boolean
     showQuota: boolean
+    /** When true, wrap long quota lines and indent continuations. */
+    wrapQuotaLines: boolean
     /** Include descendant subagent sessions in session-scoped usage/quota. */
     includeChildren: boolean
     /** Max descendant traversal depth when includeChildren is enabled. */

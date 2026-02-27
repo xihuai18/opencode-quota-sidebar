@@ -15,6 +15,7 @@ function makeConfig(
       width: 36,
       showCost: true,
       showQuota: true,
+      wrapQuotaLines: true,
       includeChildren: true,
       childrenMaxDepth: 6,
       childrenMaxSessions: 128,

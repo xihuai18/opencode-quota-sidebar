@@ -53,6 +53,7 @@ export const defaultConfig: QuotaSidebarConfig = {
     width: 36,
     showCost: true,
     showQuota: true,
+    wrapQuotaLines: true,
     includeChildren: true,
     childrenMaxDepth: 6,
     childrenMaxSessions: 128,
@@ -118,6 +119,10 @@ export async function loadConfig(paths: string[]) {
       ),
       showCost: asBoolean(sidebar.showCost, defaultConfig.sidebar.showCost),
       showQuota: asBoolean(sidebar.showQuota, defaultConfig.sidebar.showQuota),
+      wrapQuotaLines: asBoolean(
+        sidebar.wrapQuotaLines,
+        defaultConfig.sidebar.wrapQuotaLines,
+      ),
       includeChildren: asBoolean(
         sidebar.includeChildren,
         defaultConfig.sidebar.includeChildren,

@@ -16,6 +16,7 @@ function makeConfig(width = 36): QuotaSidebarConfig {
       width,
       showCost: true,
       showQuota: true,
+      wrapQuotaLines: true,
       includeChildren: true,
       childrenMaxDepth: 6,
       childrenMaxSessions: 128,
@@ -214,6 +215,7 @@ describe('renderSidebarTitle', () => {
   it('respects sidebar.showQuota=false', () => {
     const config = makeConfig(60)
     config.sidebar.showQuota = false
+    config.sidebar.wrapQuotaLines = false
     const quotas: QuotaSnapshot[] = [
       {
         providerID: 'openai',
