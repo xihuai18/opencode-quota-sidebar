@@ -1,5 +1,12 @@
 # AGENTS.md — opencode-quota-sidebar
 
+## 0. 快速阅读
+
+- 纯插件实现：只能通过 `@opencode-ai/plugin` / `@opencode-ai/sdk`，不修改 OpenCode 源码。
+- Sidebar title 是纯文本字符串：全局粗体/同色，不能注入 JSX/HTML，默认禁止 ANSI 转义码。
+- 所有 title 行必须走 `fitLine()` 截断到 `sidebar.width`，避免 resize 场景的渲染污染/抖动。
+- 新增 quota provider：看 `5.8`-`5.10`，核心是实现 `QuotaProviderAdapter` 并注册到 `QuotaProviderRegistry`。
+
 ## 1. 项目目的
 
 OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session title 中显示 token 用量和订阅额度信息。不 fork OpenCode，纯插件实现。
@@ -118,7 +125,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ---
 
-## 5. Quota 显示规则
+## 5. Quota 规则（展示 + 扩展）
 
 ### 5.1 Sidebar 中的 quota
 
@@ -187,6 +194,68 @@ Editor-Plugin-Version: copilot-chat/0.35.0
 Copilot-Integration-Id: vscode-chat
 ```
 
+### 5.8 新增 Quota Provider 的扩展性（内置支持）
+
+本插件的 quota 扩展点是 `QuotaProviderAdapter`（见 `src/providers/types.ts`）+ `QuotaProviderRegistry`（见 `src/providers/registry.ts`）。新增一个内置 provider 通常不需要改渲染层，主要工作集中在新增/注册 adapter。
+
+实现步骤（推荐顺序）：
+
+1. 新增 adapter 文件（建议放在 `src/providers/core/` 或 `src/providers/third_party/`）
+   - 入口类型：`QuotaProviderAdapter`
+   - 必填字段：`id`, `label`, `shortLabel`, `sortOrder`, `matchScore()`, `isEnabled()`, `fetch()`
+   - 可选字段：`normalizeID()`（当 providerID 变体很多时强烈建议实现）
+
+2. 在 `src/providers/index.ts` 的 `createDefaultProviderRegistry()` 注册 adapter
+   - registry 采用“分数最高者胜出”的策略（`matchScore()`），分数相同用 `sortOrder` 做 tie-break
+   - 注意避免多个 adapter 的匹配条件重叠导致误匹配（尤其是基于 `baseURL`/前缀的匹配）
+
+3. 处理鉴权（auth）来源
+   - auth 来自 OpenCode 的 auth 存储（`src/quota.ts:loadAuthMap()`）
+   - runtime 会按 `providerID / normalizedProviderID / adapterID` 依次尝试匹配 auth key（`src/quota.ts:pickAuth()`）
+   - 如果 provider 需要刷新 token 并持久化：使用 `fetch(ctx).updateAuth?.(providerID, nextAuth)`（参考 `src/providers/core/openai.ts`）
+
+4. 设计 provider 匹配与规范化策略（最容易影响接入复杂度）
+   - 仅按 `providerID` 精确匹配：实现最简单，但对“用户自定义 providerID（别名/多实例）”不友好
+   - 按前缀匹配 + `normalizeID()`：适合企业版/多变体（参考 `src/providers/core/copilot.ts`）
+   - 按 `providerOptions.baseURL` 匹配：适合“通过配置创建 provider 实例”的场景（参考 `src/providers/third_party/rightcode.ts`）
+
+5. 返回统一的 `QuotaSnapshot` 结构（见 `src/types.ts`）
+   - 支持单窗口：设置 `remainingPercent/resetAt` 或 `windows: [{ label, remainingPercent, resetAt }]`
+   - 支持多窗口：返回 `windows: QuotaWindow[]`；渲染层会自动缩进续行（见 `src/format.ts:compactQuotaWide()`）
+   - 余额类型 quota：返回 `balance: { amount, currency }`
+   - `status` 统一使用：`ok/unavailable/unsupported/error`
+   - 注意：sidebar title 禁止注入 ANSI；所有文本最终会经过截断（`fitLine()`）
+
+6. 默认报告展示（`quota_summary`）
+   - `quota_summary` 会拉取“默认 provider + 当前配置中的 provider”并展示订阅额度（见 `src/tools.ts` / `src/quota_service.ts`）
+   - 内置“默认 provider”列表目前是硬编码（`src/quota.ts:listDefaultQuotaProviderIDs()`）。如果新增 provider 也希望默认出现在 report，需要更新该列表。
+
+测试建议：
+
+- 单元测试：在 `src/__tests__/quota.test.ts` 覆盖 adapter 的解析与状态分支（ok/unavailable/unsupported/error）
+- 格式测试：在 `src/__tests__/format.test.ts` 覆盖渲染（多窗口换行/缩进/宽度截断）
+
+### 5.9 新增 Quota Provider 的扩展性（用户自定义支持）
+
+“用户自定义 provider”分两种：
+
+1. 复用已有 adapter（不改插件代码）
+   - 可行性取决于 adapter 的 `matchScore()` 策略是否能命中
+   - 例：Copilot 支持 `github-copilot-*` 变体（前缀匹配 + `normalizeID()`）；RightCode 可通过 `providerOptions.baseURL` 命中
+   - 反例：OpenAI adapter 当前仅匹配 `providerID === 'openai'`（见 `src/providers/core/openai.ts`），用户如果使用别名 providerID，默认不会命中 quota
+
+2. 接入一个全新服务（不改插件代码）
+   - 当前不支持“声明式/配置式”加载外部 quota adapter：adapter 列表在 `src/providers/index.ts` 静态注册
+   - 若需要支持新服务，必须把 adapter 作为本插件的内置支持加入（或 fork 维护）
+
+### 5.10 常见卡点与注意事项（新增 provider 时）
+
+- **通用层特例**：`src/quota.ts:authCandidates()`、`src/quota_service.ts:authScopeFor()` 存在 Copilot/OpenAI 的硬编码分支；新增 provider 若也需要“多账号/多租户 scope”隔离，可能需要扩展这些通用逻辑
+- **缓存隔离**：quota 缓存 key 由 `quotaCacheKey()`（含 `baseURL`）+ `authScopeFor()` 组合而成；如果 provider 的隔离维度既不是 baseURL 也不是 auth key，需要额外设计 cache scope
+- **匹配冲突**：registry 以 `matchScore()` 决胜；避免不同 adapter 对同一 provider 产生正分匹配，否则可能出现误命中
+- **并发请求**：`src/quota_service.ts:getQuotaSnapshots()` 当前对候选 provider 使用 `Promise.all` 并发拉取；新增 provider 数量大时可能放大瞬时请求量（必要时考虑引入并发上限）
+- **渲染约束**：quota 文本会被截断到 `sidebar.width`；不要依赖颜色/字重/ANSI；长行优先通过 `windows` 拆行展示
+
 ---
 
 ## 6. 数据架构
@@ -248,7 +317,7 @@ Copilot-Integration-Id: vscode-chat
 | `src/storage_chunks.ts` | chunk 读写、LRU 缓存、原子写入与 symlink 防护                   |
 | `src/types.ts`          | 共享类型定义                                                    |
 | `src/helpers.ts`        | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
-| `src/__tests__/`        | 单元测试（当前 110 个）                                         |
+| `src/__tests__/`        | 单元测试（node --test）                                         |
 
 ---
 
@@ -278,7 +347,7 @@ Copilot-Integration-Id: vscode-chat
 
 ```bash
 npm run build    # tsc 编译
-npm test         # node --test (dist)，当前 114/114 pass
+npm test         # node --test (dist)
 ```
 
 修改后必须 build + test 通过才算完成。
