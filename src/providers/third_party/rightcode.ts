@@ -68,8 +68,11 @@ type ParsedSubscription = {
 
 function formatQuotaValue(value: number) {
   if (!Number.isFinite(value)) return '0'
-  const rounded = Number(value.toFixed(2))
-  return Number.isInteger(rounded) ? `${Math.trunc(rounded)}` : `${rounded}`
+  if (Math.abs(value) >= 10) {
+    const one = value.toFixed(1)
+    return one.endsWith('.0') ? one.slice(0, -2) : one
+  }
+  return value.toFixed(2)
 }
 
 function parseSubscription(

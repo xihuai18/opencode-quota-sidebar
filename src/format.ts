@@ -144,9 +144,22 @@ function fitLine(value: string, width: number) {
   return `${head}~`
 }
 
-function formatApiCostValue(value: number) {
+function formatCurrency(value: number, currency: string) {
   const safe = Number.isFinite(value) && value > 0 ? value : 0
-  return `$${safe.toFixed(2)}`
+  const prefix = typeof currency === 'string' && currency ? currency : '$'
+  if (safe === 0) return `${prefix}0.00`
+  if (safe < 10) return `${prefix}${safe.toFixed(2)}`
+  const one = safe.toFixed(1)
+  const trimmed = one.endsWith('.0') ? one.slice(0, -2) : one
+  return `${prefix}${trimmed}`
+}
+
+function formatUsd(value: number) {
+  return formatCurrency(value, '$')
+}
+
+function formatApiCostValue(value: number) {
+  return formatUsd(value)
 }
 
 function formatApiCostLine(value: number) {
@@ -284,7 +297,7 @@ function compactQuotaWide(
   if (quota.status !== 'ok') return []
 
   const balanceText = quota.balance
-    ? `Balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`
+    ? `Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
     : undefined
 
   const renderWindow = (win: NonNullable<QuotaSnapshot['windows']>[number]) => {
@@ -427,7 +440,7 @@ export function renderMarkdownReport(
       canonical === 'github-copilot' ||
       rightCodeSubscriptionProviderIDs.has(providerID)
     if (isSubscription) return '-'
-    return `$${cost.toFixed(3)}`
+    return formatUsd(cost)
   }
 
   const isSubscriptionMeasuredProvider = (providerID: string) => {
@@ -442,18 +455,17 @@ export function renderMarkdownReport(
   const apiCostCell = (providerID: string, apiCost: number) => {
     const canonical = canonicalProviderID(providerID)
     if (canonical === 'github-copilot') return '-'
-    if (!Number.isFinite(apiCost) || apiCost <= 0) return '$0.00'
-    return `$${apiCost.toFixed(2)}`
+    return formatUsd(apiCost)
   }
 
   const measuredCostSummaryValue = () => {
     const providers = Object.values(usage.providers)
-    if (providers.length === 0) return `$${usage.cost.toFixed(4)}`
+    if (providers.length === 0) return formatUsd(usage.cost)
     const hasNonSubscription = providers.some(
       (provider) => !isSubscriptionMeasuredProvider(provider.providerID),
     )
     if (!hasNonSubscription) return '-'
-    return `$${usage.cost.toFixed(4)}`
+    return formatUsd(usage.cost)
   }
 
   const apiCostSummaryValue = () => {
@@ -499,7 +511,7 @@ export function renderMarkdownReport(
     if (quota.status === 'ok' && quota.balance) {
       return [
         mdCell(
-          `- ${quota.label}: ${quota.status} | balance ${quota.balance.currency}${quota.balance.amount.toFixed(2)}`,
+          `- ${quota.label}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
         ),
       ]
     }
@@ -600,7 +612,7 @@ export function renderToastMessage(
       .sort((left, right) => right.apiCost - left.apiCost)
       .map((provider) => ({
         label: displayShortLabel(provider.providerID),
-        value: `$${provider.apiCost.toFixed(2)}`,
+        value: formatUsd(provider.apiCost),
       }))
 
     lines.push('')
@@ -635,7 +647,7 @@ export function renderToastMessage(
         if (item.balance) {
           pairs.push({
             label: '',
-            value: `Balance ${item.balance.currency}${item.balance.amount.toFixed(2)}`,
+            value: `Balance ${formatCurrency(item.balance.amount, item.balance.currency)}`,
           })
         }
 
@@ -646,7 +658,7 @@ export function renderToastMessage(
         return [
           {
             label: quotaDisplayLabel(item),
-            value: `Balance ${item.balance.currency}${item.balance.amount.toFixed(2)}`,
+            value: `Balance ${formatCurrency(item.balance.amount, item.balance.currency)}`,
           },
         ]
       }

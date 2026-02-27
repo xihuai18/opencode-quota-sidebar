@@ -112,6 +112,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 - API Cost：按 model `input/output/cache` 单价估算（用于订阅制 provider 的 API 等价成本观察）
 - API Cost 中 Output 单价乘 `(tokens.output + tokens.reasoning)`（Reasoning 按 output/completion 单价计费）
 - `sidebar.showCost` 同时影响 sidebar title、toast、`quota_summary` markdown report
+- 金额显示采用自适应精度：`< $10` 保留 2 位小数，`>= $10` 保留 1 位小数并去掉尾随 `.0`（例如 `$0.02`、`$2.34`、`$258.3`、`$200`）
 - Copilot 暂不显示 `Cost as API`（OpenCode pricing 输出格式不稳定/可能缺失）
 - 若模型缺少单价映射或 provider 不在订阅制范围，API Cost 可能显示为 `0.00`
 
@@ -138,7 +139,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ### 5.3 Toast 格式
 
-- Token 区块后显示 `Cost as API` 区块，按 provider 列出 API 等价成本（`$xx.xx`）
+- Token 区块后显示 `Cost as API` 区块，按 provider 列出 API 等价成本（金额显示同 4.4 的自适应精度规则）
 - Quota 区块沿用 sidebar 规则：多窗口缩进续行、RightCode 不显示日额度百分比
 - RightCode 命中订阅时显示两行：`Daily ... Exp ...` + `Balance ...`
 

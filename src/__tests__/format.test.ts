@@ -250,7 +250,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC Balance \$258\.31/)
+    assert.match(title, /RC Balance \$258\.3/)
   })
 
   it('renders reset time and indented multi-window lines', () => {
@@ -318,7 +318,7 @@ describe('renderSidebarTitle', () => {
         },
         windows: [
           {
-            label: 'Daily $88.88/$60',
+            label: 'Daily $88.9/$60',
             showPercent: false,
             remainingPercent: 148,
             resetAt: '2026-02-27T02:50:08Z',
@@ -334,9 +334,9 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC\s+Daily \$88\.88\/\$60 Exp 02-27/)
-    assert.match(title, /\s+Balance \$259\.97/)
-    assert.doesNotMatch(title, /RC\s+Daily \$88\.88\/\$60\s+148%/)
+    assert.match(title, /RC\s+Daily \$88\.9\/\$60 Exp 02-27/)
+    assert.match(title, /\s+Balance \$260/)
+    assert.doesNotMatch(title, /RC\s+Daily \$88\.9\/\$60\s+148%/)
   })
 
   it('renders Exp+ for RightCode when multiple expiries exist', () => {
@@ -350,7 +350,7 @@ describe('renderSidebarTitle', () => {
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $88.88/$60',
+            label: 'Daily $88.9/$60',
             showPercent: false,
             resetAt: '2026-02-27T02:50:08Z',
             resetLabel: 'Exp+',
@@ -365,7 +365,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC\s+Daily \$88\.88\/\$60 Exp\+ 02-27/)
+    assert.match(title, /RC\s+Daily \$88\.9\/\$60 Exp\+ 02-27/)
   })
 
   it('shows all used providers in sidebar', () => {
@@ -538,7 +538,7 @@ describe('renderMarkdownReport', () => {
           shortLabel: 'RC-openai',
           status: 'ok',
           checkedAt: Date.now(),
-          windows: [{ label: 'Daily $55.55/$60', showPercent: false }],
+          windows: [{ label: 'Daily $55.6/$60', showPercent: false }],
         },
       ],
       { showCost: true },
@@ -587,7 +587,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.876 \| \$4\.57 \|/,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.88 \| \$4\.57 \|/,
     )
   })
 })
@@ -639,7 +639,7 @@ describe('renderToastMessage', () => {
         },
         windows: [
           {
-            label: 'Daily $83.37/$60',
+            label: 'Daily $83.4/$60',
             showPercent: false,
             remainingPercent: 138.95,
             resetAt: '2026-02-27T02:50:08Z',
@@ -649,9 +649,9 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(toast, /RC\s+Daily \$83\.37\/\$60 Exp 02-27/)
-    assert.match(toast, /\s+Balance \$248\.40/)
-    assert.doesNotMatch(toast, /Daily \$83\.37\/\$60\s+138\.9%/)
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60 Exp 02-27/)
+    assert.match(toast, /\s+Balance \$248\.4/)
+    assert.doesNotMatch(toast, /Daily \$83\.4\/\$60\s+138\.9%/)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
@@ -665,7 +665,7 @@ describe('renderToastMessage', () => {
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $83.37/$60',
+            label: 'Daily $83.4/$60',
             showPercent: false,
             resetAt: '2026-02-27T02:50:08Z',
             resetLabel: 'Exp+',
@@ -674,7 +674,7 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(toast, /RC\s+Daily \$83\.37\/\$60 Exp\+ 02-27/)
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60 Exp\+ 02-27/)
   })
 
   it('renders per-provider Cost as API section in toast', () => {
@@ -777,7 +777,7 @@ describe('renderToastMessage', () => {
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $55.55/$60',
+            label: 'Daily $55.6/$60',
             showPercent: false,
             resetLabel: 'Exp',
             resetAt: '2026-02-27T02:50:08Z',
@@ -790,8 +790,8 @@ describe('renderToastMessage', () => {
       .split('\n')
       .filter((line) => /^\s*RC\s+/.test(line)).length
     assert.equal(rightCodeLabelCount, 1)
-    assert.match(toast, /RC\s+Daily \$55\.55\/\$60 Exp 02-27/)
-    assert.match(toast, /\s+Balance \$245\.84/)
+    assert.match(toast, /RC\s+Daily \$55\.6\/\$60 Exp 02-27/)
+    assert.match(toast, /\s+Balance \$245\.8/)
   })
 
   it('splits RightCode balance into RC when both RC and RC-variant exist', () => {
@@ -815,7 +815,7 @@ describe('renderToastMessage', () => {
         balance: { amount: 999, currency: '$' },
         windows: [
           {
-            label: 'Daily $41.34/$60',
+            label: 'Daily $41.3/$60',
             showPercent: false,
             resetLabel: 'Exp',
             resetAt: '2026-02-27T02:50:08Z',
@@ -825,9 +825,9 @@ describe('renderToastMessage', () => {
     ])
 
     // Variant should not show balance when base RC exists.
-    assert.match(toast, /RC-openai\s+Daily \$41\.34\/\$60 Exp 02-27/)
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp 02-27/)
     assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance/)
-    assert.match(toast, /RC\s+Balance \$200\.00/)
+    assert.match(toast, /RC\s+Balance \$200/)
   })
 
   it('clears RC-variant balance even if RC base is not providerID=rightcode', () => {
@@ -851,7 +851,7 @@ describe('renderToastMessage', () => {
         balance: { amount: 243.5, currency: '$' },
         windows: [
           {
-            label: 'Daily $41.34/$60',
+            label: 'Daily $41.3/$60',
             showPercent: false,
             resetLabel: 'Exp',
             resetAt: '2026-02-27T02:50:08Z',
@@ -860,8 +860,8 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(toast, /RC\s+Balance \$243\.50/)
-    assert.match(toast, /RC-openai\s+Daily \$41\.34\/\$60 Exp 02-27/)
-    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.50/)
+    assert.match(toast, /RC\s+Balance \$243\.5/)
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp 02-27/)
+    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.5/)
   })
 })
