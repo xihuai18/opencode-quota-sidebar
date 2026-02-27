@@ -1,6 +1,6 @@
 {
   "name": "@leo000001/opencode-quota-sidebar",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "OpenCode plugin that shows quota and token usage in session titles",
   "type": "module",
   "main": "dist/index.js",
