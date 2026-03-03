@@ -136,9 +136,35 @@ You can add these command templates in `opencode.json` so you can run `/qday`, `
 }
 ```
 
-## Optional project config
+## Configuration files
 
-Create `quota-sidebar.config.json` under your project root:
+Recommended global config:
+
+- `~/.config/opencode/quota-sidebar.config.json`
+
+Optional project overrides:
+
+- `<worktree>/quota-sidebar.config.json`
+- `<worktree>/.opencode/quota-sidebar.config.json`
+
+Optional explicit override:
+
+- `OPENCODE_QUOTA_CONFIG=/absolute/path/to/config.json`
+
+Optional config-home override:
+
+- `OPENCODE_QUOTA_CONFIG_HOME=/absolute/path/to/config-home`
+
+Resolution order (low -> high):
+
+1. Global config (`~/.config/opencode/...`)
+2. Project root config
+3. `.opencode` project config
+4. `OPENCODE_QUOTA_CONFIG`
+
+Values are layered; later sources override earlier ones.
+
+Example config:
 
 ```json
 {
@@ -215,6 +241,10 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - State/chunk file writes refuse to write through symlinked targets (best-effort defense-in-depth).
 - The `OPENCODE_QUOTA_DATA_HOME` env var overrides the OpenCode data directory
   path (for testing); do not set this in production.
+- The `OPENCODE_QUOTA_CONFIG_HOME` env var overrides global config directory
+  lookup (`<config-home>/opencode`).
+- The `OPENCODE_QUOTA_CONFIG` env var points to an explicit config file and
+  applies as the highest-priority override.
 
 ## Contributing
 

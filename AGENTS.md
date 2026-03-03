@@ -34,6 +34,17 @@ OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session t
 
 本插件在 `plugins/opencode-quota-sidebar/` 下有自己的 `.git`，独立于父仓库。
 
+### 2.4 配置与数据放置规范
+
+- 配置采用“全局默认 + 项目覆盖”分层：
+  1. 全局：`~/.config/opencode/quota-sidebar.config.json`
+  2. 项目：`<worktree>/quota-sidebar.config.json`
+  3. 项目局部：`<worktree>/.opencode/quota-sidebar.config.json`
+  4. 显式覆盖：`OPENCODE_QUOTA_CONFIG=/absolute/path/config.json`
+- 加载语义是“层叠合并”，后层覆盖前层同名字段，不再是 first-hit wins。
+- 数据只放在 `<opencode-data>`（`quota-sidebar.state.json` + `quota-sidebar-sessions/`），不把状态写入项目目录。
+- 全局配置目录可通过 `OPENCODE_QUOTA_CONFIG_HOME` 覆盖，全局数据目录可通过 `OPENCODE_QUOTA_DATA_HOME` 覆盖。
+
 ---
 
 ## 3. Sidebar 渲染约束（关键）

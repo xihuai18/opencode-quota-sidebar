@@ -17,6 +17,7 @@ import {
   loadConfig,
   loadState,
   normalizeTimestampMs,
+  resolveOpencodeConfigDir,
   resolveOpencodeDataDir,
   saveState,
   stateFilePath,
@@ -34,9 +35,15 @@ import { createTitleApplicator } from './title_apply.js'
 
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const quotaRuntime = createQuotaRuntime()
+  const configDir = resolveOpencodeConfigDir()
+  const configOverride = process.env.OPENCODE_QUOTA_CONFIG?.trim()
   const config = await loadConfig([
-    path.join(input.directory, 'quota-sidebar.config.json'),
+    path.join(configDir, 'quota-sidebar.config.json'),
     path.join(input.worktree, 'quota-sidebar.config.json'),
+    path.join(input.directory, 'quota-sidebar.config.json'),
+    path.join(input.worktree, '.opencode', 'quota-sidebar.config.json'),
+    path.join(input.directory, '.opencode', 'quota-sidebar.config.json'),
+    ...(configOverride ? [path.resolve(configOverride)] : []),
   ])
 
   const dataDir = resolveOpencodeDataDir()

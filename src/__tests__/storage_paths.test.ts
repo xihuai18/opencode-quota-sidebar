@@ -4,10 +4,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
-import { resolveOpencodeDataDir } from '../storage_paths.js'
+import {
+  resolveOpencodeConfigDir,
+  resolveOpencodeDataDir,
+} from '../storage_paths.js'
 
 type EnvSnapshot = {
+  OPENCODE_QUOTA_CONFIG_HOME?: string
   OPENCODE_QUOTA_DATA_HOME?: string
+  XDG_CONFIG_HOME?: string
   XDG_DATA_HOME?: string
 }
 
@@ -15,14 +20,18 @@ const envStack: EnvSnapshot[] = []
 
 function pushEnv() {
   envStack.push({
+    OPENCODE_QUOTA_CONFIG_HOME: process.env.OPENCODE_QUOTA_CONFIG_HOME,
     OPENCODE_QUOTA_DATA_HOME: process.env.OPENCODE_QUOTA_DATA_HOME,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
     XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   })
 }
 
 function popEnv() {
   const prev = envStack.pop() || {}
+  process.env.OPENCODE_QUOTA_CONFIG_HOME = prev.OPENCODE_QUOTA_CONFIG_HOME
   process.env.OPENCODE_QUOTA_DATA_HOME = prev.OPENCODE_QUOTA_DATA_HOME
+  process.env.XDG_CONFIG_HOME = prev.XDG_CONFIG_HOME
   process.env.XDG_DATA_HOME = prev.XDG_DATA_HOME
 }
 
@@ -46,6 +55,27 @@ describe('resolveOpencodeDataDir', () => {
     process.env.XDG_DATA_HOME = `  ${dir}  `
     assert.equal(
       resolveOpencodeDataDir(),
+      path.join(path.resolve(dir), 'opencode'),
+    )
+  })
+})
+
+describe('resolveOpencodeConfigDir', () => {
+  it('trims OPENCODE_QUOTA_CONFIG_HOME and takes precedence', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-config-home-'))
+    pushEnv()
+    process.env.XDG_CONFIG_HOME = `  ${path.join(dir, 'xdg')}  `
+    process.env.OPENCODE_QUOTA_CONFIG_HOME = `  ${dir}  `
+    assert.equal(resolveOpencodeConfigDir(), path.resolve(dir))
+  })
+
+  it('trims XDG_CONFIG_HOME when override is absent', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-xdg-config-'))
+    pushEnv()
+    delete process.env.OPENCODE_QUOTA_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = `  ${dir}  `
+    assert.equal(
+      resolveOpencodeConfigDir(),
       path.join(path.resolve(dir), 'opencode'),
     )
   })

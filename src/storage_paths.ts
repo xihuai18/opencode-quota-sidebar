@@ -23,6 +23,21 @@ export function resolveOpencodeDataDir() {
   return path.join(os.homedir(), '.local', 'share', 'opencode')
 }
 
+/**
+ * Resolve OpenCode config directory.
+ *
+ * Uses XDG config conventions with optional plugin-scoped override.
+ */
+export function resolveOpencodeConfigDir() {
+  const override = process.env.OPENCODE_QUOTA_CONFIG_HOME?.trim()
+  if (override) return path.resolve(override)
+
+  const xdg = process.env.XDG_CONFIG_HOME?.trim()
+  if (xdg) return path.join(path.resolve(xdg), 'opencode')
+
+  return path.join(os.homedir(), '.config', 'opencode')
+}
+
 export function stateFilePath(dataDir: string) {
   return path.join(dataDir, 'quota-sidebar.state.json')
 }

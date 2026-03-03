@@ -26,6 +26,7 @@ import { parseQuotaCache } from './storage_parse.js'
 import {
   authFilePath,
   chunkRootPathFromStateFile,
+  resolveOpencodeConfigDir,
   resolveOpencodeDataDir,
   stateFilePath,
 } from './storage_paths.js'
@@ -41,6 +42,7 @@ export {
   authFilePath,
   dateKeyFromTimestamp,
   normalizeTimestampMs,
+  resolveOpencodeConfigDir,
   resolveOpencodeDataDir,
   stateFilePath,
 }
@@ -87,129 +89,127 @@ export function defaultState(): QuotaSidebarState {
 // ─── Config loading ──────────────────────────────────────────────────────────
 
 export async function loadConfig(paths: string[]) {
-  const existing = await Promise.all(
-    paths.map(async (filePath) => {
-      const stat = await fs.stat(filePath).catch(swallow('loadConfig:stat'))
-      if (!stat || !stat.isFile()) return undefined
-      return filePath
-    }),
-  )
+  const mergeLayer = (
+    base: QuotaSidebarConfig,
+    parsed: Record<string, unknown>,
+  ): QuotaSidebarConfig => {
+    const sidebar = isRecord(parsed.sidebar) ? parsed.sidebar : {}
+    const quota = isRecord(parsed.quota) ? parsed.quota : {}
+    const toast = isRecord(parsed.toast) ? parsed.toast : {}
+    const providers = isRecord(quota.providers) ? quota.providers : {}
 
-  const selected = existing.find((value) => value)
-  if (!selected) return defaultConfig
-
-  const parsed = await fs
-    .readFile(selected, 'utf8')
-    .then((value) => JSON.parse(value) as unknown)
-    .catch(swallow('loadConfig:read'))
-
-  if (!isRecord(parsed)) return defaultConfig
-
-  const sidebar = isRecord(parsed.sidebar) ? parsed.sidebar : {}
-  const quota = isRecord(parsed.quota) ? parsed.quota : {}
-  const toast = isRecord(parsed.toast) ? parsed.toast : {}
-  const providers = isRecord(quota.providers) ? quota.providers : {}
-
-  return {
-    sidebar: {
-      enabled: asBoolean(sidebar.enabled, defaultConfig.sidebar.enabled),
-      width: Math.max(
-        20,
-        Math.min(60, asNumber(sidebar.width, defaultConfig.sidebar.width)),
+    const mergedProviders = {
+      ...base.quota.providers,
+      ...Object.entries(providers).reduce<Record<string, { enabled?: boolean }>>(
+        (acc, [id, value]) => {
+          if (!isRecord(value)) return acc
+          if (typeof value.enabled === 'boolean') {
+            acc[id] = { enabled: value.enabled }
+          }
+          return acc
+        },
+        {},
       ),
-      showCost: asBoolean(sidebar.showCost, defaultConfig.sidebar.showCost),
-      showQuota: asBoolean(sidebar.showQuota, defaultConfig.sidebar.showQuota),
-      wrapQuotaLines: asBoolean(
-        sidebar.wrapQuotaLines,
-        defaultConfig.sidebar.wrapQuotaLines,
-      ),
-      includeChildren: asBoolean(
-        sidebar.includeChildren,
-        defaultConfig.sidebar.includeChildren,
-      ),
-      childrenMaxDepth: Math.max(
-        1,
-        Math.min(
-          32,
-          Math.floor(
-            asNumber(
-              sidebar.childrenMaxDepth,
-              defaultConfig.sidebar.childrenMaxDepth,
+    }
+
+    return {
+      sidebar: {
+        enabled: asBoolean(sidebar.enabled, base.sidebar.enabled),
+        width: Math.max(20, Math.min(60, asNumber(sidebar.width, base.sidebar.width))),
+        showCost: asBoolean(sidebar.showCost, base.sidebar.showCost),
+        showQuota: asBoolean(sidebar.showQuota, base.sidebar.showQuota),
+        wrapQuotaLines: asBoolean(
+          sidebar.wrapQuotaLines,
+          base.sidebar.wrapQuotaLines,
+        ),
+        includeChildren: asBoolean(
+          sidebar.includeChildren,
+          base.sidebar.includeChildren,
+        ),
+        childrenMaxDepth: Math.max(
+          1,
+          Math.min(
+            32,
+            Math.floor(
+              asNumber(sidebar.childrenMaxDepth, base.sidebar.childrenMaxDepth),
             ),
           ),
         ),
-      ),
-      childrenMaxSessions: Math.max(
-        0,
-        Math.min(
-          2000,
-          Math.floor(
-            asNumber(
-              sidebar.childrenMaxSessions,
-              defaultConfig.sidebar.childrenMaxSessions,
+        childrenMaxSessions: Math.max(
+          0,
+          Math.min(
+            2000,
+            Math.floor(
+              asNumber(
+                sidebar.childrenMaxSessions,
+                base.sidebar.childrenMaxSessions,
+              ),
             ),
           ),
         ),
-      ),
-      childrenConcurrency: Math.max(
-        1,
-        Math.min(
-          10,
-          Math.floor(
-            asNumber(
-              sidebar.childrenConcurrency,
-              defaultConfig.sidebar.childrenConcurrency,
+        childrenConcurrency: Math.max(
+          1,
+          Math.min(
+            10,
+            Math.floor(
+              asNumber(
+                sidebar.childrenConcurrency,
+                base.sidebar.childrenConcurrency,
+              ),
             ),
           ),
         ),
-      ),
-    },
-    quota: {
-      refreshMs: Math.max(
-        30_000,
-        asNumber(quota.refreshMs, defaultConfig.quota.refreshMs),
-      ),
-      includeOpenAI: asBoolean(
-        quota.includeOpenAI,
-        defaultConfig.quota.includeOpenAI,
-      ),
-      includeCopilot: asBoolean(
-        quota.includeCopilot,
-        defaultConfig.quota.includeCopilot,
-      ),
-      includeAnthropic: asBoolean(
-        quota.includeAnthropic,
-        defaultConfig.quota.includeAnthropic,
-      ),
-      providers: Object.entries(providers).reduce<
-        Record<string, { enabled?: boolean }>
-      >((acc, [id, value]) => {
-        if (!isRecord(value)) return acc
-        if (typeof value.enabled === 'boolean') {
-          acc[id] = { enabled: value.enabled }
-        }
-        return acc
-      }, {}),
-      refreshAccessToken: asBoolean(
-        quota.refreshAccessToken,
-        defaultConfig.quota.refreshAccessToken,
-      ),
-      requestTimeoutMs: Math.max(
-        1000,
-        asNumber(quota.requestTimeoutMs, defaultConfig.quota.requestTimeoutMs),
-      ),
-    },
-    toast: {
-      durationMs: Math.max(
-        1000,
-        asNumber(toast.durationMs, defaultConfig.toast.durationMs),
-      ),
-    },
-    retentionDays: Math.max(
-      1,
-      asNumber(parsed.retentionDays, defaultConfig.retentionDays),
-    ),
+      },
+      quota: {
+        refreshMs: Math.max(30_000, asNumber(quota.refreshMs, base.quota.refreshMs)),
+        includeOpenAI: asBoolean(quota.includeOpenAI, base.quota.includeOpenAI),
+        includeCopilot: asBoolean(
+          quota.includeCopilot,
+          base.quota.includeCopilot,
+        ),
+        includeAnthropic: asBoolean(
+          quota.includeAnthropic,
+          base.quota.includeAnthropic,
+        ),
+        providers: mergedProviders,
+        refreshAccessToken: asBoolean(
+          quota.refreshAccessToken,
+          base.quota.refreshAccessToken,
+        ),
+        requestTimeoutMs: Math.max(
+          1000,
+          asNumber(quota.requestTimeoutMs, base.quota.requestTimeoutMs),
+        ),
+      },
+      toast: {
+        durationMs: Math.max(1000, asNumber(toast.durationMs, base.toast.durationMs)),
+      },
+      retentionDays: Math.max(1, asNumber(parsed.retentionDays, base.retentionDays)),
+    }
   }
+
+  const seen = new Set<string>()
+  let config = defaultConfig
+
+  for (const originalPath of paths) {
+    const filePath = path.resolve(originalPath)
+    const key = process.platform === 'win32' ? filePath.toLowerCase() : filePath
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const stat = await fs.stat(filePath).catch(swallow('loadConfig:stat'))
+    if (!stat || !stat.isFile()) continue
+
+    const parsed = await fs
+      .readFile(filePath, 'utf8')
+      .then((value) => JSON.parse(value) as unknown)
+      .catch(swallow('loadConfig:read'))
+
+    if (!isRecord(parsed)) continue
+    config = mergeLayer(config, parsed)
+  }
+
+  return config
 }
 
 // ─── State loading ───────────────────────────────────────────────────────────

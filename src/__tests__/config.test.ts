@@ -96,4 +96,65 @@ describe('loadConfig', () => {
     assert.equal(config.quota.providers?.rightcode?.enabled, false)
     assert.equal(config.quota.refreshAccessToken, true)
   })
+
+  it('merges global base with project override in order', async () => {
+    const dir = await makeTempDir()
+    const globalPath = path.join(dir, 'global.json')
+    const projectPath = path.join(dir, 'project.json')
+
+    await fs.writeFile(
+      globalPath,
+      JSON.stringify({
+        sidebar: {
+          showCost: false,
+          width: 30,
+        },
+        quota: {
+          includeOpenAI: false,
+          providers: {
+            rightcode: { enabled: false },
+          },
+        },
+      }),
+    )
+
+    await fs.writeFile(
+      projectPath,
+      JSON.stringify({
+        sidebar: {
+          width: 48,
+          showQuota: false,
+        },
+        quota: {
+          providers: {
+            rightcode: { enabled: true },
+          },
+        },
+      }),
+    )
+
+    const config = await loadConfig([globalPath, projectPath])
+    assert.equal(config.sidebar.showCost, false)
+    assert.equal(config.sidebar.showQuota, false)
+    assert.equal(config.sidebar.width, 48)
+    assert.equal(config.quota.includeOpenAI, false)
+    assert.equal(config.quota.providers?.rightcode?.enabled, true)
+  })
+
+  it('deduplicates repeated config paths', async () => {
+    const dir = await makeTempDir()
+    const filePath = path.join(dir, 'quota-sidebar.config.json')
+
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        sidebar: {
+          width: 42,
+        },
+      }),
+    )
+
+    const config = await loadConfig([filePath, filePath])
+    assert.equal(config.sidebar.width, 42)
+  })
 })
