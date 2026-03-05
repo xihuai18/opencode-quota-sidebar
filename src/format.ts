@@ -237,14 +237,14 @@ export function renderSidebarTitle(
       return Math.max(max, stringCellWidth(label))
     }, 0)
 
-      const quotaItems = visibleQuotas
-        .flatMap((item) =>
-          compactQuotaWide(item, labelWidth, {
-            width,
-            wrapLines: config.sidebar.wrapQuotaLines,
-          }),
-        )
-        .filter((s): s is string => Boolean(s))
+    const quotaItems = visibleQuotas
+      .flatMap((item) =>
+        compactQuotaWide(item, labelWidth, {
+          width,
+          wrapLines: config.sidebar.wrapQuotaLines,
+        }),
+      )
+      .filter((s): s is string => Boolean(s))
     if (quotaItems.length > 0) {
       lines.push('')
     }
@@ -259,9 +259,13 @@ export function renderSidebarTitle(
 /**
  * Multi-window quota format for sidebar.
  *
- * When wrapLines=false (or content fits):
+ * When provider has a single detail line and it fits:
  *   "OpenAI 5h 80% Rst 16:20"
- *   "       Weekly 70% Rst 03-01"
+ *
+ * When provider has multiple detail lines (multi-window or balance + window):
+ *   "OpenAI"
+ *   "  5h 80% Rst 16:20"
+ *   "  Weekly 70% Rst 03-01"
  *
  * When wrapLines=true and label+content overflows width:
  *   "RC-openai"
@@ -275,17 +279,13 @@ function compactQuotaWide(
 ) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
   const labelPadded = padEndCells(label, labelWidth)
-  const indent = ' '.repeat(labelWidth + 1)
   const detailIndent = '  '
   const withLabel = (content: string) => `${labelPadded} ${content}`
   const wrap = options?.wrapLines === true && (options?.width || 0) > 0
   const width = options?.width || 0
 
   /** If inline version overflows, break into label-line + indented detail lines. */
-  const maybeBreak = (
-    inlineText: string,
-    detailLines: string[],
-  ): string[] => {
+  const maybeBreak = (inlineText: string, detailLines: string[]): string[] => {
     const inline = withLabel(inlineText)
     if (!wrap || stringCellWidth(inline) <= width) return [inline]
     return [label, ...detailLines.map((d) => `${detailIndent}${d}`)]
@@ -328,36 +328,16 @@ function compactQuotaWide(
       details.push(balanceText)
     }
 
-    // Try inline first (single window, fits in one line)
-    if (parts.length === 1) {
-      const firstInline = withLabel(parts[0])
-      if (!wrap || stringCellWidth(firstInline) <= width) {
-        // Inline fits — use classic layout
-        const lines = [firstInline]
-        if (balanceText && !parts[0].includes('Balance ')) {
-          lines.push(`${indent}${balanceText}`)
-        }
-        return lines
-      }
-      // Overflow — break: label on its own line, details indented
+    // Keep a unified wrapped layout for providers that have multiple detail
+    // lines so OpenAI/Copilot/others match the RightCode multi-line style,
+    // regardless of wrapLines.
+    if (details.length > 1) {
       return [label, ...details.map((d) => `${detailIndent}${d}`)]
     }
 
-    // Multiple windows: try classic inline layout first
-    const firstInline = withLabel(parts[0])
-    if (!wrap || stringCellWidth(firstInline) <= width) {
-      const lines = [
-        firstInline,
-        ...parts.slice(1).map((part) => `${indent}${part}`),
-      ]
-      if (balanceText && !parts.some((p) => p.includes('Balance '))) {
-        lines.push(`${indent}${balanceText}`)
-      }
-      return lines
-    }
-
-    // Overflow — break all
-    return [label, ...details.map((d) => `${detailIndent}${d}`)]
+    // Single detail line: keep inline unless width wrapping requires a break.
+    const single = details[0]
+    return maybeBreak(single, [single])
   }
 
   if (balanceText) {

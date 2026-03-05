@@ -122,10 +122,10 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    const openAIIndex = lines.findIndex((line) => line.startsWith('OpenAI'))
+    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
     assert.ok(openAIIndex >= 0)
-    assert.match(lines[openAIIndex], /^OpenAI\s+5h 80%$/)
-    assert.match(lines[openAIIndex + 1], /^\s+Weekly 70%$/)
+    assert.match(lines[openAIIndex + 1], /^  5h 80%$/)
+    assert.match(lines[openAIIndex + 2], /^  Weekly 70%$/)
     assert.ok(lines.some((line) => /^Copilot\s+Monthly 60%$/.test(line)))
   })
 
@@ -229,6 +229,32 @@ describe('renderSidebarTitle', () => {
     assert.doesNotMatch(title, /OpenAI/)
   })
 
+  it('keeps multi-detail providers in wrapped layout when wrapQuotaLines=false', () => {
+    const config = makeConfig(60)
+    config.sidebar.wrapQuotaLines = false
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        label: 'OpenAI Codex',
+        shortLabel: 'OpenAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 80 },
+          { label: 'Weekly', remainingPercent: 70 },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
+    const lines = title.split('\n')
+    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
+
+    assert.ok(openAIIndex >= 0)
+    assert.match(lines[openAIIndex + 1], /^  5h 80%$/)
+    assert.match(lines[openAIIndex + 2], /^  Weekly 70%$/)
+  })
+
   it('renders balance-style quota lines', () => {
     const quotas: QuotaSnapshot[] = [
       {
@@ -294,13 +320,10 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    const first = lines.find((line) => line.startsWith('OpenAI 5h 80% Rst '))
-    assert.ok(first)
-    assert.match(first!, /^OpenAI\s+5h 80% Rst \d{2}:\d{2}$/)
-    const second = lines.find((line) =>
-      /^\s+Weekly 70% Rst \d{2}-\d{2}$/.test(line),
-    )
-    assert.ok(second)
+    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
+    assert.ok(openAIIndex >= 0)
+    assert.match(lines[openAIIndex + 1], /^  5h 80% Rst \d{2}:\d{2}$/)
+    assert.match(lines[openAIIndex + 2], /^  Weekly 70% Rst \d{2}-\d{2}$/)
   })
 
   it('renders RightCode daily quota without trailing percent and shows balance', () => {
@@ -334,8 +357,11 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC\s+Daily \$88\.9\/\$60 Exp 02-27/)
-    assert.match(title, /\s+Balance \$260/)
+    const lines = title.split('\n')
+    const rcIndex = lines.findIndex((line) => line === 'RC')
+    assert.ok(rcIndex >= 0)
+    assert.equal(lines[rcIndex + 1], '  Daily $88.9/$60 Exp 02-27')
+    assert.equal(lines[rcIndex + 2], '  Balance $260')
     assert.doesNotMatch(title, /RC\s+Daily \$88\.9\/\$60\s+148%/)
   })
 
