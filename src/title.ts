@@ -1,6 +1,50 @@
+function sanitizeTitleFragment(value: string) {
+  return stripAnsi(value)
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+    .trimEnd()
+}
+
+function isStrongDecoratedDetail(line: string) {
+  if (!line) return false
+  if (/^Input\s+\S+\s+Output(?:\s+\S+)?/.test(line)) return true
+  if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
+  if (/^\$\S+\s+as API cost\b/.test(line)) return true
+
+  // Single-line compact mode compatibility.
+  if (
+    /^I(?:nput)?\s+\$?\d[\d.,]*[kKmM]?\s+O(?:utput)?\s+\$?\d[\d.,]*[kKmM]?$/.test(
+      line,
+    )
+  )
+    return true
+  if (/^C(?:ache\s*)?R(?:ead)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  if (/^C(?:ache\s*)?W(?:rite)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  return false
+}
+
+function isQuotaLikeProviderDetail(line: string) {
+  if (!line) return false
+  if (!/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return false
+  return /\b(Rst|Exp\+?|Balance|Remaining)\b|\d{1,3}%/.test(line)
+}
+
+function decoratedSingleLineBase(line: string) {
+  const parts = sanitizeTitleFragment(line)
+    .split(/\s*\|\s*/)
+    .map((part) => part.trim())
+  if (parts.length < 2) return undefined
+  const details = parts.slice(1)
+  if (!details.some((detail) => isStrongDecoratedDetail(detail))) {
+    return undefined
+  }
+  return parts[0] || 'Session'
+}
+
 export function normalizeBaseTitle(title: string) {
   const firstLine = stripAnsi(title).split(/\r?\n/, 1)[0] || 'Session'
-  return firstLine.replace(/[\x00-\x1F\x7F-\x9F]/g, ' ').trimEnd() || 'Session'
+  const decoratedBase = decoratedSingleLineBase(firstLine)
+  if (decoratedBase) return decoratedBase
+  return sanitizeTitleFragment(firstLine) || 'Session'
 }
 
 export function stripAnsi(value: string) {
@@ -46,14 +90,15 @@ export function canonicalizeTitleForCompare(value: string) {
  */
 export function looksDecorated(title: string): boolean {
   const lines = stripAnsi(title).split(/\r?\n/)
-  if (lines.length < 2) return false
-  const detail = lines.slice(1).map((line) => line.trim())
-  return detail.some((line) => {
-    if (!line) return false
-    if (/^Input\s+\S+\s+Output\s+\S+/.test(line)) return true
-    if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
-    if (/^\$\S+\s+as API cost/.test(line)) return true
-    if (/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return true
-    return false
-  })
+  if (lines.length < 2) {
+    return Boolean(decoratedSingleLineBase(lines[0] || ''))
+  }
+
+  const detail = lines
+    .slice(1)
+    .map((line) => sanitizeTitleFragment(line).trim())
+  return (
+    detail.some((line) => isStrongDecoratedDetail(line)) ||
+    detail.some((line) => isQuotaLikeProviderDetail(line))
+  )
 }

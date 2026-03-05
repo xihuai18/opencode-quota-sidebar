@@ -39,6 +39,10 @@ describe('plugin integration', () => {
   it('updates session title after assistant message with plain text lines', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify({ sidebar: { multilineTitle: true } }, null, 2),
+    )
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     try {
@@ -139,6 +143,10 @@ describe('plugin integration', () => {
   it('includes descendant subagent usage and quota providers in parent title', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify({ sidebar: { multilineTitle: true } }, null, 2),
+    )
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     const originalFetch = globalThis.fetch

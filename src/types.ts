@@ -107,6 +107,12 @@ export type QuotaSidebarConfig = {
   sidebar: {
     enabled: boolean
     width: number
+    /**
+     * When true, render multi-line decorated session titles.
+     * Disabled by default to avoid newline leakage in non-sidebar surfaces
+     * that also display session.title verbatim.
+     */
+    multilineTitle?: boolean
     showCost: boolean
     showQuota: boolean
     /** When true, wrap long quota lines and indent continuations. */

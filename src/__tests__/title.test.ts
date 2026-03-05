@@ -11,6 +11,14 @@ describe('title', () => {
   it('normalizes base title to first line', () => {
     assert.equal(normalizeBaseTitle('Hello\nInput 1 Output 2'), 'Hello')
     assert.equal(normalizeBaseTitle('\u001b[2mHello\u001b[0m\nWorld'), 'Hello')
+    assert.equal(
+      normalizeBaseTitle('Hello | Input 1  Output 2 | OpenAI 80%'),
+      'Hello',
+    )
+    assert.equal(
+      normalizeBaseTitle('Session | I see OpenAI'),
+      'Session | I see OpenAI',
+    )
     assert.equal(normalizeBaseTitle(''), 'Session')
   })
 
@@ -24,5 +32,14 @@ describe('title', () => {
     assert.equal(looksDecorated('Session\nCache Read 10'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
     assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), true)
+    assert.equal(looksDecorated('Session\nOpenAI migration plan'), false)
+    assert.equal(looksDecorated('Session\n$100 budget'), false)
+    assert.equal(looksDecorated('Session | I see OpenAI'), false)
+    assert.equal(
+      looksDecorated('Session | Input 1k  Output 2k | OpenAI 80%'),
+      true,
+    )
+    assert.equal(looksDecorated('Session|Input 1k  Output 2k|OpenAI 80%'), true)
+    assert.equal(looksDecorated('Input 1k  Output 2k | OpenAI 80%'), false)
   })
 })

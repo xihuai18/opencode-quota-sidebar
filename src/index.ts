@@ -214,7 +214,6 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     markDirty,
     scheduleSave,
     renderSidebarTitle,
-    quotaRuntime,
     getQuotaSnapshots,
     summarizeSessionUsageForDisplay,
     scheduleParentRefreshIfSafe,

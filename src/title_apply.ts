@@ -34,7 +34,6 @@ export function createTitleApplicator(deps: {
     quotas: QuotaSnapshot[],
     config: QuotaSidebarConfig,
   ) => string
-  quotaRuntime: { normalizeProviderID: (providerID: string) => string }
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
@@ -120,13 +119,7 @@ export function createTitleApplicator(deps: {
       sessionID,
       deps.config.sidebar.includeChildren,
     )
-    const quotaProviders = Array.from(
-      new Set(
-        Object.keys(usage.providers).map((id) =>
-          deps.quotaRuntime.normalizeProviderID(id),
-        ),
-      ),
-    )
+    const quotaProviders = Array.from(new Set(Object.keys(usage.providers)))
 
     const quotas =
       deps.config.sidebar.showQuota && quotaProviders.length > 0

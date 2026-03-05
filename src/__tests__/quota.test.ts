@@ -184,6 +184,37 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows![0].remainingPercent, 50)
   })
 
+  it('preserves Copilot enterprise provider identity in snapshots', async () => {
+    setFetch(async (input) => {
+      assert.equal(
+        String(input),
+        'https://api.github.com/copilot_internal/user',
+      )
+      return jsonResponse({
+        quota_snapshots: {
+          premium_interactions: {
+            percent_remaining: 66,
+            quota_reset_date_utc: '2026-03-01T00:00:00Z',
+          },
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'github-copilot-enterprise',
+      {
+        'github-copilot-enterprise': { type: 'oauth', access: 'copilot-token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.providerID, 'github-copilot-enterprise')
+    assert.equal(snapshot!.label, 'GitHub Copilot Enterprise')
+    assert.equal(snapshot!.shortLabel, 'Copilot Ent')
+  })
+
   it('returns unsupported for anthropic when auth exists', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
       'anthropic',

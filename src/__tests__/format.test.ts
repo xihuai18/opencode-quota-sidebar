@@ -14,6 +14,7 @@ function makeConfig(width = 36): QuotaSidebarConfig {
     sidebar: {
       enabled: true,
       width,
+      multilineTitle: true,
       showCost: true,
       showQuota: true,
       wrapQuotaLines: true,
@@ -53,6 +54,19 @@ function makeUsage(overrides: Partial<UsageSummary> = {}): UsageSummary {
 }
 
 describe('renderSidebarTitle', () => {
+  it('renders a single-line title when multilineTitle=false', () => {
+    const config = makeConfig(80)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [],
+      config,
+    )
+    assert.equal(title.includes('\n'), false)
+    assert.match(title, /Input 1\.5k  Output 1\.2m/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',

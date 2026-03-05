@@ -187,6 +187,76 @@ function alignPairs(
   })
 }
 
+function compactQuotaInline(quota: QuotaSnapshot) {
+  const label = sanitizeLine(quotaDisplayLabel(quota))
+  if (quota.status !== 'ok') return label
+
+  if (quota.windows && quota.windows.length > 0) {
+    const first = quota.windows[0]
+    const showPercent = first.showPercent !== false
+    const firstLabel = sanitizeLine(first.label || '')
+    const pct =
+      first.remainingPercent === undefined
+        ? undefined
+        : `${Math.round(first.remainingPercent)}%`
+
+    const summary = showPercent
+      ? [firstLabel, pct].filter(Boolean).join(' ')
+      : firstLabel.replace(/^Daily\s+/i, '') || firstLabel
+
+    const hasMore =
+      quota.windows.length > 1 ||
+      (quota.balance !== undefined && !summary.includes('Balance '))
+    return `${label}${summary ? ` ${summary}` : ''}${hasMore ? '+' : ''}`
+  }
+
+  if (quota.balance) {
+    return `${label} ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
+  }
+
+  if (quota.remainingPercent !== undefined) {
+    return `${label} ${Math.round(quota.remainingPercent)}%`
+  }
+
+  return label
+}
+
+function renderSingleLineTitle(
+  baseTitle: string,
+  usage: UsageSummary,
+  quotas: QuotaSnapshot[],
+  config: QuotaSidebarConfig,
+  width: number,
+) {
+  const baseBudget = Math.min(16, Math.max(8, Math.floor(width * 0.35)))
+  const base = fitLine(baseTitle, baseBudget)
+
+  const segments: string[] = [
+    `Input ${sidebarNumber(usage.input)}  Output ${sidebarNumber(usage.output)}`,
+  ]
+
+  if (usage.cacheRead > 0) {
+    segments.push(`Cache Read ${sidebarNumber(usage.cacheRead)}`)
+  }
+  if (usage.cacheWrite > 0) {
+    segments.push(`Cache Write ${sidebarNumber(usage.cacheWrite)}`)
+  }
+  if (config.sidebar.showCost && usage.apiCost > 0) {
+    segments.push(formatApiCostLine(usage.apiCost))
+  }
+
+  if (config.sidebar.showQuota) {
+    const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
+      ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
+    )
+    segments.push(...visibleQuotas.map(compactQuotaInline))
+  }
+
+  const detail = segments.filter(Boolean).join(' | ')
+  if (!detail) return fitLine(baseTitle, width)
+  return fitLine(`${base} | ${detail}`, width)
+}
+
 /**
  * Render sidebar title with multi-line token breakdown.
  *
@@ -205,10 +275,14 @@ export function renderSidebarTitle(
   config: QuotaSidebarConfig,
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
-  const lines: string[] = []
-
   const safeBaseTitle =
     stripAnsi(baseTitle || 'Session').split(/\r?\n/, 1)[0] || 'Session'
+
+  if (config.sidebar.multilineTitle !== true) {
+    return renderSingleLineTitle(safeBaseTitle, usage, quotas, config, width)
+  }
+
+  const lines: string[] = []
   lines.push(fitLine(safeBaseTitle, width))
   lines.push('')
 

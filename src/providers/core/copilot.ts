@@ -10,6 +10,7 @@ import {
 import type { QuotaProviderAdapter } from '../types.js'
 
 async function fetchCopilotQuota(ctx: {
+  sourceProviderID?: string
   providerID: string
   auth:
     | {
@@ -24,14 +25,19 @@ async function fetchCopilotQuota(ctx: {
   }
 }): Promise<QuotaSnapshot> {
   const checkedAt = Date.now()
+  const sourceProviderID =
+    typeof ctx.sourceProviderID === 'string' && ctx.sourceProviderID
+      ? ctx.sourceProviderID
+      : ctx.providerID
+  const enterprise = sourceProviderID.startsWith('github-copilot-enterprise')
   const base: Pick<
     QuotaSnapshot,
     'providerID' | 'adapterID' | 'label' | 'shortLabel' | 'sortOrder'
   > = {
-    providerID: ctx.providerID,
+    providerID: sourceProviderID,
     adapterID: 'github-copilot',
-    label: 'GitHub Copilot',
-    shortLabel: 'Copilot',
+    label: enterprise ? 'GitHub Copilot Enterprise' : 'GitHub Copilot',
+    shortLabel: enterprise ? 'Copilot Ent' : 'Copilot',
     sortOrder: 20,
   }
 

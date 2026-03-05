@@ -53,6 +53,7 @@ export const defaultConfig: QuotaSidebarConfig = {
   sidebar: {
     enabled: true,
     width: 36,
+    multilineTitle: false,
     showCost: true,
     showQuota: true,
     wrapQuotaLines: true,
@@ -100,22 +101,28 @@ export async function loadConfig(paths: string[]) {
 
     const mergedProviders = {
       ...base.quota.providers,
-      ...Object.entries(providers).reduce<Record<string, { enabled?: boolean }>>(
-        (acc, [id, value]) => {
-          if (!isRecord(value)) return acc
-          if (typeof value.enabled === 'boolean') {
-            acc[id] = { enabled: value.enabled }
-          }
-          return acc
-        },
-        {},
-      ),
+      ...Object.entries(providers).reduce<
+        Record<string, { enabled?: boolean }>
+      >((acc, [id, value]) => {
+        if (!isRecord(value)) return acc
+        if (typeof value.enabled === 'boolean') {
+          acc[id] = { enabled: value.enabled }
+        }
+        return acc
+      }, {}),
     }
 
     return {
       sidebar: {
         enabled: asBoolean(sidebar.enabled, base.sidebar.enabled),
-        width: Math.max(20, Math.min(60, asNumber(sidebar.width, base.sidebar.width))),
+        width: Math.max(
+          20,
+          Math.min(60, asNumber(sidebar.width, base.sidebar.width)),
+        ),
+        multilineTitle: asBoolean(
+          sidebar.multilineTitle,
+          base.sidebar.multilineTitle ?? false,
+        ),
         showCost: asBoolean(sidebar.showCost, base.sidebar.showCost),
         showQuota: asBoolean(sidebar.showQuota, base.sidebar.showQuota),
         wrapQuotaLines: asBoolean(
@@ -161,7 +168,10 @@ export async function loadConfig(paths: string[]) {
         ),
       },
       quota: {
-        refreshMs: Math.max(30_000, asNumber(quota.refreshMs, base.quota.refreshMs)),
+        refreshMs: Math.max(
+          30_000,
+          asNumber(quota.refreshMs, base.quota.refreshMs),
+        ),
         includeOpenAI: asBoolean(quota.includeOpenAI, base.quota.includeOpenAI),
         includeCopilot: asBoolean(
           quota.includeCopilot,
@@ -182,9 +192,15 @@ export async function loadConfig(paths: string[]) {
         ),
       },
       toast: {
-        durationMs: Math.max(1000, asNumber(toast.durationMs, base.toast.durationMs)),
+        durationMs: Math.max(
+          1000,
+          asNumber(toast.durationMs, base.toast.durationMs),
+        ),
       },
-      retentionDays: Math.max(1, asNumber(parsed.retentionDays, base.retentionDays)),
+      retentionDays: Math.max(
+        1,
+        asNumber(parsed.retentionDays, base.retentionDays),
+      ),
     }
   }
 
