@@ -2,8 +2,10 @@
   "sidebar": {
     "enabled": true,
     "width": 36,
+    "multilineTitle": true,
     "showCost": true,
     "showQuota": true,
+    "wrapQuotaLines": true,
     "includeChildren": true,
     "childrenMaxDepth": 6,
     "childrenMaxSessions": 128,

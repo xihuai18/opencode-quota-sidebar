@@ -109,8 +109,8 @@ export type QuotaSidebarConfig = {
     width: number
     /**
      * When true, render multi-line decorated session titles.
-     * Disabled by default to avoid newline leakage in non-sidebar surfaces
-     * that also display session.title verbatim.
+     * Enabled by default for clearer token/quota layout in sidebar.
+     * Set false to keep a compact single-line title.
      */
     multilineTitle?: boolean
     showCost: boolean

@@ -171,8 +171,10 @@ Example config:
   "sidebar": {
     "enabled": true,
     "width": 36,
+    "multilineTitle": true,
     "showCost": true,
     "showQuota": true,
+    "wrapQuotaLines": true,
     "includeChildren": true,
     "childrenMaxDepth": 6,
     "childrenMaxSessions": 128,
@@ -202,6 +204,8 @@ Notes:
 
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
+- `sidebar.multilineTitle` controls multi-line sidebar layout (default: `true`). Set `false` for compact single-line title.
+- `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).

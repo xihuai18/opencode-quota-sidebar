@@ -53,7 +53,7 @@ export const defaultConfig: QuotaSidebarConfig = {
   sidebar: {
     enabled: true,
     width: 36,
-    multilineTitle: false,
+    multilineTitle: true,
     showCost: true,
     showQuota: true,
     wrapQuotaLines: true,
@@ -121,7 +121,7 @@ export async function loadConfig(paths: string[]) {
         ),
         multilineTitle: asBoolean(
           sidebar.multilineTitle,
-          base.sidebar.multilineTitle ?? false,
+          base.sidebar.multilineTitle ?? true,
         ),
         showCost: asBoolean(sidebar.showCost, base.sidebar.showCost),
         showQuota: asBoolean(sidebar.showQuota, base.sidebar.showQuota),
