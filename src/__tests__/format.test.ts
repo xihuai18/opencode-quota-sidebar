@@ -140,7 +140,9 @@ describe('renderSidebarTitle', () => {
     assert.ok(openAIIndex >= 0)
     assert.match(lines[openAIIndex + 1], /^  5h 80%$/)
     assert.match(lines[openAIIndex + 2], /^  Weekly 70%$/)
-    assert.ok(lines.some((line) => /^Copilot\s+Monthly 60%$/.test(line)))
+    const copilotIndex = lines.findIndex((line) => line === 'Copilot')
+    assert.ok(copilotIndex >= 0)
+    assert.match(lines[copilotIndex + 1], /^  Monthly 60%$/)
   })
 
   it('adds blank line between title/tokens and tokens/quota', () => {

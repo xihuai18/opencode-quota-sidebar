@@ -306,6 +306,10 @@ export function renderSidebarTitle(
     const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
       ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
     )
+
+    // When multiple providers are visible, keep a consistent visual rhythm by
+    // always rendering each provider as a header line + indented detail line(s).
+    const forceWrappedProviders = visibleQuotas.length > 1
     const labelWidth = visibleQuotas.reduce((max, item) => {
       const label = sanitizeLine(quotaDisplayLabel(item))
       return Math.max(max, stringCellWidth(label))
@@ -316,6 +320,7 @@ export function renderSidebarTitle(
         compactQuotaWide(item, labelWidth, {
           width,
           wrapLines: config.sidebar.wrapQuotaLines,
+          forceWrapped: forceWrappedProviders,
         }),
       )
       .filter((s): s is string => Boolean(s))
@@ -349,7 +354,7 @@ export function renderSidebarTitle(
 function compactQuotaWide(
   quota: QuotaSnapshot,
   labelWidth = 0,
-  options?: { width?: number; wrapLines?: boolean },
+  options?: { width?: number; wrapLines?: boolean; forceWrapped?: boolean },
 ) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
   const labelPadded = padEndCells(label, labelWidth)
@@ -357,17 +362,23 @@ function compactQuotaWide(
   const withLabel = (content: string) => `${labelPadded} ${content}`
   const wrap = options?.wrapLines === true && (options?.width || 0) > 0
   const width = options?.width || 0
+  const forceWrapped = options?.forceWrapped === true
 
   /** If inline version overflows, break into label-line + indented detail lines. */
   const maybeBreak = (inlineText: string, detailLines: string[]): string[] => {
     const inline = withLabel(inlineText)
+    if (forceWrapped)
+      return [label, ...detailLines.map((d) => `${detailIndent}${d}`)]
     if (!wrap || stringCellWidth(inline) <= width) return [inline]
     return [label, ...detailLines.map((d) => `${detailIndent}${d}`)]
   }
 
-  if (quota.status === 'error') return [withLabel('Remaining ?')]
-  if (quota.status === 'unsupported') return [withLabel('unsupported')]
-  if (quota.status === 'unavailable') return [withLabel('unavailable')]
+  if (quota.status === 'error')
+    return maybeBreak('Remaining ?', ['Remaining ?'])
+  if (quota.status === 'unsupported')
+    return maybeBreak('unsupported', ['unsupported'])
+  if (quota.status === 'unavailable')
+    return maybeBreak('unavailable', ['unavailable'])
   if (quota.status !== 'ok') return []
 
   const balanceText = quota.balance

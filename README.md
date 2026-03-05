@@ -164,6 +164,38 @@ Resolution order (low -> high):
 
 Values are layered; later sources override earlier ones.
 
+## Defaults
+
+If you do not provide any config file, the plugin uses the built-in defaults below.
+
+Sidebar defaults:
+
+- `sidebar.enabled`: `true`
+- `sidebar.width`: `36` (clamped to `20`-`60`)
+- `sidebar.multilineTitle`: `true`
+- `sidebar.showCost`: `true`
+- `sidebar.showQuota`: `true`
+- `sidebar.wrapQuotaLines`: `true`
+- `sidebar.includeChildren`: `true`
+- `sidebar.childrenMaxDepth`: `6` (clamped to `1`-`32`)
+- `sidebar.childrenMaxSessions`: `128` (clamped to `0`-`2000`)
+- `sidebar.childrenConcurrency`: `5` (clamped to `1`-`10`)
+
+Quota defaults:
+
+- `quota.refreshMs`: `300000` (clamped to `>=30000`)
+- `quota.includeOpenAI`: `true`
+- `quota.includeCopilot`: `true`
+- `quota.includeAnthropic`: `true`
+- `quota.providers`: `{}` (per-adapter switches, for example `rightcode.enabled`)
+- `quota.refreshAccessToken`: `false`
+- `quota.requestTimeoutMs`: `8000` (clamped to `>=1000`)
+
+Other defaults:
+
+- `toast.durationMs`: `12000` (clamped to `>=1000`)
+- `retentionDays`: `730`
+
 Example config:
 
 ```json
@@ -214,6 +246,81 @@ Notes:
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
+
+## Rendering examples
+
+These examples show the quota block portion of the sidebar title.
+
+### `sidebar.multilineTitle=true`
+
+0 providers (no quota data):
+
+```text
+(no quota block)
+```
+
+1 provider, 1 window (fits):
+
+```text
+Copilot Monthly 78% Rst 04-01
+```
+
+1 provider, multi-window (for example OpenAI 5h + Weekly):
+
+```text
+OpenAI
+  5h 78% Rst 05:05
+  Weekly 73% Rst 03-12
+```
+
+2+ providers (even if each provider is single-window):
+
+```text
+OpenAI
+  5h 78% Rst 05:05
+Copilot
+  Monthly 78% Rst 04-01
+```
+
+2+ providers mixed (multi-window + single-window):
+
+```text
+OpenAI
+  5h 78% Rst 05:05
+  Weekly 73% Rst 03-12
+Copilot
+  Monthly 78% Rst 04-01
+```
+
+Balance-style quota:
+
+```text
+RC Balance $260
+```
+
+Multi-detail quota (window + balance):
+
+```text
+RC
+  Daily $88.9/$60 Exp 02-27
+  Balance $260
+```
+
+Provider status (examples):
+
+```text
+Anthropic unsupported
+Copilot unavailable
+OpenAI Remaining ?
+```
+
+### `sidebar.multilineTitle=false`
+
+Quota is rendered inline as part of a single-line title:
+
+```text
+<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...
+```
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 
