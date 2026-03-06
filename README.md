@@ -18,6 +18,7 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 ```
 
 Note for OpenCode `>=1.2.15`: TUI settings (`theme`/`keybinds`/`tui`) moved to `tui.json`, but plugin loading still stays in `opencode.json` (`plugin: []`).
+This plugin also accepts both `config.providers` and older `provider.list` runtime shapes when discovering provider options.
 
 ## Development (build from source)
 
@@ -145,7 +146,9 @@ Recommended global config:
 Optional project overrides:
 
 - `<worktree>/quota-sidebar.config.json`
+- `<directory>/quota-sidebar.config.json` (when different from `worktree`)
 - `<worktree>/.opencode/quota-sidebar.config.json`
+- `<directory>/.opencode/quota-sidebar.config.json` (when different from `worktree`)
 
 Optional explicit override:
 
@@ -158,9 +161,11 @@ Optional config-home override:
 Resolution order (low -> high):
 
 1. Global config (`~/.config/opencode/...`)
-2. Project root config
-3. `.opencode` project config
-4. `OPENCODE_QUOTA_CONFIG`
+2. `<worktree>/quota-sidebar.config.json`
+3. `<directory>/quota-sidebar.config.json`
+4. `<worktree>/.opencode/quota-sidebar.config.json`
+5. `<directory>/.opencode/quota-sidebar.config.json`
+6. `OPENCODE_QUOTA_CONFIG`
 
 Values are layered; later sources override earlier ones.
 

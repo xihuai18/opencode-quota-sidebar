@@ -1,7 +1,7 @@
 import type { PluginInput } from '@opencode-ai/plugin'
 
 import { TtlValueCache } from './cache.js'
-import { swallow } from './helpers.js'
+import { isRecord, swallow } from './helpers.js'
 import { listDefaultQuotaProviderIDs, loadAuthMap, quotaSort } from './quota.js'
 import type {
   QuotaSidebarConfig,
@@ -54,38 +54,52 @@ export function createQuotaService(deps: {
     const cached = providerOptionsCache.get()
     if (cached) return cached
 
-    const configClient = deps.client as unknown as {
+    const client = deps.client as unknown as {
       config?: {
         providers?: (args: {
           query: { directory: string }
           throwOnError: true
         }) => Promise<unknown>
       }
+      provider?: {
+        list?: (args?: {
+          query?: { directory: string }
+          throwOnError?: true
+        }) => Promise<unknown>
+      }
     }
 
-    if (!configClient.config?.providers) {
+    if (!client.config?.providers && !client.provider?.list) {
       return providerOptionsCache.set({}, 30_000)
     }
 
-    const response = await configClient.config
-      .providers({
-        query: { directory: deps.directory },
-        throwOnError: true,
-      })
+    // Newer runtimes expose config.providers; older clients may only expose
+    // provider.list with a slightly different response shape.
+    const response = await (client.config?.providers
+      ? client.config.providers({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+      : client.provider!.list!({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        }))
       .catch(swallow('getProviderOptionsMap'))
 
-    const data =
-      response &&
-      typeof response === 'object' &&
-      'data' in response &&
-      response.data &&
-      typeof response.data === 'object' &&
-      'providers' in response.data
-        ? ((response.data as { providers?: unknown }).providers as unknown)
-        : undefined
+    const data = isRecord(response) && isRecord(response.data)
+      ? response.data
+      : undefined
 
-    const map = Array.isArray(data)
-      ? data.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+    const list = Array.isArray(data?.providers)
+      ? data.providers
+      : Array.isArray(data?.all)
+        ? data.all
+        : Array.isArray(data)
+          ? data
+          : undefined
+
+    const map = Array.isArray(list)
+      ? list.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
           if (!item || typeof item !== 'object') return acc
           const record = item as Record<string, unknown>
           const id = record.id
