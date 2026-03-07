@@ -316,9 +316,13 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       }
     },
 
-    onMessageRemoved: async (sessionID) => {
-      usageService.markForceRescan(sessionID)
-      titleRefresh.schedule(sessionID)
+    onMessageRemoved: async (info) => {
+      usageService.markForceRescan(info.sessionID)
+      titleRefresh.schedule(info.sessionID, 0)
+      scheduleParentRefreshIfSafe(
+        info.sessionID,
+        state.sessions[info.sessionID]?.parentID,
+      )
     },
 
     onAssistantMessageCompleted: async (message) => {

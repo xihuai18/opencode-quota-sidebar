@@ -776,7 +776,7 @@ describe('subagent aggregation integration', () => {
     }
   })
 
-  it('recomputes parent aggregation after child message.removed', async () => {
+  it('recomputes parent aggregation after child message.removed even if child refresh fails', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -851,6 +851,7 @@ describe('subagent aggregation integration', () => {
       let childEntries: Array<{ info: typeof childMessage }> = [
         { info: childMessage },
       ]
+      let missing = false
 
       const providerListData = {
         all: [
@@ -903,7 +904,13 @@ describe('subagent aggregation integration', () => {
         client: {
           session: {
             get: async (args: { path: { id: string } }) => ({
-              data: sessions[args.path.id as 'p1' | 'c1'],
+              data: (() => {
+                const id = args.path.id as 'p1' | 'c1'
+                if (id === 'c1' && missing) {
+                  throw new Error('child session unavailable')
+                }
+                return sessions[id]
+              })(),
             }),
             update: async (args: {
               path: { id: string }
@@ -949,8 +956,12 @@ describe('subagent aggregation integration', () => {
       )
 
       childEntries = []
+      missing = true
       await hooks.event!({
-        event: { type: 'message.removed', properties: { sessionID: 'c1' } },
+        event: {
+          type: 'message.removed',
+          properties: { sessionID: 'c1', messageID: 'm-c1' },
+        },
       } as never)
 
       await waitFor(() =>

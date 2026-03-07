@@ -13,7 +13,10 @@ export function createEventDispatcher(handlers: {
   onSessionCreated: (session: Session) => Promise<void>
   onSessionUpdated: (session: Session) => Promise<void>
   onSessionDeleted: (session: Session) => Promise<void>
-  onMessageRemoved: (sessionID: string) => Promise<void>
+  onMessageRemoved: (info: {
+    sessionID: string
+    messageID?: string
+  }) => Promise<void>
   onAssistantMessageCompleted: (message: AssistantMessage) => Promise<void>
 }) {
   return async (event: Event) => {
@@ -33,7 +36,15 @@ export function createEventDispatcher(handlers: {
     }
 
     if (event.type === 'message.removed') {
-      await handlers.onMessageRemoved(event.properties.sessionID)
+      const props = event.properties as {
+        sessionID: string
+        messageID?: string
+      }
+      await handlers.onMessageRemoved({
+        sessionID: props.sessionID,
+        messageID:
+          typeof props.messageID === 'string' ? props.messageID : undefined,
+      })
       return
     }
 
