@@ -215,11 +215,56 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.shortLabel, 'Copilot Ent')
   })
 
-  it('returns unsupported for anthropic when auth exists', async () => {
+  it('parses Anthropic oauth quota windows correctly', async () => {
+    setFetch(async (input, init) => {
+      assert.equal(String(input), 'https://api.anthropic.com/api/oauth/usage')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'Bearer token')
+      assert.equal(headers.get('anthropic-beta'), 'oauth-2025-04-20')
+      return jsonResponse({
+        five_hour: {
+          utilization: 20,
+          resets_at: '2026-03-09T16:20:00Z',
+        },
+        seven_day: {
+          utilization: 35,
+          resets_at: '2026-03-15T00:00:00Z',
+        },
+        seven_day_sonnet: {
+          utilization: 55,
+          resets_at: '2026-03-16T00:00:00Z',
+        },
+      })
+    })
+
     const snapshot = await quota.fetchQuotaSnapshot(
       'anthropic',
       {
         anthropic: { type: 'oauth', access: 'token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.providerID, 'anthropic')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 80)
+    assert.equal(snapshot!.resetAt, '2026-03-09T16:20:00.000Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 3)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 80)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 65)
+    assert.equal(snapshot!.windows![2].label, 'Sonnet 7d')
+    assert.equal(snapshot!.windows![2].remainingPercent, 45)
+  })
+
+  it('returns unsupported for anthropic api-key auth', async () => {
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'anthropic',
+      {
+        anthropic: { type: 'api', key: 'token' },
       },
       makeConfig(),
     )

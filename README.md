@@ -39,12 +39,12 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 
 ## Supported quota providers
 
-| Provider       | Endpoint                               | Auth            | Status                                 |
-| -------------- | -------------------------------------- | --------------- | -------------------------------------- |
-| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)     |
-| GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                          |
-| RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)    |
-| Anthropic      | —                                      | —               | Unsupported (no public quota endpoint) |
+| Provider       | Endpoint                               | Auth            | Status                                  |
+| -------------- | -------------------------------------- | --------------- | --------------------------------------- |
+| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
+| GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                           |
+| RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)     |
+| Anthropic      | `api.anthropic.com/api/oauth/usage`    | OAuth           | Multi-window (5h + weekly / plan-based) |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -56,8 +56,8 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - line 3: Cache Read tokens (only if non-zero)
   - line 4: Cache Write tokens (only if non-zero)
   - line 5: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
-  - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`, with multi-window continuation lines indented (e.g. `       Weekly 70% Rst 03-01`)
-  - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available
+  - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
+  - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available; `Exp` remains date-only
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message includes three sections: `Token Usage`, `Cost as API` (per provider), and `Quota`
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
@@ -68,7 +68,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
   - RightCode API key (`/account/summary`)
-  - Anthropic: currently marked unsupported (no public quota endpoint)
+  - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
 - API key providers still show usage aggregation (quota only applies to subscription providers)
 - Incremental usage aggregation — only processes new messages since last cursor
@@ -240,6 +240,7 @@ Example config:
 Notes:
 
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
+- `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
 - `sidebar.multilineTitle` controls multi-line sidebar layout (default: `true`). Set `false` for compact single-line title.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
@@ -278,6 +279,14 @@ OpenAI
   Weekly 73% Rst 03-12
 ```
 
+1 provider, short window crossing into the next day:
+
+```text
+Anthropic
+  5h 0% Rst 03-10 01:00
+  Weekly 46% Rst 03-15
+```
+
 2+ providers (even if each provider is single-window):
 
 ```text
@@ -311,10 +320,10 @@ RC
   Balance $260
 ```
 
-Provider status (examples):
+Provider status / quota (examples):
 
 ```text
-Anthropic unsupported
+Anthropic 5h 80%+
 Copilot unavailable
 OpenAI Remaining ?
 ```

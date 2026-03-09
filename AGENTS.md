@@ -153,6 +153,14 @@ MCP 条目通过 JSX 结构实现两种字体：
 - Copilot：`Copilot Monthly 70% Rst 03-01`
 - RightCode（日额度）：`RC Daily $105/$60 Exp 02-27`（不追加百分比）
 
+reset 时间规则：
+
+- 小时级 / 日级窗口（如 `5h` / `1d` / `Daily`）：
+  - 当天重置：显示 `HH:MM`
+  - 跨天重置：显示 `MM-DD HH:MM`
+- 周/月等长窗口：显示 `MM-DD`
+- RightCode 的 `Exp` / `Exp+` 继续只显示 `MM-DD`
+
 当 `sidebar.wrapQuotaLines=true` 且单行过长时，会拆成多行显示；续行缩进对齐。
 
 ### 5.3 Toast 格式
@@ -176,7 +184,7 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 | OpenAI Codex (OAuth)   | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
 | GitHub Copilot (OAuth) | `api.github.com/copilot_internal/user` | 支持，月度        |
 | RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
-| Anthropic              | 无公开端点                             | `unsupported`     |
+| Anthropic              | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |
 | API Key providers      | 无 quota 概念                          | 仅显示 token 用量 |
 
 ### 5.6 RightCode 日额度规则（关键）
@@ -381,7 +389,7 @@ resize 场景曾出现字符污染和断裂。当前规避策略：
 
 ### 9.2 Anthropic quota
 
-Anthropic 没有公开的订阅额度查询端点（已通过 claude-code#13585 确认）。标记为 `unsupported`。
+Anthropic 现已通过 `GET https://api.anthropic.com/api/oauth/usage` 接入 OAuth 订阅额度查询；该接口依赖 `anthropic-beta: oauth-2025-04-20` 请求头，仍属于 beta/内部形态，响应结构未来可能变化。
 
 ### 9.3 Copilot token exchange
 

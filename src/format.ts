@@ -396,7 +396,7 @@ function compactQuotaWide(
         ? [sanitizeLine(win.label), pct]
         : [sanitizeLine(win.label)]
       : [pct]
-    const reset = compactReset(win.resetAt, win.resetLabel)
+    const reset = compactReset(win.resetAt, win.resetLabel, win.label)
     if (reset) {
       parts.push(`${sanitizeLine(win.resetLabel || 'Rst')} ${reset}`)
     }
@@ -438,7 +438,16 @@ function compactQuotaWide(
   const fallbackText = `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
   return maybeBreak(fallbackText, [fallbackText])
 }
-function compactReset(iso: string | undefined, resetLabel?: string) {
+function isShortResetWindow(label: string | undefined) {
+  if (typeof label !== 'string') return false
+  return /^\s*(?:\d+\s*[hd]|daily)\b/i.test(label)
+}
+
+function compactReset(
+  iso: string | undefined,
+  resetLabel?: string,
+  windowLabel?: string,
+) {
   if (!iso) return undefined
   const timestamp = Date.parse(iso)
   if (Number.isNaN(timestamp)) return undefined
@@ -459,6 +468,11 @@ function compactReset(iso: string | undefined, resetLabel?: string) {
     value.getDate() === now.getDate()
 
   const two = (num: number) => `${num}`.padStart(2, '0')
+  if (isShortResetWindow(windowLabel)) {
+    const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
+    if (sameDay) return hhmm
+    return `${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
+  }
   if (sameDay) {
     return `${two(value.getHours())}:${two(value.getMinutes())}`
   }
@@ -470,6 +484,16 @@ function dateLine(iso: string | undefined) {
   const time = Date.parse(iso)
   if (Number.isNaN(time)) return iso
   return new Date(time).toLocaleString()
+}
+
+function reportResetLine(
+  iso: string | undefined,
+  resetLabel?: string,
+  windowLabel?: string,
+) {
+  const compact = compactReset(iso, resetLabel, windowLabel)
+  if (compact) return compact
+  return dateLine(iso)
 }
 
 function periodLabel(period: string) {
@@ -560,7 +584,7 @@ export function renderMarkdownReport(
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
-            `- ${quota.label}${winLabel}: ${quota.status} | reset ${dateLine(win.resetAt)}`,
+            `- ${quota.label}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
           )
         }
         const remaining =
@@ -569,7 +593,7 @@ export function renderMarkdownReport(
             : `${win.remainingPercent.toFixed(1)}%`
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
-          `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${dateLine(win.resetAt)}`,
+          `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
         )
       })
     }
@@ -586,7 +610,7 @@ export function renderMarkdownReport(
         : `${quota.remainingPercent.toFixed(1)}%`
     return [
       mdCell(
-        `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${dateLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+        `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
       ),
     ]
   })
@@ -699,7 +723,7 @@ export function renderToastMessage(
             win.remainingPercent === undefined
               ? '-'
               : `${win.remainingPercent.toFixed(1)}%`
-          const reset = compactReset(win.resetAt, win.resetLabel)
+          const reset = compactReset(win.resetAt, win.resetLabel, win.label)
           const parts = [win.label]
           if (showPercent) parts.push(pct)
           if (reset) parts.push(`${win.resetLabel || 'Rst'} ${reset}`)

@@ -145,6 +145,122 @@ describe('renderSidebarTitle', () => {
     assert.match(lines[copilotIndex + 1], /^  Monthly 60%$/)
   })
 
+  it('renders Anthropic multi-window quota lines', () => {
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'anthropic',
+        label: 'Anthropic',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 80 },
+          { label: 'Weekly', remainingPercent: 70 },
+          { label: 'Sonnet 7d', remainingPercent: 65 },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    const lines = title.split('\n')
+    const anthropicIndex = lines.findIndex((line) => line === 'Anthropic')
+    assert.ok(anthropicIndex >= 0)
+    assert.match(lines[anthropicIndex + 1], /^  5h 80%$/)
+    assert.match(lines[anthropicIndex + 2], /^  Weekly 70%$/)
+    assert.match(lines[anthropicIndex + 3], /^  Sonnet 7d 65%$/)
+  })
+
+  it('applies short-window time formatting consistently across providers', () => {
+    const now = new Date()
+    const crossDayShortReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      1,
+      0,
+      0,
+      0,
+    ).toISOString()
+    const futureLongReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 7,
+      19,
+      0,
+      0,
+      0,
+    ).toISOString()
+
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        label: 'OpenAI Codex',
+        shortLabel: 'OpenAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 80, resetAt: crossDayShortReset },
+        ],
+      },
+      {
+        providerID: 'anthropic',
+        label: 'Anthropic',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '1d', remainingPercent: 46, resetAt: crossDayShortReset },
+        ],
+      },
+      {
+        providerID: 'github-copilot',
+        label: 'GitHub Copilot',
+        shortLabel: 'Copilot',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: 'Monthly', remainingPercent: 70, resetAt: futureLongReset },
+        ],
+      },
+      {
+        providerID: 'rightcode-openai',
+        adapterID: 'rightcode',
+        label: 'RightCode',
+        shortLabel: 'RC-openai',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          {
+            label: 'Daily $88.9/$60',
+            showPercent: false,
+            resetAt: futureLongReset,
+            resetLabel: 'Exp',
+          },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+
+    assert.match(title, /OpenAI\n  5h 80% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /Anthropic\n  1d 46% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /Copilot\n  Monthly 70% Rst \d{2}-\d{2}/)
+    assert.doesNotMatch(title, /Monthly 70% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /RC-openai\n  Daily \$88\.9\/\$60 Exp \d{2}-\d{2}/)
+    assert.doesNotMatch(
+      title,
+      /Daily \$88\.9\/\$60 Exp \d{2}-\d{2} \d{2}:\d{2}/,
+    )
+  })
+
   it('adds blank line between title/tokens and tokens/quota', () => {
     const quotas: QuotaSnapshot[] = [
       {
@@ -315,6 +431,15 @@ describe('renderSidebarTitle', () => {
       0,
       0,
     ).toISOString()
+    const dailyReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      1,
+      30,
+      0,
+      0,
+    ).toISOString()
     const quotas: QuotaSnapshot[] = [
       {
         providerID: 'openai',
@@ -324,6 +449,7 @@ describe('renderSidebarTitle', () => {
         checkedAt: Date.now(),
         windows: [
           { label: '5h', remainingPercent: 80, resetAt: sameDayReset },
+          { label: '1d', remainingPercent: 65, resetAt: dailyReset },
           { label: 'Weekly', remainingPercent: 70, resetAt: weeklyReset },
         ],
       },
@@ -339,7 +465,11 @@ describe('renderSidebarTitle', () => {
     const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
     assert.ok(openAIIndex >= 0)
     assert.match(lines[openAIIndex + 1], /^  5h 80% Rst \d{2}:\d{2}$/)
-    assert.match(lines[openAIIndex + 2], /^  Weekly 70% Rst \d{2}-\d{2}$/)
+    assert.match(
+      lines[openAIIndex + 2],
+      /^  1d 65% Rst \d{2}-\d{2} \d{2}:\d{2}$/,
+    )
+    assert.match(lines[openAIIndex + 3], /^  Weekly 70% Rst \d{2}-\d{2}$/)
   })
 
   it('renders RightCode daily quota without trailing percent and shows balance', () => {
@@ -632,6 +762,77 @@ describe('renderMarkdownReport', () => {
       /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.88 \| \$4\.57 \|/,
     )
   })
+
+  it('uses compact reset formatting in markdown report for short windows', () => {
+    const now = new Date()
+    const shortReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      1,
+      0,
+      0,
+      0,
+    ).toISOString()
+    const monthlyReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 10,
+      19,
+      0,
+      0,
+      0,
+    ).toISOString()
+
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'anthropic',
+          label: 'Anthropic',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            { label: '5h', remainingPercent: 0, resetAt: shortReset },
+            { label: 'Weekly', remainingPercent: 46, resetAt: monthlyReset },
+          ],
+        },
+        {
+          providerID: 'openai',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            {
+              label: 'Daily $88.9/$60',
+              showPercent: false,
+              resetAt: monthlyReset,
+              resetLabel: 'Exp',
+            },
+          ],
+        },
+      ],
+      { showCost: true },
+    )
+
+    const lines = report.split('\n')
+    const anthro5h = lines.find((line) => line.startsWith('- Anthropic (5h):'))
+    const anthroWeekly = lines.find((line) =>
+      line.startsWith('- Anthropic (Weekly):'),
+    )
+    const rightCodeDaily = lines.find((line) =>
+      line.startsWith('- RightCode (Daily $88.9/$60):'),
+    )
+
+    assert.match(anthro5h || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
+    assert.match(anthroWeekly || '', /reset \d{2}-\d{2}$/)
+    assert.doesNotMatch(anthroWeekly || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
+    assert.match(rightCodeDaily || '', /reset \d{2}-\d{2}$/)
+    assert.doesNotMatch(rightCodeDaily || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
+  })
 })
 
 describe('renderToastMessage', () => {
@@ -664,6 +865,32 @@ describe('renderToastMessage', () => {
     assert.ok(quotaHeaderIndex > 0)
     assert.equal(lines[quotaHeaderIndex - 1], '')
     assert.ok(lines.some((line) => /OpenAI\s+5h 80\.0% Rst/.test(line)))
+  })
+
+  it('shows date and time for cross-day short quota windows in toast', () => {
+    const now = new Date()
+    const tomorrowReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      1,
+      0,
+      0,
+      0,
+    ).toISOString()
+    const toast = renderToastMessage('week', makeUsage(), [
+      {
+        providerID: 'anthropic',
+        label: 'Anthropic',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '1d', remainingPercent: 46, resetAt: tomorrowReset },
+        ],
+      },
+    ])
+
+    assert.match(toast, /Anthropic\s+1d 46\.0% Rst \d{2}-\d{2} \d{2}:\d{2}/)
   })
 
   it('renders RightCode daily quota rules in toast', () => {
