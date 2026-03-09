@@ -24,3 +24,8 @@ We will acknowledge reports as quickly as possible and provide a remediation tim
 - This plugin reads credentials from OpenCode local auth storage; treat all auth data as sensitive.
 - Keep debug logs free of secrets.
 - Prefer fail-closed behavior for writes (already enforced via symlink checks and atomic writes).
+- Quota fetching may contact provider-operated endpoints such as OpenAI, GitHub,
+  RightCode, and Anthropic; review any new provider integration for outbound
+  data exposure and header/token handling.
+- Some quota integrations rely on beta or internal-style endpoints; document
+  instability risks clearly and avoid assuming long-term API compatibility.

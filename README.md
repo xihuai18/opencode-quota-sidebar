@@ -13,12 +13,14 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@1.13.2"]
 }
 ```
 
 Note for OpenCode `>=1.2.15`: TUI settings (`theme`/`keybinds`/`tui`) moved to `tui.json`, but plugin loading still stays in `opencode.json` (`plugin: []`).
 This plugin also accepts both `config.providers` and older `provider.list` runtime shapes when discovering provider options.
+
+If you prefer automatic upgrades, you can still use `@latest`, but pinning an exact version makes behavior easier to reproduce when debugging.
 
 ## Development (build from source)
 
@@ -109,6 +111,37 @@ memory on startup. Chunk files remain on disk for historical range scans.
 - Node.js: >= 18 (for `fetch` + `AbortController`)
 - OpenCode: plugin SDK `@opencode-ai/plugin` ^1.2.10
 - OpenCode config split: if you are on `>=1.2.15`, keep this plugin in `opencode.json` and keep TUI-only keys in `tui.json`.
+
+## Force refresh after npm update
+
+If `npm view @leo000001/opencode-quota-sidebar version` shows a newer version but OpenCode still behaves like an older release, OpenCode/Bun is usually reusing an older installed copy.
+
+Recommended recovery steps:
+
+1. Pin the target plugin version in `opencode.json`.
+2. Fully exit OpenCode.
+3. Delete any cached installed copies of the plugin.
+4. Start OpenCode again so it reinstalls the package.
+5. Verify the actual installed `package.json` version under the plugin directory.
+
+Common install/cache locations:
+
+- `~/.cache/opencode/node_modules/@leo000001/opencode-quota-sidebar`
+- `~/node_modules/@leo000001/opencode-quota-sidebar`
+
+Windows PowerShell example:
+
+```powershell
+Remove-Item -Recurse -Force "$HOME\.cache\opencode\node_modules\@leo000001\opencode-quota-sidebar" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$HOME\node_modules\@leo000001\opencode-quota-sidebar" -ErrorAction SilentlyContinue
+```
+
+macOS / Linux example:
+
+```bash
+rm -rf ~/.cache/opencode/node_modules/@leo000001/opencode-quota-sidebar
+rm -rf ~/node_modules/@leo000001/opencode-quota-sidebar
+```
 
 ## Optional commands
 
@@ -354,6 +387,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
   - RightCode: `https://www.right.codes/account/summary`
+  - Anthropic: `https://api.anthropic.com/api/oauth/usage`
 - **Screen-sharing warning**: Session titles and toasts surface usage/quota
   information. If you are screen-sharing or recording, consider toggling the
   sidebar display off (`/qtoggle` or `quota_show` tool) to avoid leaking
@@ -363,6 +397,8 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - OpenAI OAuth token refresh is disabled by default; set
   `quota.refreshAccessToken=true` if you want the plugin to refresh access
   tokens when expired.
+- Anthropic quota currently uses a beta/internal-style OAuth usage endpoint and
+  request header; response fields may change without notice.
 - State/chunk file writes refuse to write through symlinked targets (best-effort defense-in-depth).
 - The `OPENCODE_QUOTA_DATA_HOME` env var overrides the OpenCode data directory
   path (for testing); do not set this in production.

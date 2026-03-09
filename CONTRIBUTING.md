@@ -59,6 +59,10 @@ Edit `src/providers/index.ts` and add `registry.register(myProviderAdapter)`.
 
 If your provider has ID variants, implement `normalizeID` in the adapter.
 
+If the new provider should appear in default `quota_summary` reports even when
+it has not yet been used in the current session, also update
+`listDefaultQuotaProviderIDs()` in `src/quota.ts`.
+
 ### 3) Optional config toggle
 
 Add to user config:
@@ -81,6 +85,10 @@ At minimum:
 - successful response parsing
 - error/unavailable paths
 - format output if using special fields (e.g. `balance`)
+- cache compatibility if the change replaces an older snapshot shape
+
+If the provider introduces new rendering rules or multi-window behavior, add
+coverage in both `src/__tests__/quota.test.ts` and `src/__tests__/format.test.ts`.
 
 ## QuotaSnapshot rules
 
@@ -100,3 +108,17 @@ npm test
 ```
 
 Both build and tests must pass before submitting a PR.
+
+If you change TypeScript types, config loading, or public behavior, also run:
+
+```bash
+npm run typecheck
+```
+
+## Documentation checklist
+
+When a change affects users, update the relevant docs in the same PR:
+
+- `README.md` for install, config, behavior, examples, or troubleshooting
+- `CHANGELOG.md` for released user-facing changes
+- `SECURITY.md` if the change affects auth handling, external requests, or data storage
