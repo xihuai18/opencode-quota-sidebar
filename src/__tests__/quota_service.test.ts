@@ -177,6 +177,76 @@ describe('quota service', () => {
     assert.equal(scheduled, 1)
   })
 
+  it('invalidates legacy anthropic unsupported cache entries', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(
+      authPath,
+      JSON.stringify({ anthropic: { type: 'oauth', access: 'token' } }),
+      'utf8',
+    )
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let calls = 0
+    let scheduled = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        }
+        return snapshot
+      },
+    }
+
+    state.quotaCache['anthropic#anthropic'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'unsupported',
+      checkedAt: Date.now(),
+      note: 'oauth quota endpoint is not publicly documented',
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {
+        scheduled++
+      },
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(calls, 1)
+    assert.equal(scheduled, 1)
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].status, 'ok')
+  })
+
   it('falls back to provider.list when config.providers is unavailable', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
     tmpDirs.push(tmp)
@@ -189,10 +259,7 @@ describe('quota service', () => {
     let calls = 0
     const quotaRuntime = {
       normalizeProviderID: (id: string) => id,
-      resolveQuotaAdapter: (
-        _id: string,
-        opts?: Record<string, unknown>,
-      ) =>
+      resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
         typeof opts?.baseURL === 'string' ? { id: 'rightcode' } : undefined,
       quotaCacheKey: (id: string, opts?: Record<string, unknown>) =>
         `${id}@${String(opts?.baseURL || '')}`,
@@ -240,7 +307,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(calls, 1)
     assert.equal(snapshots.length, 1)
@@ -260,10 +329,7 @@ describe('quota service', () => {
     let providerListCalls = 0
     const quotaRuntime = {
       normalizeProviderID: (id: string) => id,
-      resolveQuotaAdapter: (
-        _id: string,
-        opts?: Record<string, unknown>,
-      ) =>
+      resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
         typeof opts?.baseURL === 'string' ? { id: 'rightcode' } : undefined,
       quotaCacheKey: (id: string, opts?: Record<string, unknown>) =>
         `${id}@${String(opts?.baseURL || '')}`,
@@ -317,7 +383,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(calls, 1)
     assert.equal(providerListCalls, 0)

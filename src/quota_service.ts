@@ -75,20 +75,20 @@ export function createQuotaService(deps: {
 
     // Newer runtimes expose config.providers; older clients may only expose
     // provider.list with a slightly different response shape.
-    const response = await (client.config?.providers
-      ? client.config.providers({
-          query: { directory: deps.directory },
-          throwOnError: true,
-        })
-      : client.provider!.list!({
-          query: { directory: deps.directory },
-          throwOnError: true,
-        }))
-      .catch(swallow('getProviderOptionsMap'))
+    const response = await (
+      client.config?.providers
+        ? client.config.providers({
+            query: { directory: deps.directory },
+            throwOnError: true,
+          })
+        : client.provider!.list!({
+            query: { directory: deps.directory },
+            throwOnError: true,
+          })
+    ).catch(swallow('getProviderOptionsMap'))
 
-    const data = isRecord(response) && isRecord(response.data)
-      ? response.data
-      : undefined
+    const data =
+      isRecord(response) && isRecord(response.data) ? response.data : undefined
 
     const list = Array.isArray(data?.providers)
       ? data.providers
@@ -124,7 +124,11 @@ export function createQuotaService(deps: {
   const isValidQuotaCache = (snapshot: QuotaSnapshot) => {
     // Guard against stale RightCode cache entries from pre-daily format.
     if (snapshot.adapterID !== 'rightcode' || snapshot.status !== 'ok')
-      return true
+      return !(
+        snapshot.adapterID === 'anthropic' &&
+        snapshot.status === 'unsupported' &&
+        snapshot.note === 'oauth quota endpoint is not publicly documented'
+      )
     if (!snapshot.windows || snapshot.windows.length === 0) return true
     const primary = snapshot.windows[0]
     if (!primary.label.startsWith('Daily $')) return false
