@@ -324,9 +324,73 @@ describe('fetchQuotaSnapshot', () => {
     )
 
     assert.equal(
+      quota.quotaCacheKey('openai', {
+        baseURL: 'https://buzzai.cc/v1',
+      }),
+      'buzz@https://buzzai.cc/v1',
+    )
+
+    assert.equal(
       quota.quotaCacheKey('github-copilot-enterprise'),
       'github-copilot:github-copilot-enterprise',
     )
+  })
+
+  it('uses Buzz adapter when baseURL points to buzzai.cc and computes remaining balance', async () => {
+    setFetch(async (input) => {
+      const url = String(input)
+      if (url === 'https://buzzai.cc/v1/dashboard/billing/subscription') {
+        return jsonResponse({
+          object: 'billing_subscription',
+          has_payment_method: true,
+          soft_limit_usd: 45,
+          hard_limit_usd: 45,
+          system_hard_limit_usd: 45,
+          access_until: 0,
+        })
+      }
+      if (url === 'https://buzzai.cc/v1/dashboard/billing/usage') {
+        return jsonResponse({
+          object: 'list',
+          total_usage: 3482.564,
+        })
+      }
+      throw new Error(`unexpected url: ${url}`)
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'api', key: 'buzz-key' },
+      },
+      makeConfig({ includeOpenAI: false }),
+      undefined,
+      { baseURL: 'https://buzzai.cc/v1', apiKey: 'buzz-key' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'buzz')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'Buzz')
+    assert.equal(snapshot!.shortLabel, 'Buzz')
+    assert.equal(snapshot!.windows, undefined)
+    assert.equal(snapshot!.balance?.currency, 'CNY ')
+    assert.ok(Math.abs((snapshot!.balance?.amount || 0) - 10.17436) < 1e-9)
+  })
+
+  it('returns unavailable for Buzz when api key is missing', async () => {
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {},
+      makeConfig({ includeOpenAI: false }),
+      undefined,
+      { baseURL: 'https://buzzai.cc/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'buzz')
+    assert.equal(snapshot!.status, 'unavailable')
+    assert.equal(snapshot!.note, 'missing api key')
   })
 
   it('uses RightCode adapter when baseURL points to right.codes and matches subscription prefixes', async () => {

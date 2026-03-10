@@ -211,7 +211,7 @@ function compactQuotaInline(quota: QuotaSnapshot) {
   }
 
   if (quota.balance) {
-    return `${label} ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
+    return `${label} Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
   }
 
   if (quota.remainingPercent !== undefined) {

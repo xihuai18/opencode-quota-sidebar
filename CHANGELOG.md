@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add Buzz API balance support for OpenAI-compatible providers that use a Buzz `baseURL`.
+- Document Buzz configuration, rendering, and outbound billing endpoints.
+
 ## 1.13.2
 
 - Publish Anthropic quota fixes and cache invalidation updates.

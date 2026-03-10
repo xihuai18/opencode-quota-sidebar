@@ -67,6 +67,31 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /Input 1\.5k  Output 1\.2m/)
   })
 
+  it('renders Buzz balance consistently in single-line titles', () => {
+    const config = makeConfig(120)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'buzz',
+          label: 'Buzz',
+          shortLabel: 'Buzz',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: {
+            amount: 10.17436,
+            currency: 'CNY ',
+          },
+        },
+      ],
+      config,
+    )
+    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -411,6 +436,30 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /RC Balance \$258\.3/)
   })
 
+  it('renders Buzz balance neatly in multiline sidebar', () => {
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        adapterID: 'buzz',
+        label: 'Buzz',
+        shortLabel: 'Buzz',
+        status: 'ok',
+        checkedAt: Date.now(),
+        balance: {
+          amount: 10.17436,
+          currency: 'CNY ',
+        },
+      },
+    ]
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
+  })
+
   it('renders reset time and indented multi-window lines', () => {
     const now = new Date()
     const sameDayReset = new Date(
@@ -573,6 +622,42 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /OpenAI\s+5h 80%/)
     assert.match(title, /Copilot\s+Monthly 60%/)
     assert.match(title, /RC\s+Daily \$88\/\$60/)
+  })
+
+  it('renders Buzz cleanly alongside OpenAI and Copilot in sidebar', () => {
+    const config = makeConfig(60)
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        label: 'OpenAI Codex',
+        shortLabel: 'OpenAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [{ label: '5h', remainingPercent: 80 }],
+      },
+      {
+        providerID: 'github-copilot',
+        label: 'GitHub Copilot',
+        shortLabel: 'Copilot',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [{ label: 'Monthly', remainingPercent: 60 }],
+      },
+      {
+        providerID: 'openai',
+        adapterID: 'buzz',
+        label: 'Buzz',
+        shortLabel: 'Buzz',
+        status: 'ok',
+        checkedAt: Date.now(),
+        balance: { amount: 10.17436, currency: 'CNY ' },
+      },
+    ]
+
+    const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
+    assert.match(title, /OpenAI\s+5h 80%/)
+    assert.match(title, /Copilot\s+Monthly 60%/)
+    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
   })
 })
 
@@ -833,6 +918,27 @@ describe('renderMarkdownReport', () => {
     assert.match(rightCodeDaily || '', /reset \d{2}-\d{2}$/)
     assert.doesNotMatch(rightCodeDaily || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
   })
+
+  it('renders Buzz balance clearly in markdown reports', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'buzz',
+          label: 'Buzz',
+          shortLabel: 'Buzz',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 10.17436, currency: 'CNY ' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- Buzz: ok \\\| balance CNY 10\.2/)
+  })
 })
 
 describe('renderToastMessage', () => {
@@ -921,6 +1027,25 @@ describe('renderToastMessage', () => {
     assert.match(toast, /RC\s+Daily \$83\.4\/\$60 Exp 02-27/)
     assert.match(toast, /\s+Balance \$248\.4/)
     assert.doesNotMatch(toast, /Daily \$83\.4\/\$60\s+138\.9%/)
+  })
+
+  it('renders Buzz balance clearly in toast', () => {
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'openai',
+        adapterID: 'buzz',
+        label: 'Buzz',
+        shortLabel: 'Buzz',
+        status: 'ok',
+        checkedAt: Date.now(),
+        balance: {
+          amount: 10.17436,
+          currency: 'CNY ',
+        },
+      },
+    ])
+
+    assert.match(toast, /Buzz\s+Balance CNY 10\.2/)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
@@ -1132,5 +1257,39 @@ describe('renderToastMessage', () => {
     assert.match(toast, /RC\s+Balance \$243\.5/)
     assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp 02-27/)
     assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.5/)
+  })
+
+  it('renders Buzz cleanly alongside OpenAI and Copilot in toast', () => {
+    const toast = renderToastMessage('week', makeUsage(), [
+      {
+        providerID: 'openai',
+        label: 'OpenAI Codex',
+        shortLabel: 'OpenAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [{ label: '5h', remainingPercent: 80 }],
+      },
+      {
+        providerID: 'github-copilot',
+        label: 'GitHub Copilot',
+        shortLabel: 'Copilot',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [{ label: 'Monthly', remainingPercent: 60 }],
+      },
+      {
+        providerID: 'openai',
+        adapterID: 'buzz',
+        label: 'Buzz',
+        shortLabel: 'Buzz',
+        status: 'ok',
+        checkedAt: Date.now(),
+        balance: { amount: 10.17436, currency: 'CNY ' },
+      },
+    ])
+
+    assert.match(toast, /OpenAI\s+5h 80\.0%/)
+    assert.match(toast, /Copilot\s+Monthly 60\.0%/)
+    assert.match(toast, /Buzz\s+Balance CNY 10\.2/)
   })
 })

@@ -13,6 +13,13 @@ The plugin now uses a provider adapter registry, so adding a new provider does n
 - `src/quota.ts` provides `createQuotaRuntime()`; runtime methods delegate to resolved adapter and manage auth/cache glue
 - `src/format.ts` renders generic sidebar/report output from `QuotaSnapshot`
 
+## Common adapter patterns
+
+- Direct provider ID match: best for first-party providers with stable IDs
+- `baseURL` match: best for OpenAI-compatible relays such as RightCode or Buzz
+- Prefix/variant normalization: best when one provider has multiple runtime IDs
+- Balance-only providers should prefer `balance` over inventing fake percent windows
+
 ## Add a new provider
 
 ### 1) Create an adapter file
@@ -59,6 +66,10 @@ Edit `src/providers/index.ts` and add `registry.register(myProviderAdapter)`.
 
 If your provider has ID variants, implement `normalizeID` in the adapter.
 
+If your provider is an OpenAI-compatible relay, prefer matching on
+`providerOptions.baseURL` instead of the runtime `providerID`; that keeps custom
+aliases working without extra user config.
+
 If the new provider should appear in default `quota_summary` reports even when
 it has not yet been used in the current session, also update
 `listDefaultQuotaProviderIDs()` in `src/quota.ts`.
@@ -86,6 +97,8 @@ At minimum:
 - error/unavailable paths
 - format output if using special fields (e.g. `balance`)
 - cache compatibility if the change replaces an older snapshot shape
+- mixed-provider rendering if the new provider will commonly appear next to
+  OpenAI/Copilot/RightCode in sidebar or toast output
 
 If the provider introduces new rendering rules or multi-window behavior, add
 coverage in both `src/__tests__/quota.test.ts` and `src/__tests__/format.test.ts`.
@@ -120,5 +133,6 @@ npm run typecheck
 When a change affects users, update the relevant docs in the same PR:
 
 - `README.md` for install, config, behavior, examples, or troubleshooting
+- `CONTRIBUTING.md` if the change affects adapter patterns or provider authoring guidance
 - `CHANGELOG.md` for released user-facing changes
 - `SECURITY.md` if the change affects auth handling, external requests, or data storage

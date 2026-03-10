@@ -46,6 +46,7 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 | OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
 | GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                           |
 | RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)     |
+| Buzz           | `buzzai.cc/v1/dashboard/billing/*`     | API key         | Balance only (computed from total-used) |
 | Anthropic      | `api.anthropic.com/api/oauth/usage`    | OAuth           | Multi-window (5h + weekly / plan-based) |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -70,6 +71,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
   - RightCode API key (`/account/summary`)
+  - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
 - API key providers still show usage aggregation (quota only applies to subscription providers)
@@ -202,9 +204,11 @@ Resolution order (low -> high):
 
 Values are layered; later sources override earlier ones.
 
-## Defaults
+## Configuration
 
 If you do not provide any config file, the plugin uses the built-in defaults below.
+
+### Built-in defaults
 
 Sidebar defaults:
 
@@ -225,7 +229,7 @@ Quota defaults:
 - `quota.includeOpenAI`: `true`
 - `quota.includeCopilot`: `true`
 - `quota.includeAnthropic`: `true`
-- `quota.providers`: `{}` (per-adapter switches, for example `rightcode.enabled`)
+- `quota.providers`: `{}` (per-adapter switches, for example `rightcode.enabled` or `buzz.enabled`)
 - `quota.refreshAccessToken`: `false`
 - `quota.requestTimeoutMs`: `8000` (clamped to `>=1000`)
 
@@ -234,7 +238,7 @@ Other defaults:
 - `toast.durationMs`: `12000` (clamped to `>=1000`)
 - `retentionDays`: `730`
 
-Example config:
+### Full example config
 
 ```json
 {
@@ -256,6 +260,9 @@ Example config:
     "includeCopilot": true,
     "includeAnthropic": true,
     "providers": {
+      "buzz": {
+        "enabled": true
+      },
       "rightcode": {
         "enabled": true
       }
@@ -270,7 +277,7 @@ Example config:
 }
 ```
 
-Notes:
+### Notes
 
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
@@ -285,6 +292,30 @@ Notes:
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
+
+### Buzz provider example
+
+Buzz matching is based on the provider `baseURL`, similar to RightCode. Any OpenAI-compatible provider that points at `https://buzzai.cc` will be recognized by the Buzz adapter and rendered as a balance-only quota source.
+
+Provider options example:
+
+```json
+{
+  "id": "openai",
+  "options": {
+    "baseURL": "https://buzzai.cc",
+    "apiKey": "sk-..."
+  }
+}
+```
+
+The adapter also tolerates `https://buzzai.cc/v1`, but `https://buzzai.cc` is the recommended example.
+
+With that setup, the sidebar/toast quota line will look like:
+
+```text
+Buzz Balance CNY 10.17
+```
 
 ## Rendering examples
 
@@ -339,10 +370,26 @@ Copilot
   Monthly 78% Rst 04-01
 ```
 
+2+ providers mixed (window providers + Buzz balance):
+
+```text
+OpenAI
+  5h 78% Rst 05:05
+Copilot
+  Monthly 78% Rst 04-01
+Buzz Balance CNY 10.2
+```
+
 Balance-style quota:
 
 ```text
 RC Balance $260
+```
+
+Buzz balance quota:
+
+```text
+Buzz Balance CNY 10.17
 ```
 
 Multi-detail quota (window + balance):
@@ -369,6 +416,12 @@ Quota is rendered inline as part of a single-line title:
 <base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...
 ```
 
+Mixed with Buzz balance:
+
+```text
+<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance CNY 10.2
+```
+
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 
 ## Debug logging
@@ -387,6 +440,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
   - RightCode: `https://www.right.codes/account/summary`
+  - Buzz: `https://buzzai.cc/v1/dashboard/billing/subscription` and `https://buzzai.cc/v1/dashboard/billing/usage`
   - Anthropic: `https://api.anthropic.com/api/oauth/usage`
 - **Screen-sharing warning**: Session titles and toasts surface usage/quota
   information. If you are screen-sharing or recording, consider toggling the

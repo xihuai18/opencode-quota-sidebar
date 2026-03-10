@@ -14,6 +14,16 @@ describe('provider registry', () => {
     assert.equal(adapter!.id, 'rightcode')
   })
 
+  it('prefers Buzz adapter over provider ID when baseURL matches', () => {
+    const registry = createDefaultProviderRegistry()
+    const adapter = registry.resolve({
+      providerID: 'openai',
+      providerOptions: { baseURL: 'https://buzzai.cc/v1' },
+    })
+    assert.ok(adapter)
+    assert.equal(adapter!.id, 'buzz')
+  })
+
   it('normalizes copilot variants', () => {
     const registry = createDefaultProviderRegistry()
     assert.equal(
