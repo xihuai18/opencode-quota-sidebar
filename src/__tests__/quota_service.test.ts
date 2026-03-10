@@ -177,6 +177,278 @@ describe('quota service', () => {
     assert.equal(scheduled, 1)
   })
 
+  it('keeps zero-quota cache only for a short ttl', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'openai' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'openai',
+          label: 'OpenAI Codex',
+          shortLabel: 'OpenAI',
+          sortOrder: 10,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 42 }],
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    state.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'ok',
+      checkedAt: Date.now() - 20_000,
+      windows: [{ label: '5h', remainingPercent: 0 }],
+    }
+
+    const snapshots = await service.getQuotaSnapshots(['openai'])
+
+    assert.equal(calls, 1)
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 42)
+  })
+
+  it('refreshes quota cache immediately after reset time passes', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'openai' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'openai',
+          label: 'OpenAI Codex',
+          shortLabel: 'OpenAI',
+          sortOrder: 10,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            {
+              label: '5h',
+              remainingPercent: 65,
+              resetAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          ],
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    state.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'ok',
+      checkedAt: Date.now(),
+      windows: [
+        {
+          label: '5h',
+          remainingPercent: 0,
+          resetAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      ],
+    }
+
+    const snapshots = await service.getQuotaSnapshots(['openai'])
+
+    assert.equal(calls, 1)
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 65)
+  })
+
+  it('does not reuse cache when reset has passed even at zero age', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'openai' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'openai',
+          label: 'OpenAI Codex',
+          shortLabel: 'OpenAI',
+          sortOrder: 10,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 70 }],
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const fixedNow = Date.now()
+    state.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'ok',
+      checkedAt: fixedNow,
+      windows: [
+        {
+          label: '5h',
+          remainingPercent: 0,
+          resetAt: new Date(fixedNow - 1_000).toISOString(),
+        },
+      ],
+    }
+
+    const realNow = Date.now
+    Date.now = () => fixedNow
+    try {
+      const snapshots = await service.getQuotaSnapshots(['openai'])
+      assert.equal(calls, 1)
+      assert.equal(snapshots.length, 1)
+      assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 70)
+    } finally {
+      Date.now = realNow
+    }
+  })
+
+  it('refreshes error snapshots on a short ttl instead of full quota ttl', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'openai' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'openai',
+          label: 'OpenAI Codex',
+          shortLabel: 'OpenAI',
+          sortOrder: 10,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 77 }],
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    state.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'error',
+      checkedAt: Date.now() - 31_000,
+      note: 'network request failed',
+    }
+
+    const snapshots = await service.getQuotaSnapshots(['openai'])
+
+    assert.equal(calls, 1)
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].status, 'ok')
+  })
+
   it('invalidates legacy anthropic unsupported cache entries', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
     tmpDirs.push(tmp)

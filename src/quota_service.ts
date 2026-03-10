@@ -36,6 +36,12 @@ export function createQuotaService(deps: {
   directory: string
   scheduleSave: () => void
 }) {
+  const ERROR_CACHE_TTL_MS = 30_000
+  const ZERO_QUOTA_CACHE_TTL_MS = 15_000
+  const LOW_QUOTA_CACHE_TTL_MS = 30_000
+  const SOON_RESET_CACHE_TTL_MS = 15_000
+  const SOON_RESET_WINDOW_MS = 2 * 60 * 1000
+
   const authCache = new TtlValueCache<Record<string, AuthValue>>()
   const providerOptionsCache = new TtlValueCache<
     Record<string, Record<string, unknown>>
@@ -134,6 +140,72 @@ export function createQuotaService(deps: {
     if (!primary.label.startsWith('Daily $')) return false
     if (primary.showPercent !== false) return false
     return true
+  }
+
+  const parseResetAtMs = (value: string | undefined) => {
+    if (!value) return undefined
+    const parsed = Date.parse(value)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+
+  const snapshotRemainingPercents = (snapshot: QuotaSnapshot) => {
+    const values: number[] = []
+    if (
+      typeof snapshot.remainingPercent === 'number' &&
+      Number.isFinite(snapshot.remainingPercent)
+    ) {
+      values.push(snapshot.remainingPercent)
+    }
+    if (snapshot.windows && snapshot.windows.length > 0) {
+      for (const window of snapshot.windows) {
+        if (
+          typeof window.remainingPercent === 'number' &&
+          Number.isFinite(window.remainingPercent)
+        ) {
+          values.push(window.remainingPercent)
+        }
+      }
+    }
+    return values
+  }
+
+  const snapshotResetTimes = (snapshot: QuotaSnapshot) => {
+    const values: number[] = []
+    const topLevel = parseResetAtMs(snapshot.resetAt)
+    if (topLevel !== undefined) values.push(topLevel)
+    if (snapshot.windows && snapshot.windows.length > 0) {
+      for (const window of snapshot.windows) {
+        const parsed = parseResetAtMs(window.resetAt)
+        if (parsed !== undefined) values.push(parsed)
+      }
+    }
+    return values
+  }
+
+  const effectiveQuotaCacheTtl = (
+    snapshot: QuotaSnapshot,
+    now = Date.now(),
+  ) => {
+    let ttlMs = deps.config.quota.refreshMs
+
+    if (snapshot.status !== 'ok') {
+      ttlMs = Math.min(ttlMs, ERROR_CACHE_TTL_MS)
+    }
+
+    const remainingPercents = snapshotRemainingPercents(snapshot)
+    if (remainingPercents.some((value) => value <= 0)) {
+      ttlMs = Math.min(ttlMs, ZERO_QUOTA_CACHE_TTL_MS)
+    } else if (remainingPercents.some((value) => value <= 1)) {
+      ttlMs = Math.min(ttlMs, LOW_QUOTA_CACHE_TTL_MS)
+    }
+
+    const resetTimes = snapshotResetTimes(snapshot)
+    if (resetTimes.some((resetAt) => resetAt <= now)) return 0
+    if (resetTimes.some((resetAt) => resetAt - now <= SOON_RESET_WINDOW_MS)) {
+      ttlMs = Math.min(ttlMs, SOON_RESET_CACHE_TTL_MS)
+    }
+
+    return Math.max(0, ttlMs)
   }
 
   const getQuotaSnapshots = async (
@@ -249,10 +321,9 @@ export function createQuotaService(deps: {
       const cacheKey = `${baseKey}#${authScopeFor(providerID, providerOptions)}`
 
       const cached = deps.state.quotaCache[cacheKey]
-      if (
-        cached &&
-        Date.now() - cached.checkedAt <= deps.config.quota.refreshMs
-      ) {
+      const now = Date.now()
+      const cacheTtl = cached ? effectiveQuotaCacheTtl(cached, now) : 0
+      if (cached && cacheTtl > 0 && now - cached.checkedAt <= cacheTtl) {
         if (isValidQuotaCache(cached)) return Promise.resolve(cached)
         delete deps.state.quotaCache[cacheKey]
         cacheChanged = true
