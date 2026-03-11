@@ -189,7 +189,7 @@ async function fetchBuzzQuota({
     resetAt,
     balance: {
       amount: balance,
-      currency: 'CNY ',
+      currency: '￥',
     },
     note: 'remaining balance = soft_limit_usd - total_usage / 100',
   }

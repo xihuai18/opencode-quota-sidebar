@@ -374,7 +374,7 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.label, 'Buzz')
     assert.equal(snapshot!.shortLabel, 'Buzz')
     assert.equal(snapshot!.windows, undefined)
-    assert.equal(snapshot!.balance?.currency, 'CNY ')
+    assert.equal(snapshot!.balance?.currency, '￥')
     assert.ok(Math.abs((snapshot!.balance?.amount || 0) - 10.17436) < 1e-9)
   })
 

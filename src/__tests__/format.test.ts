@@ -83,13 +83,13 @@ describe('renderSidebarTitle', () => {
           checkedAt: Date.now(),
           balance: {
             amount: 10.17436,
-            currency: 'CNY ',
+            currency: '￥',
           },
         },
       ],
       config,
     )
-    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
+    assert.match(title, /Buzz\s+Balance ￥10\.2/)
   })
 
   it('uses adaptive k/m units for sidebar token lines', () => {
@@ -447,7 +447,7 @@ describe('renderSidebarTitle', () => {
         checkedAt: Date.now(),
         balance: {
           amount: 10.17436,
-          currency: 'CNY ',
+          currency: '￥',
         },
       },
     ]
@@ -457,7 +457,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
+    assert.match(title, /Buzz\s+Balance ￥10\.2/)
   })
 
   it('renders reset time and indented multi-window lines', () => {
@@ -650,14 +650,14 @@ describe('renderSidebarTitle', () => {
         shortLabel: 'Buzz',
         status: 'ok',
         checkedAt: Date.now(),
-        balance: { amount: 10.17436, currency: 'CNY ' },
+        balance: { amount: 10.17436, currency: '￥' },
       },
     ]
 
     const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
     assert.match(title, /OpenAI\s+5h 80%/)
     assert.match(title, /Copilot\s+Monthly 60%/)
-    assert.match(title, /Buzz\s+Balance CNY 10\.2/)
+    assert.match(title, /Buzz\s+Balance ￥10\.2/)
   })
 })
 
@@ -931,13 +931,13 @@ describe('renderMarkdownReport', () => {
           shortLabel: 'Buzz',
           status: 'ok',
           checkedAt: Date.now(),
-          balance: { amount: 10.17436, currency: 'CNY ' },
+          balance: { amount: 10.17436, currency: '￥' },
         },
       ],
       { showCost: true },
     )
 
-    assert.match(report, /- Buzz: ok \\\| balance CNY 10\.2/)
+    assert.match(report, /- Buzz: ok \\\| balance ￥10\.2/)
   })
 })
 
@@ -1040,12 +1040,12 @@ describe('renderToastMessage', () => {
         checkedAt: Date.now(),
         balance: {
           amount: 10.17436,
-          currency: 'CNY ',
+          currency: '￥',
         },
       },
     ])
 
-    assert.match(toast, /Buzz\s+Balance CNY 10\.2/)
+    assert.match(toast, /Buzz\s+Balance ￥10\.2/)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
@@ -1284,12 +1284,12 @@ describe('renderToastMessage', () => {
         shortLabel: 'Buzz',
         status: 'ok',
         checkedAt: Date.now(),
-        balance: { amount: 10.17436, currency: 'CNY ' },
+        balance: { amount: 10.17436, currency: '￥' },
       },
     ])
 
     assert.match(toast, /OpenAI\s+5h 80\.0%/)
     assert.match(toast, /Copilot\s+Monthly 60\.0%/)
-    assert.match(toast, /Buzz\s+Balance CNY 10\.2/)
+    assert.match(toast, /Buzz\s+Balance ￥10\.2/)
   })
 })
