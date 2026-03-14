@@ -140,6 +140,99 @@ describe('plugin integration', () => {
     }
   })
 
+  it('works with current runtime-style client discovery when server auth env is present', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify({ sidebar: { multilineTitle: true } }, null, 2),
+    )
+
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    const previousPassword = process.env.OPENCODE_SERVER_PASSWORD
+    const previousUsername = process.env.OPENCODE_SERVER_USERNAME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    process.env.OPENCODE_SERVER_PASSWORD = 'test-password'
+    process.env.OPENCODE_SERVER_USERNAME = 'tester'
+
+    try {
+      let title = 'Runtime-shaped session'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm-runtime',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's-runtime',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 420,
+          output: 84,
+          reasoning: 0,
+          cache: { read: 21, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: {
+                id: 's-runtime',
+                title,
+                time: { created: Date.now() - 10_000 },
+              },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's-runtime' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          config: {
+            providers: async () => ({
+              data: {
+                providers: [
+                  {
+                    id: 'openai',
+                    options: {},
+                  },
+                ],
+              },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+
+      assert.ok(updates.length > 0)
+      assert.match(title, /Input\s+420\s+Output\s+84/)
+      assert.match(title, /OpenAI unavailable/)
+      assert.doesNotMatch(title, /\u001b/)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+      process.env.OPENCODE_SERVER_PASSWORD = previousPassword
+      process.env.OPENCODE_SERVER_USERNAME = previousUsername
+    }
+  })
+
   it('includes descendant subagent usage and quota providers in parent title', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
