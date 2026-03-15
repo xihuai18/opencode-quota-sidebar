@@ -442,9 +442,311 @@ describe('usage service', () => {
       },
     })
 
-    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
 
     assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-12)
     assert.ok(Math.abs(usage.providers.openai.apiCost - 0.14) < 1e-12)
+  })
+
+  it('uses provider npm package to detect OpenAI priority billing for aliases', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's-openai-alias'
+    const now = Date.now()
+
+    state.sessions[sessionID] = {
+      createdAt: now - 1_000,
+      baseTitle: 'Alias',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-alias',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'my-openai',
+                  modelID: 'gpt-5',
+                  time: { created: now - 100, completed: now - 90 },
+                  tokens: {
+                    input: 100,
+                    output: 20,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  cost: 0,
+                },
+                parts: [
+                  {
+                    id: 'prt-alias',
+                    sessionID,
+                    messageID: 'm-alias',
+                    type: 'text',
+                    text: 'ok',
+                    metadata: {
+                      openai: {
+                        serviceTier: 'priority',
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'my-openai',
+                  npm: '@ai-sdk/openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0.0005,
+                        output: 0.001,
+                        cache_read: 0,
+                        cache_write: 0,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-12)
+    assert.ok(Math.abs(usage.providers['my-openai'].apiCost - 0.14) < 1e-12)
+  })
+
+  it('falls back to model options.serviceTier when message metadata is missing', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's-openai-options'
+    const now = Date.now()
+
+    state.sessions[sessionID] = {
+      createdAt: now - 1_000,
+      baseTitle: 'Options fallback',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-options',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'my-openai',
+                  modelID: 'gpt-5',
+                  time: { created: now - 100, completed: now - 90 },
+                  tokens: {
+                    input: 100,
+                    output: 20,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  cost: 0,
+                },
+                parts: [],
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'my-openai',
+                  npm: '@ai-sdk/openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0.0005,
+                        output: 0.001,
+                        cache_read: 0,
+                        cache_write: 0,
+                      },
+                      options: {
+                        serviceTier: 'priority',
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-12)
+    assert.ok(Math.abs(usage.providers['my-openai'].apiCost - 0.14) < 1e-12)
+  })
+
+  it('prefers message metadata serviceTier over model options fallback', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's-openai-precedence'
+    const now = Date.now()
+
+    state.sessions[sessionID] = {
+      createdAt: now - 1_000,
+      baseTitle: 'Tier precedence',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-precedence',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'my-openai',
+                  modelID: 'gpt-5',
+                  time: { created: now - 100, completed: now - 90 },
+                  tokens: {
+                    input: 100,
+                    output: 20,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                  cost: 0,
+                },
+                parts: [
+                  {
+                    id: 'prt-precedence',
+                    sessionID,
+                    messageID: 'm-precedence',
+                    type: 'text',
+                    text: 'ok',
+                    metadata: {
+                      openai: {
+                        serviceTier: 'default',
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'my-openai',
+                  npm: '@ai-sdk/openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0.0005,
+                        output: 0.001,
+                        cache_read: 0,
+                        cache_write: 0,
+                      },
+                      options: {
+                        serviceTier: 'priority',
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.ok(Math.abs(usage.apiCost - 0.07) < 1e-12)
+    assert.ok(Math.abs(usage.providers['my-openai'].apiCost - 0.07) < 1e-12)
   })
 })

@@ -9,7 +9,23 @@ function normalizeKnownProviderID(providerID: string) {
   return providerID
 }
 
-export function canonicalApiCostProviderID(providerID: string) {
+function canonicalProviderByNpmPackage(npmPackage: string) {
+  const normalized = npmPackage.trim().toLowerCase()
+  if (normalized === '@ai-sdk/openai') return 'openai'
+  if (normalized === '@ai-sdk/anthropic') return 'anthropic'
+  return undefined
+}
+
+export function canonicalApiCostProviderID(
+  providerID: string,
+  npmPackage?: string,
+) {
+  const byPackage =
+    typeof npmPackage === 'string'
+      ? canonicalProviderByNpmPackage(npmPackage)
+      : undefined
+  if (byPackage) return byPackage
+
   const normalized = normalizeKnownProviderID(providerID)
   if (SUBSCRIPTION_API_COST_PROVIDERS.has(normalized)) return normalized
 
@@ -33,6 +49,23 @@ export type ModelCostRates = {
     cacheRead: number
     cacheWrite: number
   }
+}
+
+type OpenAIProviderMetadata = {
+  serviceTier?: string
+  service_tier?: string
+}
+
+export function openAIServiceTierFromMessage(message: AssistantMessage) {
+  const info = message as AssistantMessage & {
+    providerMetadata?: {
+      openai?: OpenAIProviderMetadata
+    }
+  }
+  return (
+    info.providerMetadata?.openai?.serviceTier ??
+    info.providerMetadata?.openai?.service_tier
+  )
 }
 
 export function modelCostKey(providerID: string, modelID: string) {
@@ -124,26 +157,15 @@ export function guessModelCostDivisor(rates: ModelCostRates) {
 export function calcEquivalentApiCostForMessage(
   message: AssistantMessage,
   rates: ModelCostRates,
+  canonicalProviderID = message.providerID,
+  serviceTier = openAIServiceTierFromMessage(message),
 ) {
-  const info = message as AssistantMessage & {
-    providerMetadata?: {
-      openai?: {
-        serviceTier?: string
-        service_tier?: string
-      }
-    }
-  }
   const effectiveRates =
     message.tokens.input > 200_000 && rates.contextOver200k
       ? rates.contextOver200k
       : rates
-  const serviceTier =
-    info.providerMetadata?.openai?.serviceTier ??
-    info.providerMetadata?.openai?.service_tier
   const priorityMultiplier =
-    message.providerID === 'openai' && serviceTier === 'priority'
-      ? 2
-      : 1
+    canonicalProviderID === 'openai' && serviceTier === 'priority' ? 2 : 1
 
   // For providers that expose reasoning tokens separately, they are still
   // billed as output/completion tokens (same unit price). Our UI also merges
