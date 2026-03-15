@@ -125,36 +125,20 @@ export function calcEquivalentApiCostForMessage(
   message: AssistantMessage,
   rates: ModelCostRates,
 ) {
-  const info = message as AssistantMessage & {
-    providerMetadata?: {
-      openai?: {
-        serviceTier?: string
-        service_tier?: string
-      }
-    }
-  }
   const effectiveRates =
     message.tokens.input > 200_000 && rates.contextOver200k
       ? rates.contextOver200k
       : rates
-  const serviceTier =
-    info.providerMetadata?.openai?.serviceTier ??
-    info.providerMetadata?.openai?.service_tier
-  const priorityMultiplier =
-    message.providerID === 'openai' && serviceTier === 'priority'
-      ? 2
-      : 1
 
   // For providers that expose reasoning tokens separately, they are still
   // billed as output/completion tokens (same unit price). Our UI also merges
   // reasoning into the single Output statistic, so API cost should match that.
   const billedOutput = message.tokens.output + message.tokens.reasoning
   const rawCost =
-    (message.tokens.input * effectiveRates.input +
-      billedOutput * effectiveRates.output +
-      message.tokens.cache.read * effectiveRates.cacheRead +
-      message.tokens.cache.write * effectiveRates.cacheWrite) *
-    priorityMultiplier
+    message.tokens.input * effectiveRates.input +
+    billedOutput * effectiveRates.output +
+    message.tokens.cache.read * effectiveRates.cacheRead +
+    message.tokens.cache.write * effectiveRates.cacheWrite
 
   const divisor = guessModelCostDivisor(effectiveRates)
   const normalized = rawCost / divisor

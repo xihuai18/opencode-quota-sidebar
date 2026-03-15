@@ -102,58 +102,6 @@ describe('cost', () => {
     assert.equal(cost, 0.004)
   })
 
-  it('doubles OpenAI GPT equivalent cost for priority tier', () => {
-    const message = {
-      providerID: 'openai',
-      modelID: 'gpt-5',
-      providerMetadata: {
-        openai: {
-          serviceTier: 'priority',
-        },
-      },
-      tokens: {
-        input: 1_000_000,
-        output: 500_000,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-    }
-    const cost = calcEquivalentApiCostForMessage(message as never, {
-      input: 2,
-      output: 4,
-      cacheRead: 0,
-      cacheWrite: 0,
-    })
-
-    assert.equal(cost, 8)
-  })
-
-  it('doubles all OpenAI models for priority tier', () => {
-    const message = {
-      providerID: 'openai',
-      modelID: 'o4-mini',
-      providerMetadata: {
-        openai: {
-          serviceTier: 'priority',
-        },
-      },
-      tokens: {
-        input: 1_000_000,
-        output: 500_000,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-    }
-    const cost = calcEquivalentApiCostForMessage(message as never, {
-      input: 2,
-      output: 4,
-      cacheRead: 0,
-      cacheWrite: 0,
-    })
-
-    assert.equal(cost, 8)
-  })
-
   it('uses context_over_200k rates for the full request once threshold is exceeded', () => {
     const message = {
       tokens: {

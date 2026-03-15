@@ -40,13 +40,6 @@ type DescendantsResolver = {
   ) => Promise<string[]>
 }
 
-type PartWithMetadata = {
-  metadata?: Record<string, unknown>
-  state?: {
-    metadata?: Record<string, unknown>
-  }
-}
-
 type Persistence = {
   markDirty: (dateKey: string | undefined) => void
   scheduleSave: () => void
@@ -238,37 +231,10 @@ export function createUsageService(deps: {
     } as Message
   }
 
-  const extractProviderMetadata = (parts: unknown) => {
-    if (!Array.isArray(parts)) return undefined
-
-    for (const part of parts) {
-      if (!isRecord(part)) continue
-
-      const meta = (part as PartWithMetadata).metadata
-      if (isRecord(meta)) return meta
-
-      const stateMeta = isRecord(part.state)
-        ? (part.state as PartWithMetadata['state'])?.metadata
-        : undefined
-      if (isRecord(stateMeta)) return stateMeta
-    }
-
-    return undefined
-  }
-
   const decodeMessageEntry = (value: unknown): MessageEntry | undefined => {
     if (!isRecord(value)) return undefined
     const decoded = decodeMessageInfo(value.info)
     if (!decoded) return undefined
-
-    const metadata = extractProviderMetadata(value.parts)
-    if (metadata && decoded.role === 'assistant') {
-      const msg = decoded as Message & {
-        providerMetadata?: Record<string, unknown>
-      }
-      msg.providerMetadata = metadata
-    }
-
     return { info: decoded }
   }
 
