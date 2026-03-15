@@ -68,6 +68,130 @@ function entry(sessionID: string, messageID: string, input: number) {
 }
 
 describe('usage service', () => {
+  it('keeps session measured cost root-only while apiCost includes children', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    config.sidebar.includeChildren = true
+
+    state.sessions.root = {
+      createdAt: Date.now() - 2_000,
+      baseTitle: 'Root',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessions.child = {
+      createdAt: Date.now() - 1_000,
+      baseTitle: 'Child',
+      lastAppliedTitle: undefined,
+      parentID: 'root',
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap.root = '2026-01-01'
+    state.sessionDateMap.child = '2026-01-01'
+
+    const now = Date.now()
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async (args: { path: { id: string } }) => {
+            if (args.path.id === 'root') {
+              return {
+                data: [
+                  {
+                    info: {
+                      id: 'm-root',
+                      sessionID: 'root',
+                      role: 'assistant',
+                      providerID: 'openai',
+                      modelID: 'gpt-5',
+                      time: { created: now - 100, completed: now - 90 },
+                      tokens: {
+                        input: 100,
+                        output: 20,
+                        reasoning: 0,
+                        cache: { read: 0, write: 0 },
+                      },
+                      cost: 1.25,
+                    },
+                  },
+                ],
+              }
+            }
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'm-child',
+                    sessionID: 'child',
+                    role: 'assistant',
+                    providerID: 'openai',
+                    modelID: 'gpt-5',
+                    time: { created: now - 50, completed: now - 40 },
+                    tokens: {
+                      input: 50,
+                      output: 10,
+                      reasoning: 5,
+                      cache: { read: 0, write: 0 },
+                    },
+                    cost: 9.99,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0.0005,
+                        output: 0.001,
+                        cache_read: 0,
+                        cache_write: 0,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => ['child'],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay('root', true)
+
+    assert.equal(usage.input, 150)
+    assert.equal(usage.output, 35)
+    assert.equal(usage.total, 185)
+    assert.equal(usage.sessionCount, 2)
+    assert.equal(usage.cost, 1.25)
+    assert.equal(usage.providers.openai.cost, 1.25)
+    assert.ok(Math.abs(usage.apiCost - 0.11) < 1e-9)
+    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.11) < 1e-9)
+  })
+
   it('forces a full rescan when cached billing version is stale', async () => {
     const state = makeState()
     const config = makeConfig()

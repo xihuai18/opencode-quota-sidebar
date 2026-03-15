@@ -401,7 +401,11 @@ export function createUsageService(deps: {
     for (const childID of descendantIDs) {
       const cached = deps.state.sessions[childID]?.usage
       if (cached && !isDirty(childID) && isUsageBillingCurrent(cached)) {
-        mergeUsage(merged, fromCachedSessionUsage(cached, 1))
+        // Keep measured cost aligned with OpenCode session semantics by only
+        // using child sessions for token/API-cost aggregation.
+        mergeUsage(merged, fromCachedSessionUsage(cached, 1), {
+          includeCost: false,
+        })
       } else {
         needsFetch.push(childID)
       }
@@ -421,7 +425,7 @@ export function createUsageService(deps: {
       )
 
       for (const childUsage of fetched) {
-        mergeUsage(merged, childUsage)
+        mergeUsage(merged, childUsage, { includeCost: false })
       }
     }
 

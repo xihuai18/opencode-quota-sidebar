@@ -27,6 +27,12 @@ export type ModelCostRates = {
   output: number
   cacheRead: number
   cacheWrite: number
+  contextOver200k?: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+  }
 }
 
 export function modelCostKey(providerID: string, modelID: string) {
@@ -67,16 +73,32 @@ export function parseModelCostRates(
   const output = readRate(value.output ?? value.completion)
   const cacheRead = readRate(value.cache_read ?? cache?.read)
   const cacheWrite = readRate(value.cache_write ?? cache?.write)
+  const contextOver200k = isRecord(value.context_over_200k)
+    ? {
+        input: readRate(value.context_over_200k.input),
+        output: readRate(value.context_over_200k.output),
+        cacheRead: readRate(value.context_over_200k.cache_read),
+        cacheWrite: readRate(value.context_over_200k.cache_write),
+      }
+    : undefined
 
   if (input <= 0 && output <= 0 && cacheRead <= 0 && cacheWrite <= 0) {
     return undefined
   }
+
+  const hasContextTier =
+    !!contextOver200k &&
+    (contextOver200k.input > 0 ||
+      contextOver200k.output > 0 ||
+      contextOver200k.cacheRead > 0 ||
+      contextOver200k.cacheWrite > 0)
 
   return {
     input,
     output,
     cacheRead,
     cacheWrite,
+    contextOver200k: hasContextTier ? contextOver200k : undefined,
   }
 }
 
@@ -103,17 +125,22 @@ export function calcEquivalentApiCostForMessage(
   message: AssistantMessage,
   rates: ModelCostRates,
 ) {
+  const effectiveRates =
+    message.tokens.input > 200_000 && rates.contextOver200k
+      ? rates.contextOver200k
+      : rates
+
   // For providers that expose reasoning tokens separately, they are still
   // billed as output/completion tokens (same unit price). Our UI also merges
   // reasoning into the single Output statistic, so API cost should match that.
   const billedOutput = message.tokens.output + message.tokens.reasoning
   const rawCost =
-    message.tokens.input * rates.input +
-    billedOutput * rates.output +
-    message.tokens.cache.read * rates.cacheRead +
-    message.tokens.cache.write * rates.cacheWrite
+    message.tokens.input * effectiveRates.input +
+    billedOutput * effectiveRates.output +
+    message.tokens.cache.read * effectiveRates.cacheRead +
+    message.tokens.cache.write * effectiveRates.cacheWrite
 
-  const divisor = guessModelCostDivisor(rates)
+  const divisor = guessModelCostDivisor(effectiveRates)
   const normalized = rawCost / divisor
   return Number.isFinite(normalized) && normalized > 0 ? normalized : 0
 }

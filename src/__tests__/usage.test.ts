@@ -82,6 +82,56 @@ describe('mergeUsage', () => {
     assert.equal(a.providers.openai.apiCost, 1)
     assert.equal(a.providers.openai.assistantMessages, 3)
   })
+
+  it('can merge child usage without adding measured cost', () => {
+    const a = makeSummary({
+      cost: 0.5,
+      apiCost: 0.1,
+      providers: {
+        openai: {
+          providerID: 'openai',
+          input: 10,
+          output: 5,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 15,
+          cost: 0.5,
+          apiCost: 0.1,
+          assistantMessages: 1,
+        },
+      },
+    })
+    const b = makeSummary({
+      input: 20,
+      output: 10,
+      total: 30,
+      cost: 3,
+      apiCost: 0.2,
+      providers: {
+        openai: {
+          providerID: 'openai',
+          input: 20,
+          output: 10,
+          reasoning: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 30,
+          cost: 3,
+          apiCost: 0.2,
+          assistantMessages: 1,
+        },
+      },
+    })
+
+    mergeUsage(a, b, { includeCost: false })
+
+    assert.equal(a.cost, 0.5)
+    assert.ok(Math.abs(a.apiCost - 0.3) < 1e-9)
+    assert.equal(a.providers.openai.cost, 0.5)
+    assert.ok(Math.abs(a.providers.openai.apiCost - 0.3) < 1e-9)
+    assert.equal(a.providers.openai.input, 30)
+  })
 })
 
 describe('toCachedSessionUsage / fromCachedSessionUsage', () => {

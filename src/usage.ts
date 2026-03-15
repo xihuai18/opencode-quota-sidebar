@@ -6,7 +6,7 @@ import type {
   IncrementalCursor,
 } from './types.js'
 
-export const USAGE_BILLING_CACHE_VERSION = 1
+export const USAGE_BILLING_CACHE_VERSION = 2
 
 export type ProviderUsage = {
   providerID: string
@@ -346,13 +346,20 @@ function findLastCompletedAssistant(
   return best
 }
 
-export function mergeUsage(target: UsageSummary, source: UsageSummary) {
+export function mergeUsage(
+  target: UsageSummary,
+  source: UsageSummary,
+  options?: { includeCost?: boolean },
+) {
+  const includeCost = options?.includeCost !== false
   target.input += source.input
   target.output += source.output
   target.cacheRead += source.cacheRead
   target.cacheWrite += source.cacheWrite
   target.total += source.total
-  target.cost += source.cost
+  if (includeCost) {
+    target.cost += source.cost
+  }
   target.apiCost += source.apiCost
   target.assistantMessages += source.assistantMessages
   target.sessionCount += source.sessionCount
@@ -367,7 +374,9 @@ export function mergeUsage(target: UsageSummary, source: UsageSummary) {
     existing.cacheRead += provider.cacheRead
     existing.cacheWrite += provider.cacheWrite
     existing.total += provider.total
-    existing.cost += provider.cost
+    if (includeCost) {
+      existing.cost += provider.cost
+    }
     existing.apiCost += provider.apiCost
     existing.assistantMessages += provider.assistantMessages
     target.providers[provider.providerID] = existing

@@ -4,6 +4,10 @@
 
 - Add Buzz API balance support for OpenAI-compatible providers that use a Buzz `baseURL`.
 - Document Buzz configuration, rendering, and outbound billing endpoints.
+- Keep session measured cost aligned with OpenCode root-session `message.cost` while still including descendant subagent usage in API-equivalent cost.
+- Support OpenCode long-context pricing tiers via `context_over_200k` when estimating API-equivalent cost.
+- Bump the usage billing cache version so `/qday`, `/qweek`, and `/qmonth` recompute historical API cost with the updated rules.
+- Document API-cost estimation, billing-cache behavior, and child-session aggregation semantics in the README.
 
 ## 1.13.2
 

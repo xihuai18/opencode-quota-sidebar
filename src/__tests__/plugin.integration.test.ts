@@ -456,4 +456,163 @@ describe('plugin integration', () => {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
+
+  it('includes child long-context API cost in parent title', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        { sidebar: { multilineTitle: true, showQuota: false } },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+
+    try {
+      const sessions = {
+        p1: {
+          id: 'p1',
+          title: 'Parent Session',
+          parentID: undefined as string | undefined,
+          time: { created: Date.now() - 20_000 },
+        },
+        c1: {
+          id: 'c1',
+          title: 'Child Session',
+          parentID: 'p1',
+          time: { created: Date.now() - 10_000 },
+        },
+      }
+
+      const updates: Array<{ id: string; title: string }> = []
+
+      const parentMessage = {
+        id: 'm-parent',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 'p1',
+        time: { created: Date.now() - 9_000, completed: Date.now() - 8_900 },
+        tokens: {
+          input: 100_000,
+          output: 10_000,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0,
+      }
+
+      const childMessage = {
+        id: 'm-child',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 'c1',
+        time: { created: Date.now() - 2_000, completed: Date.now() - 1_900 },
+        tokens: {
+          input: 250_000,
+          output: 15_000,
+          reasoning: 5_000,
+          cache: { read: 20_000, write: 0 },
+        },
+        cost: 0,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                  context_over_200k: {
+                    input: 3,
+                    output: 6,
+                    cache_read: 1.5,
+                    cache_write: 0,
+                  },
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async (args: { path: { id: string } }) => ({
+              data: sessions[args.path.id as 'p1' | 'c1'],
+            }),
+            update: async (args: {
+              path: { id: string }
+              body: { title: string }
+            }) => {
+              const id = args.path.id as 'p1' | 'c1'
+              sessions[id].title = args.body.title
+              updates.push({ id, title: args.body.title })
+              return { data: { ok: true } }
+            },
+            messages: async (args: { path: { id: string } }) => {
+              const id = args.path.id
+              if (id === 'p1') return { data: [{ info: parentMessage }] }
+              if (id === 'c1') return { data: [{ info: childMessage }] }
+              return { data: [] }
+            },
+            children: async (args: { path: { id: string } }) => {
+              if (args.path.id === 'p1') return { data: [sessions.c1] }
+              return { data: [] }
+            },
+            list: async () => ({ data: [{ id: 'p1' }, { id: 'c1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: childMessage } },
+      } as never)
+
+      await waitFor(() => updates.some((u) => u.id === 'p1'))
+
+      const latestParent = [...updates]
+        .reverse()
+        .find((item) => item.id === 'p1')
+      assert.ok(latestParent)
+      assert.match(latestParent!.title, /Input\s+350\.0k\s+Output\s+30\.0k/)
+      assert.match(latestParent!.title, /\$1\.02 as API cost/)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
 })
