@@ -4,7 +4,6 @@ import { describe, it } from 'node:test'
 import {
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
-  openAIServiceTierFromMessage,
   parseModelCostRates,
 } from '../cost.js'
 
@@ -155,94 +154,6 @@ describe('cost', () => {
     assert.equal(cost, 8)
   })
 
-  it('treats @ai-sdk/openai providers as OpenAI for priority billing', () => {
-    const message = {
-      providerID: 'custom-openai',
-      modelID: 'gpt-5',
-      providerMetadata: {
-        openai: {
-          serviceTier: 'priority',
-        },
-      },
-      tokens: {
-        input: 1_000_000,
-        output: 500_000,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-    }
-    const cost = calcEquivalentApiCostForMessage(
-      message as never,
-      {
-        input: 2,
-        output: 4,
-        cacheRead: 0,
-        cacheWrite: 0,
-      },
-      canonicalApiCostProviderID('custom-openai', '@ai-sdk/openai'),
-    )
-
-    assert.equal(cost, 8)
-  })
-
-  it('supports explicit serviceTier fallback when message metadata is missing', () => {
-    const message = {
-      providerID: 'custom-openai',
-      modelID: 'gpt-5',
-      tokens: {
-        input: 1_000_000,
-        output: 500_000,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-    }
-    const cost = calcEquivalentApiCostForMessage(
-      message as never,
-      {
-        input: 2,
-        output: 4,
-        cacheRead: 0,
-        cacheWrite: 0,
-      },
-      'openai',
-      'priority',
-    )
-
-    assert.equal(cost, 8)
-  })
-
-  it('prefers message metadata serviceTier over fallback tier', () => {
-    const message = {
-      providerID: 'custom-openai',
-      modelID: 'gpt-5',
-      providerMetadata: {
-        openai: {
-          serviceTier: 'default',
-        },
-      },
-      tokens: {
-        input: 1_000_000,
-        output: 500_000,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-    }
-    const resolved = openAIServiceTierFromMessage(message as never)
-    const cost = calcEquivalentApiCostForMessage(
-      message as never,
-      {
-        input: 2,
-        output: 4,
-        cacheRead: 0,
-        cacheWrite: 0,
-      },
-      'openai',
-      resolved ?? 'priority',
-    )
-
-    assert.equal(cost, 4)
-  })
-
   it('uses context_over_200k rates for the full request once threshold is exceeded', () => {
     const message = {
       tokens: {
@@ -297,10 +208,6 @@ describe('cost', () => {
 
   it('canonicalizes provider IDs for billing attribution', () => {
     assert.equal(canonicalApiCostProviderID('openai'), 'openai')
-    assert.equal(
-      canonicalApiCostProviderID('custom-openai', '@ai-sdk/openai'),
-      'openai',
-    )
     assert.equal(canonicalApiCostProviderID('OpenAI-Codex'), 'openai')
     assert.equal(
       canonicalApiCostProviderID('github-copilot-enterprise'),

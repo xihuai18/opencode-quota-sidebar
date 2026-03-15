@@ -6,7 +6,6 @@ import {
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
   modelCostKey,
-  openAIServiceTierFromMessage,
   parseModelCostRates,
   SUBSCRIPTION_API_COST_PROVIDERS,
   type ModelCostRates,
@@ -54,12 +53,6 @@ type Persistence = {
   flushSave: () => Promise<void>
 }
 
-type ApiCostModelMap = {
-  rates: Record<string, ModelCostRates>
-  providerAliases: Record<string, string>
-  modelServiceTiers: Record<string, string>
-}
-
 export function createUsageService(deps: {
   state: QuotaSidebarState
   config: QuotaSidebarConfig
@@ -95,7 +88,7 @@ export function createUsageService(deps: {
     { generation: number; promise: Promise<SessionUsageResult> }
   >()
 
-  const modelCostCache = new TtlValueCache<ApiCostModelMap>()
+  const modelCostCache = new TtlValueCache<Record<string, ModelCostRates>>()
   const missingApiCostRateKeys = new Set<string>()
 
   const getModelCostMap = async () => {
@@ -112,10 +105,7 @@ export function createUsageService(deps: {
     }
 
     if (!providerClient.provider?.list) {
-      return modelCostCache.set(
-        { rates: {}, providerAliases: {}, modelServiceTiers: {} },
-        30_000,
-      )
+      return modelCostCache.set({}, 30_000)
     }
 
     const response = await providerClient.provider
@@ -134,115 +124,48 @@ export function createUsageService(deps: {
         ? response.data.all
         : []
 
-    const providerAliases = all.reduce<Record<string, string>>(
-      (acc, provider) => {
-        if (!isRecord(provider)) return acc
-        if (typeof provider.id !== 'string') return acc
+    const map = all.reduce<Record<string, ModelCostRates>>((acc, provider) => {
+      if (!isRecord(provider)) return acc
+      const providerID =
+        typeof provider.id === 'string'
+          ? canonicalApiCostProviderID(provider.id)
+          : undefined
+      if (!providerID) return acc
+      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
 
-        const canonical = canonicalApiCostProviderID(
-          provider.id,
-          typeof provider.npm === 'string' ? provider.npm : undefined,
-        )
-        if (!SUBSCRIPTION_API_COST_PROVIDERS.has(canonical)) return acc
-        acc[provider.id] = canonical
-        return acc
-      },
-      {},
-    )
+      const models = provider.models
+      if (!isRecord(models)) return acc
 
-    const modelServiceTiers = all.reduce<Record<string, string>>(
-      (acc, provider) => {
-        if (!isRecord(provider)) return acc
-        const providerID =
-          typeof provider.id === 'string'
-            ? (providerAliases[provider.id] ??
-              canonicalApiCostProviderID(
-                provider.id,
-                typeof provider.npm === 'string' ? provider.npm : undefined,
-              ))
-            : undefined
-        if (!providerID) return acc
-        if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
+      for (const [modelKey, modelValue] of Object.entries(models)) {
+        if (!isRecord(modelValue)) continue
+        const rates = parseModelCostRates(modelValue.cost)
+        if (!rates) continue
 
-        const models = provider.models
-        if (!isRecord(models)) return acc
-
-        for (const [modelKey, modelValue] of Object.entries(models)) {
-          if (!isRecord(modelValue)) continue
-          const options = isRecord(modelValue.options)
-            ? modelValue.options
-            : undefined
-          const serviceTier =
-            typeof options?.serviceTier === 'string'
-              ? options.serviceTier
-              : undefined
-          if (!serviceTier) continue
-
-          const modelID =
-            typeof modelValue.id === 'string' ? modelValue.id : modelKey
-          acc[modelCostKey(providerID, modelID)] = serviceTier
-          if (modelKey !== modelID) {
-            acc[modelCostKey(providerID, modelKey)] = serviceTier
-          }
+        const modelID =
+          typeof modelValue.id === 'string' ? modelValue.id : modelKey
+        acc[modelCostKey(providerID, modelID)] = rates
+        if (modelKey !== modelID) {
+          acc[modelCostKey(providerID, modelKey)] = rates
         }
+      }
 
-        return acc
-      },
-      {},
-    )
-
-    const rates = all.reduce<Record<string, ModelCostRates>>(
-      (acc, provider) => {
-        if (!isRecord(provider)) return acc
-        const providerID =
-          typeof provider.id === 'string'
-            ? (providerAliases[provider.id] ??
-              canonicalApiCostProviderID(
-                provider.id,
-                typeof provider.npm === 'string' ? provider.npm : undefined,
-              ))
-            : undefined
-        if (!providerID) return acc
-        if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
-
-        const models = provider.models
-        if (!isRecord(models)) return acc
-
-        for (const [modelKey, modelValue] of Object.entries(models)) {
-          if (!isRecord(modelValue)) continue
-          const rates = parseModelCostRates(modelValue.cost)
-          if (!rates) continue
-
-          const modelID =
-            typeof modelValue.id === 'string' ? modelValue.id : modelKey
-          acc[modelCostKey(providerID, modelID)] = rates
-          if (modelKey !== modelID) {
-            acc[modelCostKey(providerID, modelKey)] = rates
-          }
-        }
-
-        return acc
-      },
-      {},
-    )
+      return acc
+    }, {})
 
     return modelCostCache.set(
-      { rates, providerAliases, modelServiceTiers },
+      map,
       Math.max(30_000, deps.config.quota.refreshMs),
     )
   }
 
   const calcEquivalentApiCost = (
     message: AssistantMessage,
-    modelCostMap: ApiCostModelMap,
+    modelCostMap: Record<string, ModelCostRates>,
   ) => {
-    const providerID =
-      typeof modelCostMap.providerAliases[message.providerID] === 'string'
-        ? modelCostMap.providerAliases[message.providerID]
-        : canonicalApiCostProviderID(message.providerID)
+    const providerID = canonicalApiCostProviderID(message.providerID)
     if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return 0
 
-    const rates = modelCostMap.rates[modelCostKey(providerID, message.modelID)]
+    const rates = modelCostMap[modelCostKey(providerID, message.modelID)]
     if (!rates) {
       const key = modelCostKey(providerID, message.modelID)
       if (!missingApiCostRateKeys.has(key)) {
@@ -252,16 +175,7 @@ export function createUsageService(deps: {
       return 0
     }
 
-    const serviceTier =
-      openAIServiceTierFromMessage(message) ??
-      modelCostMap.modelServiceTiers[modelCostKey(providerID, message.modelID)]
-
-    return calcEquivalentApiCostForMessage(
-      message,
-      rates,
-      providerID,
-      serviceTier,
-    )
+    return calcEquivalentApiCostForMessage(message, rates)
   }
 
   type MessageEntry = { info: Message }
