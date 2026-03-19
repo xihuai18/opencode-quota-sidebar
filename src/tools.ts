@@ -11,10 +11,19 @@ export function createQuotaSidebarTools(deps: {
   flushSave: () => Promise<void>
   refreshSessionTitle: (sessionID: string, delay?: number) => void
   cancelAllTitleRefreshes: () => void
+  flushScheduledTitleRefreshes: () => Promise<void>
   waitForTitleRefreshIdle: () => Promise<void>
-  restoreAllVisibleTitles: () => Promise<void>
+  restoreAllVisibleTitles: () => Promise<{
+    attempted: number
+    restored: number
+    listFailed: boolean
+  }>
   refreshAllTouchedTitles: () => Promise<void>
-  refreshAllVisibleTitles: () => Promise<void>
+  refreshAllVisibleTitles: () => Promise<{
+    attempted: number
+    refreshed: number
+    listFailed: boolean
+  }>
   showToast: (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
     message: string,
@@ -44,6 +53,8 @@ export function createQuotaSidebarTools(deps: {
     sidebar: { showCost: boolean; width: number; includeChildren: boolean }
   }
 }) {
+  let toggleLock = Promise.resolve()
+
   return {
     quota_summary: tool({
       description: 'Show usage and quota summary for session/day/week/month.',
@@ -101,27 +112,51 @@ export function createQuotaSidebarTools(deps: {
           .describe('Explicit on/off. Omit to toggle current state.'),
       },
       execute: async (args, context) => {
-        const current = deps.getTitleEnabled()
-        const next = args.enabled !== undefined ? args.enabled : !current
-        deps.setTitleEnabled(next)
-        deps.scheduleSave()
-        await deps.flushSave()
+        const run = async () => {
+          const current = deps.getTitleEnabled()
+          const next = args.enabled !== undefined ? args.enabled : !current
 
-        if (next) {
-          // Turning on — refresh visible sessions, plus touched sessions as backup.
+          if (next) {
+            deps.setTitleEnabled(true)
+            deps.scheduleSave()
+            await deps.flushSave()
+
+            const visible = await deps.refreshAllVisibleTitles()
+            await deps.refreshAllTouchedTitles()
+            deps.refreshSessionTitle(context.sessionID, 0)
+            await deps.showToast('toggle', 'Sidebar usage display: ON')
+            if (visible.listFailed) {
+              return 'Sidebar usage display is now ON. Visible-session refresh failed, so only touched/current session titles are guaranteed to refresh immediately.'
+            }
+            return 'Sidebar usage display is now ON. Visible session titles are refreshing to show token usage and quota.'
+          }
+
+          deps.setTitleEnabled(false)
+          deps.scheduleSave()
+          await deps.flushSave()
+          deps.cancelAllTitleRefreshes()
+          await deps.flushScheduledTitleRefreshes()
+          await deps.waitForTitleRefreshIdle()
+          const restore = await deps.restoreAllVisibleTitles()
+          if (restore.restored === restore.attempted) {
+            await deps.showToast('toggle', 'Sidebar usage display: OFF')
+            return 'Sidebar usage display is now OFF. Touched session titles were restored to base titles.'
+          }
+
+          deps.setTitleEnabled(true)
+          deps.scheduleSave()
+          await deps.flushSave()
           await deps.refreshAllVisibleTitles()
-          await deps.refreshAllTouchedTitles()
-          deps.refreshSessionTitle(context.sessionID, 0)
-          await deps.showToast('toggle', 'Sidebar usage display: ON')
-          return 'Sidebar usage display is now ON. Visible session titles are refreshing to show token usage and quota.'
+          await deps.showToast('toggle', 'Sidebar usage display: OFF failed')
+          return 'Sidebar usage display remains ON because some touched session titles could not be restored. Try again after the session service recovers.'
         }
 
-        // Turning off — restore all touched sessions to base titles
-        deps.cancelAllTitleRefreshes()
-        await deps.waitForTitleRefreshIdle()
-        await deps.restoreAllVisibleTitles()
-        await deps.showToast('toggle', 'Sidebar usage display: OFF')
-        return 'Sidebar usage display is now OFF. Restore was attempted for touched session titles.'
+        const pending = toggleLock.then(run, run)
+        toggleLock = pending.then(
+          () => undefined,
+          () => undefined,
+        )
+        return pending
       },
     }),
   }

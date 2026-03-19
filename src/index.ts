@@ -222,6 +222,9 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     summarizeSessionUsageForDisplay,
     scheduleParentRefreshIfSafe,
     restoreConcurrency: RESTORE_TITLE_CONCURRENCY,
+    applySessionTitle: async (sessionID: string) => {
+      await titleRefresh.apply(sessionID)
+    },
   })
 
   const titleRefresh = createTitleRefreshScheduler({
@@ -235,9 +238,33 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const refreshAllVisibleTitles = titleApplicator.refreshAllVisibleTitles
 
   if (!state.titleEnabled || !config.sidebar.enabled) {
-    void restoreAllVisibleTitles().catch(swallow('startup:restoreAllVisibleTitles'))
+    void restoreAllVisibleTitles()
+      .then(async (result) => {
+        if (result.restored === result.attempted) return
+        state.titleEnabled = true
+        scheduleSave()
+        await flushSave().catch(swallow('startup:restoreAllVisibleTitles:flush'))
+      })
+      .catch(swallow('startup:restoreAllVisibleTitles'))
   } else {
     void refreshAllTouchedTitles().catch(swallow('startup:refreshAllTouchedTitles'))
+  }
+
+  const shutdown = async () => {
+    await titleRefresh.flushScheduled().catch(swallow('shutdown:flushScheduled'))
+    await titleRefresh.waitForIdle().catch(swallow('shutdown:titleIdle'))
+    await flushSave().catch(swallow('shutdown:flushSave'))
+  }
+
+  process.once('beforeExit', () => {
+    void shutdown()
+  })
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      void shutdown().finally(() => {
+        process.kill(process.pid, signal)
+      })
+    })
   }
 
   const showToast = async (
@@ -369,6 +396,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       refreshSessionTitle: (sessionID, delay) =>
         titleRefresh.schedule(sessionID, delay ?? 250),
       cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
+      flushScheduledTitleRefreshes: () => titleRefresh.flushScheduled(),
       waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),
       restoreAllVisibleTitles,
       refreshAllTouchedTitles,

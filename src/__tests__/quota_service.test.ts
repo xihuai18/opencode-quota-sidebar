@@ -748,4 +748,71 @@ describe('quota service', () => {
     )
     assert.equal(matchingKeys.length, 2)
   })
+
+  it('does not cache provider discovery failures as empty options', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let providerCalls = 0
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => {
+            providerCalls++
+            if (providerCalls === 1) throw new Error('temporary discovery failure')
+            return {
+              data: {
+                providers: [
+                  {
+                    id: 'rightcode-openai',
+                    options: { baseURL: 'https://www.right.codes/codex/v1' },
+                  },
+                ],
+              },
+            }
+          },
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = await service.getQuotaSnapshots([], { allowDefault: true })
+    const second = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(first.length, 0)
+    assert.equal(second.length, 1)
+    assert.equal(fetchCalls, 1)
+  })
 })

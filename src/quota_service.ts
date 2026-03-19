@@ -86,7 +86,7 @@ export function createQuotaService(deps: {
     const cached = authCache.get()
     if (cached) return cached
     const value = await loadAuthMap(deps.authPath)
-    return authCache.set(value, 30_000)
+    return authCache.set(value, 5_000)
   }
 
   const getProviderOptionsMap = async () => {
@@ -128,6 +128,10 @@ export function createQuotaService(deps: {
 
     const data =
       isRecord(response) && isRecord(response.data) ? response.data : undefined
+
+    if (!response || !data) {
+      return {}
+    }
 
     const list = Array.isArray(data?.providers)
       ? data.providers
@@ -397,6 +401,7 @@ export function createQuotaService(deps: {
                 throwOnError: true,
               })
               .catch(swallow('getQuotaSnapshots:authSet'))
+            authCache.clear()
           },
           providerOptions,
         )

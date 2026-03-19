@@ -41,6 +41,12 @@ export function createTitleRefreshScheduler(options: {
     refreshTimer.clear()
   }
 
+  const flushScheduled = async () => {
+    const pending = Array.from(refreshTimer.keys())
+    cancelAll()
+    await Promise.allSettled(pending.map((sessionID) => applyLocked(sessionID)))
+  }
+
   const waitForIdle = async () => {
     const inflight = Array.from(applyLocks.values())
     if (inflight.length === 0) return
@@ -57,6 +63,7 @@ export function createTitleRefreshScheduler(options: {
     apply: applyLocked,
     cancel,
     cancelAll,
+    flushScheduled,
     waitForIdle,
     dispose,
   }

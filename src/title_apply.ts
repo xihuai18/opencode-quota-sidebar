@@ -43,14 +43,20 @@ export function createTitleApplicator(deps: {
   ) => Promise<UsageSummary>
   scheduleParentRefreshIfSafe: (sessionID: string, parentID?: string) => void
   restoreConcurrency: number
+  applySessionTitle?: (sessionID: string) => Promise<void>
 }) {
   const pendingAppliedTitle = new Map<
     string,
     { title: string; expiresAt: number }
   >()
+  const recentRestore = new Map<
+    string,
+    { baseTitle: string; decoratedTitle?: string; expiresAt: number }
+  >()
 
   const forgetSession = (sessionID: string) => {
     pendingAppliedTitle.delete(sessionID)
+    recentRestore.delete(sessionID)
   }
 
   const applyTitle = async (sessionID: string) => {
@@ -229,6 +235,21 @@ export function createTitleApplicator(deps: {
       }
     }
 
+    const restored = recentRestore.get(args.sessionID)
+    if (restored) {
+      if (restored.expiresAt <= Date.now()) {
+        recentRestore.delete(args.sessionID)
+      } else if (
+        looksDecorated(args.incomingTitle) &&
+        (!restored.decoratedTitle ||
+          canonicalizeTitleForCompare(args.incomingTitle) ===
+            canonicalizeTitleForCompare(restored.decoratedTitle))
+      ) {
+        debug(`ignoring decorated echo after restore for session ${args.sessionID}`)
+        return
+      }
+    }
+
     args.sessionState.baseTitle = canonicalizeTitle(args.incomingTitle) || 'Session'
     args.sessionState.lastAppliedTitle = undefined
     deps.markDirty(deps.state.sessionDateMap[args.sessionID])
@@ -244,7 +265,7 @@ export function createTitleApplicator(deps: {
         throwOnError: true,
       })
       .catch(swallow('restoreSessionTitle:get'))
-    if (!session) return
+    if (!session) return false
 
     const sessionState = deps.ensureSessionState(
       sessionID,
@@ -259,7 +280,7 @@ export function createTitleApplicator(deps: {
         deps.markDirty(deps.state.sessionDateMap[sessionID])
         deps.scheduleSave()
       }
-      return
+      return true
     }
 
     const updated = await deps.client.session
@@ -271,20 +292,33 @@ export function createTitleApplicator(deps: {
       })
       .catch(swallow('restoreSessionTitle:update'))
 
-    if (!updated) return
+    if (!updated) return false
 
+    recentRestore.set(sessionID, {
+      baseTitle,
+      decoratedTitle: sessionState.lastAppliedTitle,
+      expiresAt: Date.now() + 15_000,
+    })
     sessionState.lastAppliedTitle = undefined
     deps.markDirty(deps.state.sessionDateMap[sessionID])
     deps.scheduleSave()
+    return true
   }
 
   const restoreAllVisibleTitles = async () => {
     const touched = Object.entries(deps.state.sessions)
       .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
       .map(([sessionID]) => sessionID)
-    await mapConcurrent(touched, deps.restoreConcurrency, async (sessionID) => {
-      await restoreSessionTitle(sessionID)
-    })
+    const results = await mapConcurrent(
+      touched,
+      deps.restoreConcurrency,
+      async (sessionID) => restoreSessionTitle(sessionID),
+    )
+    return {
+      attempted: touched.length,
+      restored: results.filter(Boolean).length,
+      listFailed: false,
+    }
   }
 
   const refreshAllTouchedTitles = async () => {
@@ -292,7 +326,7 @@ export function createTitleApplicator(deps: {
       .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
       .map(([sessionID]) => sessionID)
     await mapConcurrent(touched, deps.restoreConcurrency, async (sessionID) => {
-      await applyTitle(sessionID)
+      await (deps.applySessionTitle || applyTitle)(sessionID)
     })
   }
 
@@ -303,11 +337,14 @@ export function createTitleApplicator(deps: {
         throwOnError: true,
       })
       .catch(swallow('refreshAllVisibleTitles:list'))
-    if (!list?.data) return
+    if (!list?.data) {
+      return { attempted: 0, refreshed: 0, listFailed: true }
+    }
 
     await mapConcurrent(list.data, deps.restoreConcurrency, async (session) => {
-      await applyTitle(session.id)
+      await (deps.applySessionTitle || applyTitle)(session.id)
     })
+    return { attempted: list.data.length, refreshed: list.data.length, listFailed: false }
   }
 
   return {

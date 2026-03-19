@@ -15,6 +15,17 @@ export function createPersistenceScheduler<TState>(deps: {
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let saveInFlight = Promise.resolve()
 
+  const scheduleRetry = (delayMs = 1_000) => {
+    if (saveTimer) return
+    saveTimer = setTimeout(() => {
+      saveTimer = undefined
+      void persist().catch((error) => {
+        debug(`persistState retry failed: ${String(error)}`)
+        scheduleRetry(Math.min(delayMs * 2, 10_000))
+      })
+    }, delayMs)
+  }
+
   /**
    * Capture and delete specific dirty keys instead of clearing the whole set.
    * Keys added between capture and write completion are preserved.
@@ -46,7 +57,10 @@ export function createPersistenceScheduler<TState>(deps: {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       saveTimer = undefined
-      void persist().catch(swallow('persistState:save'))
+      void persist().catch((error) => {
+        swallow('persistState:save')(error)
+        scheduleRetry()
+      })
     }, 200)
   }
 
