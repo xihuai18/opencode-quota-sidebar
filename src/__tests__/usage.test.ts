@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   emptyUsageSummary,
   getCacheCoverageMetrics,
+  getProviderCacheCoverageMetrics,
   mergeUsage,
   toCachedSessionUsage,
   fromCachedSessionUsage,
@@ -361,6 +362,34 @@ describe('getCacheCoverageMetrics', () => {
     // read-write coverage = (70 + 30) / (150 + 70 + 30)
     assert.equal(metrics.cacheReadCoverage, 50 / 150)
     assert.equal(metrics.cacheCoverage, 100 / 250)
+  })
+})
+
+describe('getProviderCacheCoverageMetrics', () => {
+  it('derives provider-level cache metrics from provider cache buckets', () => {
+    const metrics = getProviderCacheCoverageMetrics({
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      assistantMessages: 0,
+      cacheBuckets: {
+        readOnly: {
+          input: 300,
+          cacheRead: 900,
+          cacheWrite: 0,
+          assistantMessages: 2,
+        },
+        readWrite: {
+          input: 400,
+          cacheRead: 300,
+          cacheWrite: 300,
+          assistantMessages: 2,
+        },
+      },
+    })
+
+    assert.equal(metrics.cacheCoverage, 0.6)
+    assert.equal(metrics.cacheReadCoverage, 0.75)
   })
 })
 

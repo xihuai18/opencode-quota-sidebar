@@ -80,6 +80,8 @@ export type CachedProviderUsage = {
   /** Equivalent API billing cost (USD) computed from model pricing. */
   apiCost: number
   assistantMessages: number
+  /** Provider-level cache coverage buckets grouped by model cache behavior. */
+  cacheBuckets?: CacheUsageBuckets
 }
 
 export type CachedSessionUsage = {

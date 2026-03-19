@@ -1,5 +1,9 @@
 import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
-import { getCacheCoverageMetrics, type UsageSummary } from './usage.js'
+import {
+  getCacheCoverageMetrics,
+  getProviderCacheCoverageMetrics,
+  type UsageSummary,
+} from './usage.js'
 import {
   canonicalProviderID,
   collapseQuotaSnapshots,
@@ -616,12 +620,89 @@ export function renderMarkdownReport(
     return formatApiCostValue(usage.apiCost)
   }
 
-  const providerRows = Object.values(usage.providers)
-    .sort((a, b) => b.total - a.total)
+  const cacheCoverageCell = (provider: UsageSummary['providers'][string]) => {
+    const metrics = getProviderCacheCoverageMetrics(provider)
+    return metrics.cacheCoverage !== undefined
+      ? formatPercent(metrics.cacheCoverage, 1)
+      : '-'
+  }
+
+  const cacheReadCoverageCell = (provider: UsageSummary['providers'][string]) => {
+    const metrics = getProviderCacheCoverageMetrics(provider)
+    return metrics.cacheReadCoverage !== undefined
+      ? formatPercent(metrics.cacheReadCoverage, 1)
+      : '-'
+  }
+
+  const providerEntries = Object.values(usage.providers).sort(
+    (a, b) => b.total - a.total,
+  )
+
+  const highlightLines = () => {
+    const lines: string[] = []
+    const topApiCost = providerEntries
+      .filter((provider) => provider.apiCost > 0)
+      .sort((a, b) => b.apiCost - a.apiCost)[0]
+    if (topApiCost) {
+      lines.push(
+        `- Top API cost: ${quotaDisplayLabel({
+          providerID: topApiCost.providerID,
+          label: topApiCost.providerID,
+          status: 'ok',
+          checkedAt: 0,
+        })} (${formatUsd(topApiCost.apiCost)})`,
+      )
+    }
+
+    const bestCacheCoverage = providerEntries
+      .map((provider) => ({
+        provider,
+        value: getProviderCacheCoverageMetrics(provider).cacheCoverage,
+      }))
+      .filter(
+        (entry): entry is { provider: UsageSummary['providers'][string]; value: number } =>
+          entry.value !== undefined,
+      )
+      .sort((a, b) => b.value - a.value)[0]
+    if (bestCacheCoverage) {
+      lines.push(
+        `- Best Cache Coverage: ${bestCacheCoverage.provider.providerID} (${formatPercent(bestCacheCoverage.value, 1)})`,
+      )
+    }
+
+    const bestCacheReadCoverage = providerEntries
+      .map((provider) => ({
+        provider,
+        value: getProviderCacheCoverageMetrics(provider).cacheReadCoverage,
+      }))
+      .filter(
+        (entry): entry is { provider: UsageSummary['providers'][string]; value: number } =>
+          entry.value !== undefined,
+      )
+      .sort((a, b) => b.value - a.value)[0]
+    if (bestCacheReadCoverage) {
+      lines.push(
+        `- Best Cache Read Coverage: ${bestCacheReadCoverage.provider.providerID} (${formatPercent(bestCacheReadCoverage.value, 1)})`,
+      )
+    }
+
+    const highestMeasured = providerEntries
+      .filter((provider) => measuredCostCell(provider.providerID, provider.cost) !== '-')
+      .sort((a, b) => b.cost - a.cost)[0]
+    if (highestMeasured && highestMeasured.cost > 0) {
+      lines.push(
+        `- Highest measured cost: ${highestMeasured.providerID} (${formatUsd(highestMeasured.cost)})`,
+      )
+    }
+
+    return lines
+  }
+
+  const providerRows = providerEntries
     .map((provider) => {
       const providerID = mdCell(provider.providerID)
       return showCost
-        ? `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
+        ? `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${cacheCoverageCell(provider)} | ${cacheReadCoverageCell(provider)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
         : `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`
     })
 
@@ -699,17 +780,20 @@ export function renderMarkdownReport(
           `- API cost: ${apiCostSummaryValue()}`,
         ]
       : []),
+    ...(highlightLines().length > 0
+      ? ['', '### Highlights', ...highlightLines()]
+      : []),
     '',
     '### Usage by Provider',
     showCost
-      ? '| Provider | Input | Output | Cache | Total | Measured Cost | API Cost |'
+      ? '| Provider | Input | Output | Cache | Total | Cache Coverage | Cache Read Coverage | Measured Cost | API Cost |'
       : '| Provider | Input | Output | Cache | Total |',
     showCost
-      ? '|---|---:|---:|---:|---:|---:|---:|'
+      ? '|---|---:|---:|---:|---:|---:|---:|---:|---:|'
       : '|---|---:|---:|---:|---:|',
     ...(providerRows.length
       ? providerRows
-      : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
+      : [showCost ? '| - | - | - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
     '',
     '### Subscription Quota',
     ...(quotaLines.length
@@ -788,6 +872,35 @@ export function renderToastMessage(
       const hasAnyUsage = Object.keys(usage.providers).length > 0
       lines.push(fitLine(hasAnyUsage ? '  N/A (Copilot)' : '  -', width))
     }
+  }
+
+  const providerCachePairs = Object.values(usage.providers)
+    .map((provider) => {
+      const metrics = getProviderCacheCoverageMetrics(provider)
+      if (metrics.cacheCoverage !== undefined) {
+        return {
+          label: displayShortLabel(provider.providerID),
+          value: `Cov ${formatPercent(metrics.cacheCoverage, 1)}`,
+        }
+      }
+      if (metrics.cacheReadCoverage !== undefined) {
+        return {
+          label: displayShortLabel(provider.providerID),
+          value: `Read ${formatPercent(metrics.cacheReadCoverage, 1)}`,
+        }
+      }
+      return undefined
+    })
+    .filter(
+      (item): item is { label: string; value: string } => Boolean(item),
+    )
+
+  if (providerCachePairs.length > 0) {
+    lines.push('')
+    lines.push(fitLine('Provider Cache', width))
+    lines.push(
+      ...alignPairs(providerCachePairs).map((line) => fitLine(line, width)),
+    )
   }
 
   const quotaPairs = collapseQuotaSnapshots(quotas).flatMap((item) => {

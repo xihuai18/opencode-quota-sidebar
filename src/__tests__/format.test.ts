@@ -833,15 +833,15 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /Measured cost: -/)
     assert.match(
       report,
-      /\| Provider \| Input \| Output \| Cache \| Total \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| \$0\.35 \|/,
+      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$0\.35 \|/,
     )
     assert.match(
       report,
-      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \|/,
+      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
     )
   })
 
@@ -910,7 +910,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| \$4\.57 \|/,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$4\.57 \|/,
     )
   })
 
@@ -951,7 +951,108 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.88 \| \$4\.57 \|/,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$9\.88 \| \$4\.57 \|/,
+    )
+  })
+
+  it('renders provider-level cache coverage columns and highlights in markdown', () => {
+    const report = renderMarkdownReport(
+      'week',
+      makeUsage({
+        input: 700,
+        output: 880,
+        cacheRead: 1200,
+        cacheWrite: 300,
+        cost: 3.17,
+        apiCost: 14.82,
+        cacheBuckets: {
+          readOnly: {
+            input: 300,
+            cacheRead: 900,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 400,
+            cacheRead: 300,
+            cacheWrite: 300,
+            assistantMessages: 2,
+          },
+        },
+        providers: {
+          openai: {
+            providerID: 'openai',
+            input: 300,
+            output: 400,
+            reasoning: 0,
+            cacheRead: 900,
+            cacheWrite: 0,
+            total: 1600,
+            cost: 0,
+            apiCost: 8.3,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 300,
+                cacheRead: 900,
+                cacheWrite: 0,
+                assistantMessages: 2,
+              },
+              readWrite: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+            },
+          },
+          anthropic: {
+            providerID: 'anthropic',
+            input: 400,
+            output: 480,
+            reasoning: 0,
+            cacheRead: 300,
+            cacheWrite: 300,
+            total: 1480,
+            cost: 0,
+            apiCost: 6.52,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+              readWrite: {
+                input: 400,
+                cacheRead: 300,
+                cacheWrite: 300,
+                assistantMessages: 2,
+              },
+            },
+          },
+        },
+      }),
+      [],
+      { showCost: true },
+    )
+
+    assert.match(report, /### Highlights/)
+    assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/)
+    assert.match(report, /Best Cache Coverage: anthropic \(60%\)/)
+    assert.match(report, /Best Cache Read Coverage: openai \(75%\)/)
+    assert.match(
+      report,
+      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+    )
+    assert.match(
+      report,
+      /\| openai \| 300 \| 400 \| 900 \| 1\.6k \| - \| 75% \| - \| \$8\.30 \|/,
+    )
+    assert.match(
+      report,
+      /\| anthropic \| 400 \| 480 \| 600 \| 1\.5k \| 60% \| - \| - \| \$6\.52 \|/,
     )
   })
 
@@ -1255,6 +1356,73 @@ describe('renderToastMessage', () => {
     const apiCostMatches = toast.match(/API Cost/g) || []
     assert.equal(apiCostMatches.length, 0)
     assert.match(toast, /Cost as API/)
+  })
+
+  it('renders provider cache section in toast', () => {
+    const toast = renderToastMessage(
+      'week',
+      makeUsage({
+        providers: {
+          openai: {
+            providerID: 'openai',
+            input: 300,
+            output: 400,
+            reasoning: 0,
+            cacheRead: 900,
+            cacheWrite: 0,
+            total: 1600,
+            cost: 0,
+            apiCost: 8.3,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 300,
+                cacheRead: 900,
+                cacheWrite: 0,
+                assistantMessages: 2,
+              },
+              readWrite: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+            },
+          },
+          anthropic: {
+            providerID: 'anthropic',
+            input: 400,
+            output: 480,
+            reasoning: 0,
+            cacheRead: 300,
+            cacheWrite: 300,
+            total: 1480,
+            cost: 0,
+            apiCost: 6.52,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+              readWrite: {
+                input: 400,
+                cacheRead: 300,
+                cacheWrite: 300,
+                assistantMessages: 2,
+              },
+            },
+          },
+        },
+      }),
+      [],
+    )
+
+    assert.match(toast, /Provider Cache/)
+    assert.match(toast, /OpenAI\s+Read 75%/)
+    assert.match(toast, /Anthropic\s+Cov 60%/)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {

@@ -38,6 +38,7 @@ function parseProviderUsage(value: unknown): CachedProviderUsage | undefined {
     cost: asNumber(value.cost, 0),
     apiCost: asNumber(value.apiCost, 0),
     assistantMessages: asNumber(value.assistantMessages, 0),
+    cacheBuckets: parseCacheUsageBuckets(value.cacheBuckets),
   }
 }
 
