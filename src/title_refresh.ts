@@ -47,17 +47,24 @@ export function createTitleRefreshScheduler(options: {
     await Promise.allSettled(pending.map((sessionID) => applyLocked(sessionID)))
   }
 
-  const waitForIdle = async () => {
+  const waitForIdle = async (timeoutMs?: number) => {
     const inflight = Array.from(applyLocks.values())
     if (inflight.length === 0) return
-    await Promise.allSettled(inflight)
+    if (timeoutMs === undefined) {
+      await Promise.allSettled(inflight)
+      return
+    }
+    await Promise.race([
+      Promise.allSettled(inflight),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ])
   }
 
-  const waitForQuiescence = async () => {
-    const deadline = Date.now() + 2_000
+  const waitForQuiescence = async (budgetMs = 10_000) => {
+    const deadline = Date.now() + budgetMs
     while (Date.now() < deadline) {
       await flushScheduled()
-      await waitForIdle()
+      await waitForIdle(Math.max(0, deadline - Date.now()))
       if (refreshTimer.size === 0 && applyLocks.size === 0) return
     }
   }

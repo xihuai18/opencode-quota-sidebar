@@ -20,6 +20,7 @@ describe('quota_show tool', () => {
       cancelAllTitleRefreshes: () => {},
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({
         attempted: 2,
         restored: 1,
@@ -83,6 +84,7 @@ describe('quota_show tool', () => {
       cancelAllTitleRefreshes: () => {},
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
       refreshAllTouchedTitles: async () => {
         order.push('refreshTouched')
@@ -135,6 +137,7 @@ describe('quota_show tool', () => {
       cancelAllTitleRefreshes: () => {},
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
       refreshAllTouchedTitles: async () => {},
       refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
@@ -182,6 +185,7 @@ describe('quota_show tool', () => {
       cancelAllTitleRefreshes: () => {},
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({ attempted: 1, restored: 0, listFailed: false }),
       refreshAllTouchedTitles: async () => {},
       refreshAllVisibleTitles: async () => ({ attempted: 1, refreshed: 1, listFailed: false }),

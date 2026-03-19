@@ -43,7 +43,6 @@ export function createTitleApplicator(deps: {
   ) => Promise<UsageSummary>
   scheduleParentRefreshIfSafe: (sessionID: string, parentID?: string) => void
   restoreConcurrency: number
-  applySessionTitle?: (sessionID: string) => Promise<void>
 }) {
   const pendingAppliedTitle = new Map<
     string,
@@ -60,7 +59,7 @@ export function createTitleApplicator(deps: {
   }
 
   const applyTitle = async (sessionID: string) => {
-    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return
+    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false
 
     let stateMutated = false
 
@@ -72,7 +71,7 @@ export function createTitleApplicator(deps: {
       })
       .catch(swallow('applyTitle:getSession'))
 
-    if (!session) return
+    if (!session) return false
 
     const sessionState = deps.ensureSessionState(
       sessionID,
@@ -138,7 +137,7 @@ export function createTitleApplicator(deps: {
       deps.config,
     )
 
-    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return
+    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false
 
     if (
       canonicalizeTitleForCompare(nextTitle) ===
@@ -155,7 +154,7 @@ export function createTitleApplicator(deps: {
       }
       deps.scheduleSave()
       deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
-      return
+      return true
     }
 
     // Mark pending title to ignore the immediate echo `session.updated` event.
@@ -182,12 +181,13 @@ export function createTitleApplicator(deps: {
       sessionState.lastAppliedTitle = previousApplied
       deps.scheduleSave()
       deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
-      return
+      return false
     }
 
     pendingAppliedTitle.delete(sessionID)
     deps.scheduleSave()
     deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+    return true
   }
 
   const handleSessionUpdatedTitle = async (args: {
@@ -257,7 +257,11 @@ export function createTitleApplicator(deps: {
     args.scheduleRefresh(args.sessionID)
   }
 
-  const restoreSessionTitle = async (sessionID: string) => {
+  const restoreSessionTitle = async (
+    sessionID: string,
+    options?: { abortIfEnabled?: boolean },
+  ) => {
+    if (options?.abortIfEnabled && deps.state.titleEnabled) return false
     const session = await deps.client.session
       .get({
         path: { id: sessionID },
@@ -266,6 +270,15 @@ export function createTitleApplicator(deps: {
       })
       .catch(swallow('restoreSessionTitle:get'))
     if (!session) return false
+    if (
+      !session.data ||
+      typeof session.data.title !== 'string' ||
+      !session.data.time ||
+      typeof session.data.time.created !== 'number'
+    ) {
+      debug(`restoreSessionTitle skipped malformed session payload for ${sessionID}`)
+      return false
+    }
 
     const sessionState = deps.ensureSessionState(
       sessionID,
@@ -282,6 +295,8 @@ export function createTitleApplicator(deps: {
       }
       return true
     }
+
+    if (options?.abortIfEnabled && deps.state.titleEnabled) return false
 
     const updated = await deps.client.session
       .update({
@@ -305,14 +320,14 @@ export function createTitleApplicator(deps: {
     return true
   }
 
-  const restoreAllVisibleTitles = async () => {
+  const restoreAllVisibleTitles = async (options?: { abortIfEnabled?: boolean }) => {
     const touched = Object.entries(deps.state.sessions)
       .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
       .map(([sessionID]) => sessionID)
     const results = await mapConcurrent(
       touched,
       deps.restoreConcurrency,
-      async (sessionID) => restoreSessionTitle(sessionID),
+      async (sessionID) => restoreSessionTitle(sessionID, options),
     )
     return {
       attempted: touched.length,
@@ -325,9 +340,12 @@ export function createTitleApplicator(deps: {
     const touched = Object.entries(deps.state.sessions)
       .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
       .map(([sessionID]) => sessionID)
-    await mapConcurrent(touched, deps.restoreConcurrency, async (sessionID) => {
-      await (deps.applySessionTitle || applyTitle)(sessionID)
-    })
+    const results = await mapConcurrent(
+      touched,
+      deps.restoreConcurrency,
+      async (sessionID) => applyTitle(sessionID),
+    )
+    void results
   }
 
   const refreshAllVisibleTitles = async () => {
@@ -337,14 +355,23 @@ export function createTitleApplicator(deps: {
         throwOnError: true,
       })
       .catch(swallow('refreshAllVisibleTitles:list'))
-    if (!list?.data) {
+    if (!list?.data || !Array.isArray(list.data)) {
       return { attempted: 0, refreshed: 0, listFailed: true }
     }
+    const sessions = list.data.filter(
+      (session) => Boolean(session && typeof (session as { id?: unknown }).id === 'string'),
+    )
 
-    await mapConcurrent(list.data, deps.restoreConcurrency, async (session) => {
-      await (deps.applySessionTitle || applyTitle)(session.id)
-    })
-    return { attempted: list.data.length, refreshed: list.data.length, listFailed: false }
+    const results = await mapConcurrent(
+      sessions,
+      deps.restoreConcurrency,
+      async (session) => applyTitle(session.id),
+    )
+    return {
+      attempted: sessions.length,
+      refreshed: results.filter(Boolean).length,
+      listFailed: false,
+    }
   }
 
   return {

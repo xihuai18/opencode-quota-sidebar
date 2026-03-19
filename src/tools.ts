@@ -14,6 +14,7 @@ export function createQuotaSidebarTools(deps: {
   cancelAllTitleRefreshes: () => void
   flushScheduledTitleRefreshes: () => Promise<void>
   waitForTitleRefreshIdle: () => Promise<void>
+  waitForTitleRefreshQuiescence: () => Promise<void>
   restoreAllVisibleTitles: () => Promise<{
     attempted: number
     restored: number
@@ -144,8 +145,7 @@ export function createQuotaSidebarTools(deps: {
           deps.scheduleSave()
           await deps.flushSave()
           deps.cancelAllTitleRefreshes()
-          await deps.flushScheduledTitleRefreshes()
-          await deps.waitForTitleRefreshIdle()
+          await deps.waitForTitleRefreshQuiescence()
           const restore = await deps.restoreAllVisibleTitles()
           if (restore.restored === restore.attempted) {
             await deps.showToast('toggle', 'Sidebar usage display: OFF')

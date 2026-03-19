@@ -222,13 +222,12 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     summarizeSessionUsageForDisplay,
     scheduleParentRefreshIfSafe,
     restoreConcurrency: RESTORE_TITLE_CONCURRENCY,
-    applySessionTitle: async (sessionID: string) => {
-      await titleRefresh.apply(sessionID)
-    },
   })
 
   const titleRefresh = createTitleRefreshScheduler({
-    apply: titleApplicator.applyTitle,
+    apply: async (sessionID: string) => {
+      await titleApplicator.applyTitle(sessionID)
+    },
     onError: swallow('titleRefresh'),
   })
   scheduleTitleRefresh = titleRefresh.schedule
@@ -239,7 +238,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   let startupTitleWork = Promise.resolve()
 
   const runStartupRestore = async (attempt = 0): Promise<void> => {
-    const result = await restoreAllVisibleTitles()
+    const result = await restoreAllVisibleTitles({ abortIfEnabled: true })
     if (result.restored === result.attempted) return
     debug(
       `startup restore incomplete: restored ${result.restored}/${result.attempted} touched titles while display mode remains OFF`,
@@ -255,9 +254,9 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       swallow('startup:restoreAllVisibleTitles'),
     )
   } else {
-    startupTitleWork = refreshAllTouchedTitles().catch(
-      swallow('startup:refreshAllTouchedTitles'),
-    )
+    startupTitleWork = refreshAllTouchedTitles()
+      .then(() => undefined)
+      .catch(swallow('startup:refreshAllTouchedTitles'))
   }
 
   const shutdown = async () => {
@@ -408,6 +407,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
       flushScheduledTitleRefreshes: () => titleRefresh.flushScheduled(),
       waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),
+      waitForTitleRefreshQuiescence: () => titleRefresh.waitForQuiescence(),
       restoreAllVisibleTitles,
       refreshAllTouchedTitles,
       refreshAllVisibleTitles,
