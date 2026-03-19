@@ -4,10 +4,12 @@ import { describe, it } from 'node:test'
 import type { Message } from '@opencode-ai/sdk'
 
 import {
+  getCacheCoverageMetrics,
   summarizeMessages,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
 } from '../usage.js'
+import type { CacheCoverageMode } from '../types.js'
 
 function assistantMessage(
   id: string,
@@ -278,5 +280,79 @@ describe('summarizeMessagesIncremental', () => {
     assert.equal(usage.assistantMessages, 2)
     assert.equal(usage.input, 30)
     assert.equal(cursor.lastMessageId, 'a2')
+  })
+
+  it('accumulates cache buckets incrementally with classifyCacheMode', () => {
+    const classifyMode = (msg: { providerID: string }): CacheCoverageMode =>
+      msg.providerID === 'anthropic' ? 'read-write' : 'read-only'
+
+    const baselineEntries = [
+      {
+        info: assistantMessage('a1', 1000, 1100, {
+          input: 100,
+          cacheRead: 50,
+          cacheWrite: 0,
+          providerID: 'openai',
+        }),
+      },
+      {
+        info: assistantMessage('a2', 1200, 1300, {
+          input: 80,
+          cacheRead: 20,
+          cacheWrite: 30,
+          providerID: 'anthropic',
+        }),
+      },
+    ]
+
+    const baseline = summarizeMessages(baselineEntries, 0, 1, {
+      classifyCacheMode: classifyMode as never,
+    })
+
+    // Verify baseline buckets
+    assert.ok(baseline.cacheBuckets)
+    assert.equal(baseline.cacheBuckets!.readOnly.input, 100)
+    assert.equal(baseline.cacheBuckets!.readOnly.cacheRead, 50)
+    assert.equal(baseline.cacheBuckets!.readWrite.input, 80)
+    assert.equal(baseline.cacheBuckets!.readWrite.cacheWrite, 30)
+
+    // Now add a third message incrementally
+    const nextEntries = [
+      ...baselineEntries,
+      {
+        info: assistantMessage('a3', 1400, 1500, {
+          input: 60,
+          cacheRead: 40,
+          cacheWrite: 0,
+          providerID: 'openai',
+        }),
+      },
+    ]
+
+    const { usage } = summarizeMessagesIncremental(
+      nextEntries,
+      toCachedSessionUsage(baseline),
+      { lastMessageId: 'a2', lastMessageTime: 1300 },
+      false,
+      {
+        classifyCacheMode: classifyMode as never,
+      },
+    )
+
+    assert.ok(usage.cacheBuckets)
+    // read-only: a1(100,50) + a3(60,40)
+    assert.equal(usage.cacheBuckets!.readOnly.input, 160)
+    assert.equal(usage.cacheBuckets!.readOnly.cacheRead, 90)
+    // read-write: a2(80,20,30) unchanged
+    assert.equal(usage.cacheBuckets!.readWrite.input, 80)
+    assert.equal(usage.cacheBuckets!.readWrite.cacheWrite, 30)
+
+    const metrics = getCacheCoverageMetrics(usage)
+    // read-only: 90 / (160+90) = 0.36
+    assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.36) < 1e-9)
+    // read-write: (20+30) / (80+20+30) = 50/130
+    assert.ok(
+      Math.abs((metrics.cacheCoverage || 0) - 50 / 130) < 1e-9,
+    )
   })
 })

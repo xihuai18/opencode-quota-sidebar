@@ -199,14 +199,31 @@ export function createUsageService(deps: {
     if (message.tokens.cache.write > 0) return 'read-write'
     if (message.tokens.cache.read <= 0) return 'none'
 
+    // Heuristic fallback: classify by provider identity when pricing is missing.
     if (
       canonicalProviderID === 'anthropic' ||
       message.modelID.toLowerCase().includes('claude')
     ) {
       return 'read-write'
     }
-    if (canonicalProviderID === 'openai') return 'read-only'
-    return 'none'
+
+    // Providers known to use read-only prefix caching (promptCacheKey / prompt_cache_key).
+    const readOnlyProviders = new Set([
+      'openai',
+      'github-copilot',
+      'venice',
+      'openrouter',
+    ])
+    if (
+      readOnlyProviders.has(canonicalProviderID) ||
+      readOnlyProviders.has(message.providerID.toLowerCase())
+    ) {
+      return 'read-only'
+    }
+
+    // Last resort: if the message has cache.read tokens from an unknown provider,
+    // treat it as read-only (the safer default — avoids inflating Cache Coverage).
+    return 'read-only'
   }
 
   type MessageEntry = { info: Message }

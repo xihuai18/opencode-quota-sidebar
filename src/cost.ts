@@ -137,7 +137,8 @@ export function calcEquivalentApiCostForMessage(
   rates: ModelCostRates,
 ) {
   const effectiveRates =
-    message.tokens.input > 200_000 && rates.contextOver200k
+    message.tokens.input + message.tokens.cache.read > 200_000 &&
+    rates.contextOver200k
       ? rates.contextOver200k
       : rates
 

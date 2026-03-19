@@ -1,6 +1,7 @@
 import type { AssistantMessage, Message } from '@opencode-ai/sdk'
 
 import type {
+  CacheCoverageMetrics,
   CacheCoverageMode,
   CacheUsageBucket,
   CacheUsageBuckets,
@@ -9,6 +10,12 @@ import type {
   IncrementalCursor,
 } from './types.js'
 
+/**
+ * Billing cache version — bump this whenever the persisted `CachedSessionUsage`
+ * shape changes in a way that requires recomputation (e.g. new aggregate
+ * fields).  This is distinct from the plugin *state* version managed by the
+ * persistence layer; billing version only governs usage-cache staleness.
+ */
 export const USAGE_BILLING_CACHE_VERSION = 3
 
 export type ProviderUsage = {
@@ -78,8 +85,8 @@ function cloneCacheUsageBuckets(
 ): CacheUsageBuckets | undefined {
   if (!buckets) return undefined
   return {
-    readOnly: cloneCacheUsageBucket(buckets?.readOnly),
-    readWrite: cloneCacheUsageBucket(buckets?.readWrite),
+    readOnly: cloneCacheUsageBucket(buckets.readOnly),
+    readWrite: cloneCacheUsageBucket(buckets.readWrite),
   }
 }
 
@@ -99,6 +106,14 @@ function addMessageCacheUsage(target: CacheUsageBucket, message: AssistantMessag
   target.assistantMessages += 1
 }
 
+/**
+ * Best-effort fallback for legacy cached data that lacks per-message cache
+ * buckets.  When `cacheWrite > 0` we assume all tokens came from a read-write
+ * model (Anthropic-like); when only `cacheRead > 0` we assume read-only
+ * (OpenAI-like).  Mixed-provider sessions that were cached before v3 will be
+ * attributed to a single bucket — this is a known limitation; new sessions
+ * classify per-message and are not affected.
+ */
 function fallbackCacheUsageBuckets(
   usage: Pick<
     UsageSummary,
@@ -149,7 +164,7 @@ export function getCacheCoverageMetrics(
     UsageSummary,
     'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
   >,
-) {
+): CacheCoverageMetrics {
   const buckets = resolvedCacheUsageBuckets(usage)
   const readWritePromptSurface =
     buckets.readWrite.input +
@@ -183,7 +198,6 @@ export function emptyUsageSummary(): UsageSummary {
     apiCost: 0,
     assistantMessages: 0,
     sessionCount: 0,
-    cacheBuckets: emptyCacheUsageBuckets(),
     providers: {},
   }
 }
@@ -503,9 +517,9 @@ export function mergeUsage(
   target.assistantMessages += source.assistantMessages
   target.sessionCount += source.sessionCount
 
-  const targetBuckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
   const sourceBuckets = source.cacheBuckets
   if (sourceBuckets) {
+    const targetBuckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
     mergeCacheUsageBucket(targetBuckets.readOnly, sourceBuckets.readOnly)
     mergeCacheUsageBucket(targetBuckets.readWrite, sourceBuckets.readWrite)
   }

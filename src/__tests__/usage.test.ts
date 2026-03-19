@@ -84,6 +84,44 @@ describe('mergeUsage', () => {
     assert.equal(a.providers.openai.assistantMessages, 3)
   })
 
+  it('does not create cacheBuckets when neither side has them', () => {
+    const a = makeSummary({ input: 100 })
+    const b = makeSummary({ input: 200 })
+    // Ensure neither starts with buckets
+    a.cacheBuckets = undefined
+    b.cacheBuckets = undefined
+    mergeUsage(a, b)
+    assert.equal(a.cacheBuckets, undefined)
+  })
+
+  it('merges cacheBuckets from source into target', () => {
+    const a = makeSummary({ input: 100 })
+    a.cacheBuckets = undefined
+    const b = makeSummary({
+      input: 200,
+      cacheBuckets: {
+        readOnly: {
+          input: 50,
+          cacheRead: 30,
+          cacheWrite: 0,
+          assistantMessages: 1,
+        },
+        readWrite: {
+          input: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          assistantMessages: 0,
+        },
+      },
+    })
+    mergeUsage(a, b)
+    assert.ok(a.cacheBuckets)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buckets = a.cacheBuckets as any
+    assert.equal(buckets.readOnly.input, 50)
+    assert.equal(buckets.readOnly.cacheRead, 30)
+  })
+
   it('can merge child usage without adding measured cost', () => {
     const a = makeSummary({
       cost: 0.5,
@@ -218,5 +256,148 @@ describe('getCacheCoverageMetrics', () => {
 
     assert.equal(metrics.cacheCoverage, undefined)
     assert.equal(metrics.cacheReadCoverage, 0.625)
+  })
+
+  it('reports 0% when bucket has input but zero cache tokens', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        cacheBuckets: {
+          readOnly: {
+            input: 500,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 300,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 1,
+          },
+        },
+      }),
+    )
+
+    // input > 0 means the bucket has traffic, so coverage should be 0, not undefined
+    assert.equal(metrics.cacheCoverage, 0)
+    assert.equal(metrics.cacheReadCoverage, 0)
+  })
+
+  it('returns undefined for both metrics when all buckets are zero', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        input: 500,
+        output: 200,
+        cacheRead: 0,
+        cacheWrite: 0,
+        assistantMessages: 2,
+        cacheBuckets: {
+          readOnly: { input: 0, cacheRead: 0, cacheWrite: 0, assistantMessages: 0 },
+          readWrite: { input: 0, cacheRead: 0, cacheWrite: 0, assistantMessages: 0 },
+        },
+      }),
+    )
+
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cacheReadCoverage, undefined)
+  })
+
+  it('returns undefined for both metrics when no cache data at all', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        input: 1000,
+        cacheRead: 0,
+        cacheWrite: 0,
+        assistantMessages: 5,
+        cacheBuckets: undefined,
+      }),
+    )
+
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cacheReadCoverage, undefined)
+  })
+
+  it('falls back to read-write bucket for legacy summaries with cacheWrite > 0', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        input: 400,
+        cacheRead: 300,
+        cacheWrite: 300,
+        assistantMessages: 2,
+        cacheBuckets: undefined,
+      }),
+    )
+
+    assert.equal(metrics.cacheCoverage, 0.6)
+    assert.equal(metrics.cacheReadCoverage, undefined)
+  })
+})
+
+describe('toCachedSessionUsage / fromCachedSessionUsage round-trip with cacheBuckets', () => {
+  it('preserves cacheBuckets through serialization round-trip', () => {
+    const original = makeSummary({
+      input: 700,
+      output: 200,
+      cacheRead: 1200,
+      cacheWrite: 300,
+      total: 2400,
+      assistantMessages: 4,
+      cacheBuckets: {
+        readOnly: { input: 300, cacheRead: 900, cacheWrite: 0, assistantMessages: 2 },
+        readWrite: { input: 400, cacheRead: 300, cacheWrite: 300, assistantMessages: 2 },
+      },
+    })
+
+    const cached = toCachedSessionUsage(original)
+    const restored = fromCachedSessionUsage(cached, 1)
+
+    assert.deepEqual(restored.cacheBuckets, original.cacheBuckets)
+
+    const metrics = getCacheCoverageMetrics(restored)
+    assert.equal(metrics.cacheCoverage, 0.6)
+    assert.equal(metrics.cacheReadCoverage, 0.75)
+  })
+
+  it('round-trips undefined cacheBuckets as undefined', () => {
+    const original = makeSummary({
+      input: 100,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cacheBuckets: undefined,
+    })
+
+    const cached = toCachedSessionUsage(original)
+    const restored = fromCachedSessionUsage(cached, 1)
+
+    assert.equal(restored.cacheBuckets, undefined)
+  })
+
+  it('handles partial cacheBuckets where only readOnly is present', () => {
+    const original = makeSummary({
+      input: 300,
+      cacheRead: 900,
+      cacheWrite: 0,
+      cacheBuckets: {
+        readOnly: {
+          input: 300,
+          cacheRead: 900,
+          cacheWrite: 0,
+          assistantMessages: 3,
+        },
+        readWrite: {
+          input: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          assistantMessages: 0,
+        },
+      },
+    })
+
+    const cached = toCachedSessionUsage(original)
+    const restored = fromCachedSessionUsage(cached, 1)
+
+    const metrics = getCacheCoverageMetrics(restored)
+    assert.equal(metrics.cacheReadCoverage, 0.75)
+    assert.equal(metrics.cacheCoverage, undefined)
   })
 })

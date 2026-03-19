@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
   parseModelCostRates,
@@ -162,5 +163,50 @@ describe('cost', () => {
       'github-copilot',
     )
     assert.equal(canonicalApiCostProviderID('claude'), 'anthropic')
+  })
+
+  it('classifies cache coverage mode from pricing rates', () => {
+    assert.equal(cacheCoverageModeFromRates(undefined), 'none')
+
+    assert.equal(
+      cacheCoverageModeFromRates({
+        input: 1,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+      }),
+      'none',
+    )
+
+    assert.equal(
+      cacheCoverageModeFromRates({
+        input: 1,
+        output: 2,
+        cacheRead: 0.5,
+        cacheWrite: 0,
+      }),
+      'read-only',
+    )
+
+    assert.equal(
+      cacheCoverageModeFromRates({
+        input: 1,
+        output: 2,
+        cacheRead: 0.5,
+        cacheWrite: 1.25,
+      }),
+      'read-write',
+    )
+
+    // write-only (unusual but valid)
+    assert.equal(
+      cacheCoverageModeFromRates({
+        input: 1,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 1.25,
+      }),
+      'read-write',
+    )
   })
 })

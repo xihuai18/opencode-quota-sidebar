@@ -54,6 +54,21 @@ export type CacheUsageBuckets = {
   readWrite: CacheUsageBucket
 }
 
+/**
+ * Derived cache coverage metrics.
+ *
+ * - `cacheCoverage`: fraction of prompt surface covered by read-write cache
+ *   (`(cacheRead + cacheWrite) / (input + cacheRead + cacheWrite)`).
+ *   Only defined when the read-write bucket has traffic.
+ * - `cacheReadCoverage`: fraction of prompt surface served from read-only cache
+ *   (`cacheRead / (input + cacheRead)`).
+ *   Only defined when the read-only bucket has traffic.
+ */
+export type CacheCoverageMetrics = {
+  cacheCoverage: number | undefined
+  cacheReadCoverage: number | undefined
+}
+
 export type CachedProviderUsage = {
   input: number
   output: number
@@ -80,7 +95,13 @@ export type CachedSessionUsage = {
   /** Equivalent API billing cost (USD) computed from model pricing. */
   apiCost: number
   assistantMessages: number
-  /** Cache coverage buckets grouped by model cache behavior. */
+  /**
+   * Cache coverage buckets grouped by model cache behavior.
+   *
+   * `undefined` when no cache-capable models were used or data predates
+   * billingVersion 3. The fallback in `resolvedCacheUsageBuckets()` derives
+   * approximate buckets from top-level `cacheRead`/`cacheWrite` when missing.
+   */
   cacheBuckets?: CacheUsageBuckets
   providers: Record<string, CachedProviderUsage>
 }
