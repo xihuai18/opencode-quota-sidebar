@@ -510,12 +510,9 @@ export async function scanSessionsByCreatedRange(
     }
   }
 
-  // Second pass: read disk chunks for date keys that may have sessions not in memory
-  const memoryDateKeys = memoryState
-    ? new Set(Object.values(memoryState.sessionDateMap))
-    : new Set<string>()
-
-  const diskDateKeys = dateKeys.filter((dk) => !memoryDateKeys.has(dk))
+  // Second pass: read disk chunks for all date keys in range, then de-dupe by sessionID.
+  // A date can have a mix of in-memory and disk-only sessions.
+  const diskDateKeys = [...dateKeys]
 
   if (diskDateKeys.length > 0) {
     const RANGE_SCAN_CONCURRENCY = 5

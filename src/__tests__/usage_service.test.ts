@@ -294,6 +294,72 @@ describe('usage service', () => {
     )
   })
 
+  it('prefers explicit read-only providers over claude model heuristic', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm1',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'openrouter',
+                  modelID: 'claude-3.7-sonnet',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100,
+                    output: 10,
+                    reasoning: 0,
+                    cache: { read: 50, write: 0 },
+                  },
+                  cost: 0.2,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const metrics = getCacheCoverageMetrics(usage)
+
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cacheReadCoverage, 50 / 150)
+  })
+
   it('does not reuse an in-flight computation after session becomes dirty', async () => {
     const state = makeState()
     const config = makeConfig()

@@ -4,12 +4,11 @@ function sanitizeTitleFragment(value: string) {
     .trimEnd()
 }
 
-function isStrongDecoratedDetail(line: string) {
+function isCoreDecoratedDetail(line: string) {
   if (!line) return false
   if (/^Input\s+\S+\s+Output(?:\s+\S+)?/.test(line)) return true
-  if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
-  if (/^Cache(?:\s+Read)?\s+Coverage\s+\S+/.test(line)) return true
-  if (/^\$\S+\s+as API cost\b/.test(line)) return true
+  if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  if (/^\$\S+\s+as API cost$/.test(line)) return true
 
   // Single-line compact mode compatibility.
   if (
@@ -23,19 +22,13 @@ function isStrongDecoratedDetail(line: string) {
   return false
 }
 
-function isQuotaLikeProviderDetail(line: string) {
-  if (!line) return false
-  if (!/^(OpenAI|Copilot|Anthropic|RightCode|RC)\b/.test(line)) return false
-  return /\b(Rst|Exp\+?|Balance|Remaining)\b|\d{1,3}%/.test(line)
-}
-
 function decoratedSingleLineBase(line: string) {
   const parts = sanitizeTitleFragment(line)
     .split(/\s*\|\s*/)
     .map((part) => part.trim())
   if (parts.length < 2) return undefined
   const details = parts.slice(1)
-  if (!details.some((detail) => isStrongDecoratedDetail(detail))) {
+  if (!details.some((detail) => isCoreDecoratedDetail(detail))) {
     return undefined
   }
   return parts[0] || 'Session'
@@ -98,8 +91,5 @@ export function looksDecorated(title: string): boolean {
   const detail = lines
     .slice(1)
     .map((line) => sanitizeTitleFragment(line).trim())
-  return (
-    detail.some((line) => isStrongDecoratedDetail(line)) ||
-    detail.some((line) => isQuotaLikeProviderDetail(line))
-  )
+  return detail.some((line) => isCoreDecoratedDetail(line))
 }

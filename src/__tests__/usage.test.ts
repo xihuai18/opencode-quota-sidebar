@@ -331,6 +331,37 @@ describe('getCacheCoverageMetrics', () => {
     assert.equal(metrics.cacheCoverage, 0.6)
     assert.equal(metrics.cacheReadCoverage, undefined)
   })
+
+  it('merges explicit buckets with residual fallback totals', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        input: 250,
+        cacheRead: 120,
+        cacheWrite: 30,
+        assistantMessages: 2,
+        cacheBuckets: {
+          readOnly: {
+            input: 100,
+            cacheRead: 50,
+            cacheWrite: 0,
+            assistantMessages: 1,
+          },
+          readWrite: {
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 0,
+          },
+        },
+      }),
+    )
+
+    // Residual totals are interpreted as read-write because cacheWrite > 0:
+    // read-only coverage = 50 / (100 + 50)
+    // read-write coverage = (70 + 30) / (150 + 70 + 30)
+    assert.equal(metrics.cacheReadCoverage, 50 / 150)
+    assert.equal(metrics.cacheCoverage, 100 / 250)
+  })
 })
 
 describe('toCachedSessionUsage / fromCachedSessionUsage round-trip with cacheBuckets', () => {

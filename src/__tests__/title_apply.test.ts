@@ -179,4 +179,132 @@ describe('title apply', () => {
     assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized)
     assert.equal(dirtyKey, dateKey)
   })
+
+  it('accepts user titles that mention cache coverage as plain text', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Project notes\nCache Coverage plan'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Old title',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let refreshSessionID: string | undefined
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: (id) => {
+        refreshSessionID = id
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, 'Project notes')
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(refreshSessionID, sessionID)
+  })
+
+  it('accepts user titles that contain quota-like plain text', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Project rollout\nOpenAI 50% complete'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Old title',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let refreshSessionID: string | undefined
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: (id) => {
+        refreshSessionID = id
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, 'Project rollout')
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(refreshSessionID, sessionID)
+  })
 })

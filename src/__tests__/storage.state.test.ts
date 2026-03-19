@@ -214,6 +214,40 @@ describe('storage state persistence', () => {
     assert.equal(s1?.state.baseTitle, 'S1-memory')
   })
 
+  it('scanSessionsByCreatedRange includes disk-only sessions from dates already present in memory', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+
+    const day = new Date(2026, 1, 20).getTime()
+    const dayKey = dateKeyFromTimestamp(day)
+
+    const fullState: QuotaSidebarState = defaultState()
+    fullState.sessions.s1 = makeSession(day, 'S1')
+    fullState.sessionDateMap.s1 = dayKey
+    fullState.sessions.s2 = makeSession(day + 60_000, 'S2')
+    fullState.sessionDateMap.s2 = dayKey
+
+    await saveState(statePath, fullState, { writeAll: true })
+
+    const memoryOnly = defaultState()
+    memoryOnly.sessions.s1 = makeSession(day, 'S1-memory')
+    memoryOnly.sessionDateMap.s1 = dayKey
+
+    const scanned = await scanSessionsByCreatedRange(
+      statePath,
+      day - 1,
+      day + 24 * 60 * 60 * 1000,
+      memoryOnly,
+    )
+
+    const ids = scanned.map((item) => item.sessionID).sort()
+    assert.deepEqual(ids, ['s1', 's2'])
+    const s1 = scanned.find((item) => item.sessionID === 's1')
+    assert.equal(s1?.state.baseTitle, 'S1-memory')
+    const s2 = scanned.find((item) => item.sessionID === 's2')
+    assert.equal(s2?.state.baseTitle, 'S2')
+  })
+
   it('evictOldSessions removes sessions older than retention cutoff', () => {
     const state = defaultState()
     const now = Date.now()

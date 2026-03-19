@@ -16,7 +16,7 @@ import type {
  * fields).  This is distinct from the plugin *state* version managed by the
  * persistence layer; billing version only governs usage-cache staleness.
  */
-export const USAGE_BILLING_CACHE_VERSION = 3
+export const USAGE_BILLING_CACHE_VERSION = 4
 
 export type ProviderUsage = {
   providerID: string
@@ -153,10 +153,35 @@ function resolvedCacheUsageBuckets(
     'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
   >,
 ): CacheUsageBuckets {
-  return (
-    cloneCacheUsageBuckets(usage.cacheBuckets || fallbackCacheUsageBuckets(usage)) ||
-    emptyCacheUsageBuckets()
-  )
+  const explicit = cloneCacheUsageBuckets(usage.cacheBuckets)
+  if (!explicit) {
+    return cloneCacheUsageBuckets(fallbackCacheUsageBuckets(usage)) || emptyCacheUsageBuckets()
+  }
+
+  const accountedInput = explicit.readOnly.input + explicit.readWrite.input
+  const accountedCacheRead =
+    explicit.readOnly.cacheRead + explicit.readWrite.cacheRead
+  const accountedCacheWrite =
+    explicit.readOnly.cacheWrite + explicit.readWrite.cacheWrite
+  const accountedAssistantMessages =
+    explicit.readOnly.assistantMessages + explicit.readWrite.assistantMessages
+
+  const residual = fallbackCacheUsageBuckets({
+    input: Math.max(0, usage.input - accountedInput),
+    cacheRead: Math.max(0, usage.cacheRead - accountedCacheRead),
+    cacheWrite: Math.max(0, usage.cacheWrite - accountedCacheWrite),
+    assistantMessages: Math.max(
+      0,
+      usage.assistantMessages - accountedAssistantMessages,
+    ),
+  })
+
+  if (residual) {
+    mergeCacheUsageBucket(explicit.readOnly, residual.readOnly)
+    mergeCacheUsageBucket(explicit.readWrite, residual.readWrite)
+  }
+
+  return explicit
 }
 
 export function getCacheCoverageMetrics(

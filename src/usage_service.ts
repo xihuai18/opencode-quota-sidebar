@@ -27,6 +27,13 @@ import {
   USAGE_BILLING_CACHE_VERSION,
   type UsageSummary,
 } from './usage.js'
+
+const READ_ONLY_CACHE_PROVIDERS = new Set([
+  'openai',
+  'github-copilot',
+  'venice',
+  'openrouter',
+])
 import type {
   CachedSessionUsage,
   IncrementalCursor,
@@ -199,26 +206,21 @@ export function createUsageService(deps: {
     if (message.tokens.cache.write > 0) return 'read-write'
     if (message.tokens.cache.read <= 0) return 'none'
 
+    const rawProviderID = message.providerID.toLowerCase()
+
+    if (
+      READ_ONLY_CACHE_PROVIDERS.has(canonicalProviderID) ||
+      READ_ONLY_CACHE_PROVIDERS.has(rawProviderID)
+    ) {
+      return 'read-only'
+    }
+
     // Heuristic fallback: classify by provider identity when pricing is missing.
     if (
       canonicalProviderID === 'anthropic' ||
       message.modelID.toLowerCase().includes('claude')
     ) {
       return 'read-write'
-    }
-
-    // Providers known to use read-only prefix caching (promptCacheKey / prompt_cache_key).
-    const readOnlyProviders = new Set([
-      'openai',
-      'github-copilot',
-      'venice',
-      'openrouter',
-    ])
-    if (
-      readOnlyProviders.has(canonicalProviderID) ||
-      readOnlyProviders.has(message.providerID.toLowerCase())
-    ) {
-      return 'read-only'
     }
 
     // Last resort: if the message has cache.read tokens from an unknown provider,
