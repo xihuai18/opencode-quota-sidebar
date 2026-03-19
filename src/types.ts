@@ -40,6 +40,20 @@ export type SessionTitleState = {
   lastAppliedTitle?: string
 }
 
+export type CacheCoverageMode = 'none' | 'read-only' | 'read-write'
+
+export type CacheUsageBucket = {
+  input: number
+  cacheRead: number
+  cacheWrite: number
+  assistantMessages: number
+}
+
+export type CacheUsageBuckets = {
+  readOnly: CacheUsageBucket
+  readWrite: CacheUsageBucket
+}
+
 export type CachedProviderUsage = {
   input: number
   output: number
@@ -66,6 +80,8 @@ export type CachedSessionUsage = {
   /** Equivalent API billing cost (USD) computed from model pricing. */
   apiCost: number
   assistantMessages: number
+  /** Cache coverage buckets grouped by model cache behavior. */
+  cacheBuckets?: CacheUsageBuckets
   providers: Record<string, CachedProviderUsage>
 }
 

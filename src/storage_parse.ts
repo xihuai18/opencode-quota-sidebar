@@ -1,5 +1,7 @@
 import { asNumber, isRecord } from './helpers.js'
 import type {
+  CacheUsageBucket,
+  CacheUsageBuckets,
   CachedProviderUsage,
   CachedSessionUsage,
   IncrementalCursor,
@@ -38,6 +40,37 @@ function parseProviderUsage(value: unknown): CachedProviderUsage | undefined {
   }
 }
 
+function parseCacheUsageBucket(value: unknown): CacheUsageBucket | undefined {
+  if (!isRecord(value)) return undefined
+  return {
+    input: asNumber(value.input, 0),
+    cacheRead: asNumber(value.cacheRead, 0),
+    cacheWrite: asNumber(value.cacheWrite, 0),
+    assistantMessages: asNumber(value.assistantMessages, 0),
+  }
+}
+
+function parseCacheUsageBuckets(value: unknown): CacheUsageBuckets | undefined {
+  if (!isRecord(value)) return undefined
+  const readOnly = parseCacheUsageBucket(value.readOnly)
+  const readWrite = parseCacheUsageBucket(value.readWrite)
+  if (!readOnly && !readWrite) return undefined
+  return {
+    readOnly: readOnly || {
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      assistantMessages: 0,
+    },
+    readWrite: readWrite || {
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      assistantMessages: 0,
+    },
+  }
+}
+
 function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
   if (!isRecord(value)) return undefined
   const providersRaw = isRecord(value.providers) ? value.providers : {}
@@ -61,6 +94,7 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
     cost: asNumber(value.cost, 0),
     apiCost: asNumber(value.apiCost, 0),
     assistantMessages: asNumber(value.assistantMessages, 0),
+    cacheBuckets: parseCacheUsageBuckets(value.cacheBuckets),
     providers,
   }
 }

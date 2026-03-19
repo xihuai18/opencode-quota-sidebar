@@ -8,6 +8,7 @@ function isStrongDecoratedDetail(line: string) {
   if (!line) return false
   if (/^Input\s+\S+\s+Output(?:\s+\S+)?/.test(line)) return true
   if (/^Cache\s+(Read|Write)\s+\S+/.test(line)) return true
+  if (/^Cache(?:\s+Read)?\s+Coverage\s+\S+/.test(line)) return true
   if (/^\$\S+\s+as API cost\b/.test(line)) return true
 
   // Single-line compact mode compatibility.

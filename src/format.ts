@@ -1,5 +1,5 @@
 import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
-import type { UsageSummary } from './usage.js'
+import { getCacheCoverageMetrics, type UsageSummary } from './usage.js'
 import {
   canonicalProviderID,
   collapseQuotaSnapshots,
@@ -166,6 +166,12 @@ function formatApiCostLine(value: number) {
   return `${formatApiCostValue(value)} as API cost`
 }
 
+function formatPercent(value: number, decimals = 1) {
+  const safe = Number.isFinite(value) && value >= 0 ? value : 0
+  const pct = (safe * 100).toFixed(decimals)
+  return `${pct.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
+}
+
 function alignPairs(
   pairs: Array<{ label: string; value: string }>,
   indent = '  ',
@@ -230,6 +236,7 @@ function renderSingleLineTitle(
 ) {
   const baseBudget = Math.min(16, Math.max(8, Math.floor(width * 0.35)))
   const base = fitLine(baseTitle, baseBudget)
+  const cacheMetrics = getCacheCoverageMetrics(usage)
 
   const segments: string[] = [
     `Input ${sidebarNumber(usage.input)}  Output ${sidebarNumber(usage.output)}`,
@@ -240,6 +247,14 @@ function renderSingleLineTitle(
   }
   if (usage.cacheWrite > 0) {
     segments.push(`Cache Write ${sidebarNumber(usage.cacheWrite)}`)
+  }
+  if (cacheMetrics.cacheCoverage !== undefined) {
+    segments.push(`Cache Coverage ${formatPercent(cacheMetrics.cacheCoverage, 0)}`)
+  }
+  if (cacheMetrics.cacheReadCoverage !== undefined) {
+    segments.push(
+      `Cache Read Coverage ${formatPercent(cacheMetrics.cacheReadCoverage, 0)}`,
+    )
   }
   if (config.sidebar.showCost && usage.apiCost > 0) {
     segments.push(formatApiCostLine(usage.apiCost))
@@ -282,6 +297,8 @@ export function renderSidebarTitle(
     return renderSingleLineTitle(safeBaseTitle, usage, quotas, config, width)
   }
 
+  const cacheMetrics = getCacheCoverageMetrics(usage)
+
   const lines: string[] = []
   lines.push(fitLine(safeBaseTitle, width))
   lines.push('')
@@ -296,6 +313,25 @@ export function renderSidebarTitle(
   }
   if (usage.cacheWrite > 0) {
     lines.push(fitLine(`Cache Write ${sidebarNumber(usage.cacheWrite)}`, width))
+  }
+  if (cacheMetrics.cacheCoverage !== undefined) {
+    lines.push(
+      fitLine(
+        `Cache Coverage ${formatPercent(cacheMetrics.cacheCoverage, 0)}`,
+        width,
+      ),
+    )
+  }
+  if (cacheMetrics.cacheReadCoverage !== undefined) {
+    lines.push(
+      fitLine(
+        `Cache Read Coverage ${formatPercent(
+          cacheMetrics.cacheReadCoverage,
+          0,
+        )}`,
+        width,
+      ),
+    )
   }
   if (config.sidebar.showCost && usage.apiCost > 0) {
     lines.push(fitLine(formatApiCostLine(usage.apiCost), width))
@@ -510,6 +546,7 @@ export function renderMarkdownReport(
   options?: { showCost?: boolean },
 ) {
   const showCost = options?.showCost !== false
+  const cacheMetrics = getCacheCoverageMetrics(usage)
 
   const mdCell = (value: string) => sanitizeLine(value).replace(/\|/g, '\\|')
 
@@ -621,6 +658,14 @@ export function renderMarkdownReport(
     `- Sessions: ${usage.sessionCount}`,
     `- Assistant messages: ${usage.assistantMessages}`,
     `- Tokens: input ${usage.input}, output ${usage.output}, cache_read ${usage.cacheRead}, cache_write ${usage.cacheWrite}, total ${usage.total}`,
+    ...(cacheMetrics.cacheCoverage !== undefined
+      ? [`- Cache Coverage: ${formatPercent(cacheMetrics.cacheCoverage, 1)}`]
+      : []),
+    ...(cacheMetrics.cacheReadCoverage !== undefined
+      ? [
+          `- Cache Read Coverage: ${formatPercent(cacheMetrics.cacheReadCoverage, 1)}`,
+        ]
+      : []),
     ...(showCost
       ? [
           `- Measured cost: ${measuredCostSummaryValue()}`,
@@ -654,6 +699,7 @@ export function renderToastMessage(
 ) {
   const width = Math.max(24, Math.floor(options?.width || 56))
   const showCost = options?.showCost !== false
+  const cacheMetrics = getCacheCoverageMetrics(usage)
   const lines: string[] = []
   lines.push(
     fitLine(
@@ -678,6 +724,18 @@ export function renderToastMessage(
     tokenPairs.push({
       label: 'Cache Write',
       value: shortNumber(usage.cacheWrite),
+    })
+  }
+  if (cacheMetrics.cacheCoverage !== undefined) {
+    tokenPairs.push({
+      label: 'Cache Coverage',
+      value: formatPercent(cacheMetrics.cacheCoverage, 1),
+    })
+  }
+  if (cacheMetrics.cacheReadCoverage !== undefined) {
+    tokenPairs.push({
+      label: 'Cache Read Coverage',
+      value: formatPercent(cacheMetrics.cacheReadCoverage, 1),
     })
   }
   if (showCost) {

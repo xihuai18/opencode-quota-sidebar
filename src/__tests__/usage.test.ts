@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   emptyUsageSummary,
+  getCacheCoverageMetrics,
   mergeUsage,
   toCachedSessionUsage,
   fromCachedSessionUsage,
@@ -177,5 +178,45 @@ describe('toCachedSessionUsage / fromCachedSessionUsage', () => {
     assert.equal(restored.providers.openai.output, 60)
     assert.equal(restored.providers.openai.reasoning, 0)
     assert.equal(restored.providers.openai.apiCost, 0.45)
+  })
+})
+
+describe('getCacheCoverageMetrics', () => {
+  it('derives both cache metrics from explicit cache buckets', () => {
+    const summary = makeSummary({
+      cacheBuckets: {
+        readOnly: {
+          input: 300,
+          cacheRead: 900,
+          cacheWrite: 0,
+          assistantMessages: 2,
+        },
+        readWrite: {
+          input: 400,
+          cacheRead: 300,
+          cacheWrite: 300,
+          assistantMessages: 2,
+        },
+      },
+    })
+
+    const metrics = getCacheCoverageMetrics(summary)
+    assert.equal(metrics.cacheCoverage, 0.6)
+    assert.equal(metrics.cacheReadCoverage, 0.75)
+  })
+
+  it('falls back to top-level cache totals for read-only legacy summaries', () => {
+    const metrics = getCacheCoverageMetrics(
+      makeSummary({
+        input: 1500,
+        cacheRead: 2500,
+        cacheWrite: 0,
+        assistantMessages: 3,
+        cacheBuckets: undefined,
+      }),
+    )
+
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cacheReadCoverage, 0.625)
   })
 })

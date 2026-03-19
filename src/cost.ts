@@ -1,6 +1,7 @@
 import type { AssistantMessage } from '@opencode-ai/sdk'
 
 import { asNumber, isRecord } from './helpers.js'
+import type { CacheCoverageMode } from './types.js'
 
 export const SUBSCRIPTION_API_COST_PROVIDERS = new Set(['openai', 'anthropic'])
 
@@ -119,6 +120,16 @@ export function guessModelCostDivisor(rates: ModelCostRates) {
   return maxRate > 0.001
     ? MODEL_COST_DIVISOR_PER_MILLION
     : MODEL_COST_DIVISOR_PER_TOKEN
+}
+
+export function cacheCoverageModeFromRates(
+  rates: ModelCostRates | undefined,
+): CacheCoverageMode {
+  if (!rates) return 'none'
+
+  if (rates.cacheWrite > 0) return 'read-write'
+  if (rates.cacheRead > 0) return 'read-only'
+  return 'none'
 }
 
 export function calcEquivalentApiCostForMessage(

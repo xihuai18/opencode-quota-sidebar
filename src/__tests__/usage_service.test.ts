@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { createUsageService } from '../usage_service.js'
-import { USAGE_BILLING_CACHE_VERSION } from '../usage.js'
+import { USAGE_BILLING_CACHE_VERSION, getCacheCoverageMetrics } from '../usage.js'
 import type { QuotaSidebarConfig, QuotaSidebarState } from '../types.js'
 
 function delay(ms: number) {
@@ -115,7 +115,7 @@ describe('usage service', () => {
                         input: 100,
                         output: 20,
                         reasoning: 0,
-                        cache: { read: 0, write: 0 },
+                        cache: { read: 50, write: 0 },
                       },
                       cost: 1.25,
                     },
@@ -133,14 +133,14 @@ describe('usage service', () => {
                     providerID: 'openai',
                     modelID: 'gpt-5',
                     time: { created: now - 50, completed: now - 40 },
-                    tokens: {
-                      input: 50,
-                      output: 10,
-                      reasoning: 5,
-                      cache: { read: 0, write: 0 },
+                      tokens: {
+                        input: 50,
+                        output: 10,
+                        reasoning: 5,
+                        cache: { read: 25, write: 25 },
+                      },
+                      cost: 9.99,
                     },
-                    cost: 9.99,
-                  },
                 },
               ],
             }
@@ -158,7 +158,7 @@ describe('usage service', () => {
                       cost: {
                         input: 0.0005,
                         output: 0.001,
-                        cache_read: 0,
+                        cache_read: 0.00025,
                         cache_write: 0,
                       },
                     },
@@ -184,12 +184,16 @@ describe('usage service', () => {
 
     assert.equal(usage.input, 150)
     assert.equal(usage.output, 35)
-    assert.equal(usage.total, 185)
+    assert.equal(usage.total, 285)
     assert.equal(usage.sessionCount, 2)
     assert.equal(usage.cost, 1.25)
     assert.equal(usage.providers.openai.cost, 1.25)
-    assert.ok(Math.abs(usage.apiCost - 0.11) < 1e-9)
-    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.11) < 1e-9)
+    assert.ok(Math.abs(usage.apiCost - 0.12875) < 1e-9)
+    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.12875) < 1e-9)
+
+    const metrics = getCacheCoverageMetrics(usage)
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9)
   })
 
   it('forces a full rescan when cached billing version is stale', async () => {

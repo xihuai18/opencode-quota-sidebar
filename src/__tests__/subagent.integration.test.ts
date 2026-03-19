@@ -443,7 +443,7 @@ describe('subagent aggregation integration', () => {
           input: 10,
           output: 2,
           reasoning: 0,
-          cache: { read: 0, write: 0 },
+          cache: { read: 5, write: 0 },
         },
         cost: 0,
       }
@@ -459,7 +459,7 @@ describe('subagent aggregation integration', () => {
           input: 100,
           output: 3,
           reasoning: 0,
-          cache: { read: 0, write: 0 },
+          cache: { read: 10, write: 0 },
         },
         cost: 0,
       }
@@ -479,7 +479,7 @@ describe('subagent aggregation integration', () => {
                 reasoning: true,
                 temperature: true,
                 tool_call: true,
-                cost: { input: 1, output: 2, cache_read: 0, cache_write: 0 },
+                cost: { input: 1, output: 2, cache_read: 0.5, cache_write: 0 },
                 limit: { context: 1_000_000, output: 8_192 },
                 options: {},
               },
@@ -548,6 +548,7 @@ describe('subagent aggregation integration', () => {
       const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
       assert.ok(latestP1)
       assert.match(latestP1!.title, /Input 111\s+Output 6/)
+      assert.match(latestP1!.title, /Cache Read Coverage 12%/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

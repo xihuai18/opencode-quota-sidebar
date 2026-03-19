@@ -1,12 +1,15 @@
 import type { AssistantMessage, Message } from '@opencode-ai/sdk'
 
 import type {
+  CacheCoverageMode,
+  CacheUsageBucket,
+  CacheUsageBuckets,
   CachedProviderUsage,
   CachedSessionUsage,
   IncrementalCursor,
 } from './types.js'
 
-export const USAGE_BILLING_CACHE_VERSION = 2
+export const USAGE_BILLING_CACHE_VERSION = 3
 
 export type ProviderUsage = {
   providerID: string
@@ -34,12 +37,138 @@ export type UsageSummary = {
   apiCost: number
   assistantMessages: number
   sessionCount: number
+  cacheBuckets?: CacheUsageBuckets
   providers: Record<string, ProviderUsage>
 }
 
 export type UsageOptions = {
   /** Equivalent API cost calculator for the message. */
   calcApiCost?: (message: AssistantMessage) => number
+  /** Cache-behavior classifier for the message model/provider. */
+  classifyCacheMode?: (message: AssistantMessage) => CacheCoverageMode
+}
+
+function emptyCacheUsageBucket(): CacheUsageBucket {
+  return {
+    input: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    assistantMessages: 0,
+  }
+}
+
+function emptyCacheUsageBuckets(): CacheUsageBuckets {
+  return {
+    readOnly: emptyCacheUsageBucket(),
+    readWrite: emptyCacheUsageBucket(),
+  }
+}
+
+function cloneCacheUsageBucket(bucket?: CacheUsageBucket): CacheUsageBucket {
+  return {
+    input: bucket?.input ?? 0,
+    cacheRead: bucket?.cacheRead ?? 0,
+    cacheWrite: bucket?.cacheWrite ?? 0,
+    assistantMessages: bucket?.assistantMessages ?? 0,
+  }
+}
+
+function cloneCacheUsageBuckets(
+  buckets?: CacheUsageBuckets,
+): CacheUsageBuckets | undefined {
+  if (!buckets) return undefined
+  return {
+    readOnly: cloneCacheUsageBucket(buckets?.readOnly),
+    readWrite: cloneCacheUsageBucket(buckets?.readWrite),
+  }
+}
+
+function mergeCacheUsageBucket(target: CacheUsageBucket, source?: CacheUsageBucket) {
+  if (!source) return target
+  target.input += source.input
+  target.cacheRead += source.cacheRead
+  target.cacheWrite += source.cacheWrite
+  target.assistantMessages += source.assistantMessages
+  return target
+}
+
+function addMessageCacheUsage(target: CacheUsageBucket, message: AssistantMessage) {
+  target.input += message.tokens.input
+  target.cacheRead += message.tokens.cache.read
+  target.cacheWrite += message.tokens.cache.write
+  target.assistantMessages += 1
+}
+
+function fallbackCacheUsageBuckets(
+  usage: Pick<
+    UsageSummary,
+    'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages'
+  >,
+): CacheUsageBuckets | undefined {
+  if (usage.cacheWrite > 0) {
+    return {
+      readOnly: emptyCacheUsageBucket(),
+      readWrite: {
+        input: usage.input,
+        cacheRead: usage.cacheRead,
+        cacheWrite: usage.cacheWrite,
+        assistantMessages: usage.assistantMessages,
+      },
+    }
+  }
+
+  if (usage.cacheRead > 0) {
+    return {
+      readOnly: {
+        input: usage.input,
+        cacheRead: usage.cacheRead,
+        cacheWrite: 0,
+        assistantMessages: usage.assistantMessages,
+      },
+      readWrite: emptyCacheUsageBucket(),
+    }
+  }
+
+  return undefined
+}
+
+function resolvedCacheUsageBuckets(
+  usage: Pick<
+    UsageSummary,
+    'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
+  >,
+): CacheUsageBuckets {
+  return (
+    cloneCacheUsageBuckets(usage.cacheBuckets || fallbackCacheUsageBuckets(usage)) ||
+    emptyCacheUsageBuckets()
+  )
+}
+
+export function getCacheCoverageMetrics(
+  usage: Pick<
+    UsageSummary,
+    'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
+  >,
+) {
+  const buckets = resolvedCacheUsageBuckets(usage)
+  const readWritePromptSurface =
+    buckets.readWrite.input +
+    buckets.readWrite.cacheRead +
+    buckets.readWrite.cacheWrite
+  const readOnlyPromptSurface =
+    buckets.readOnly.input + buckets.readOnly.cacheRead
+
+  return {
+    cacheCoverage:
+      readWritePromptSurface > 0
+        ? (buckets.readWrite.cacheRead + buckets.readWrite.cacheWrite) /
+          readWritePromptSurface
+        : undefined,
+    cacheReadCoverage:
+      readOnlyPromptSurface > 0
+        ? buckets.readOnly.cacheRead / readOnlyPromptSurface
+        : undefined,
+  }
 }
 
 export function emptyUsageSummary(): UsageSummary {
@@ -54,6 +183,7 @@ export function emptyUsageSummary(): UsageSummary {
     apiCost: 0,
     assistantMessages: 0,
     sessionCount: 0,
+    cacheBuckets: emptyCacheUsageBuckets(),
     providers: {},
   }
 }
@@ -127,6 +257,15 @@ function addMessageUsage(
   provider.apiCost += apiCost
   provider.assistantMessages += 1
   target.providers[message.providerID] = provider
+
+  const cacheMode = options?.classifyCacheMode?.(message) || 'none'
+  if (cacheMode === 'read-only') {
+    const buckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
+    addMessageCacheUsage(buckets.readOnly, message)
+  } else if (cacheMode === 'read-write') {
+    const buckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
+    addMessageCacheUsage(buckets.readWrite, message)
+  }
 }
 
 export function summarizeMessages(
@@ -364,6 +503,13 @@ export function mergeUsage(
   target.assistantMessages += source.assistantMessages
   target.sessionCount += source.sessionCount
 
+  const targetBuckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
+  const sourceBuckets = source.cacheBuckets
+  if (sourceBuckets) {
+    mergeCacheUsageBucket(targetBuckets.readOnly, sourceBuckets.readOnly)
+    mergeCacheUsageBucket(targetBuckets.readWrite, sourceBuckets.readWrite)
+  }
+
   for (const provider of Object.values(source.providers)) {
     const existing =
       target.providers[provider.providerID] ||
@@ -418,6 +564,7 @@ export function toCachedSessionUsage(
     cost: summary.cost,
     apiCost: summary.apiCost,
     assistantMessages: summary.assistantMessages,
+    cacheBuckets: cloneCacheUsageBuckets(summary.cacheBuckets),
     providers,
   }
 }
@@ -428,6 +575,7 @@ export function fromCachedSessionUsage(
 ): UsageSummary {
   // Merge cached reasoning into output for a single output metric.
   const mergedOutputValue = cached.output + cached.reasoning
+  const cacheBuckets = cloneCacheUsageBuckets(cached.cacheBuckets)
   return {
     input: cached.input,
     output: mergedOutputValue,
@@ -439,6 +587,7 @@ export function fromCachedSessionUsage(
     apiCost: cached.apiCost || 0,
     assistantMessages: cached.assistantMessages,
     sessionCount,
+    cacheBuckets,
     providers: Object.entries(cached.providers).reduce<
       Record<string, ProviderUsage>
     >((acc, [providerID, provider]) => {

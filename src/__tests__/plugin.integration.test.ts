@@ -134,6 +134,7 @@ describe('plugin integration', () => {
       assert.match(title, /Input\s+18\.9k\s+Output\s+53/)
       assert.match(title, /\$0\.02 as API cost/)
       assert.match(title, /Cache Read 1\.5k/)
+      assert.match(title, /Cache Read Coverage 7%/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -224,6 +225,7 @@ describe('plugin integration', () => {
 
       assert.ok(updates.length > 0)
       assert.match(title, /Input\s+420\s+Output\s+84/)
+      assert.match(title, /Cache Read Coverage 5%/)
       assert.match(title, /OpenAI unavailable/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
@@ -610,6 +612,7 @@ describe('plugin integration', () => {
         .find((item) => item.id === 'p1')
       assert.ok(latestParent)
       assert.match(latestParent!.title, /Input\s+350\.0k\s+Output\s+30\.0k/)
+      assert.match(latestParent!.title, /Cache Read Coverage 5%/)
       assert.match(latestParent!.title, /\$1\.02 as API cost/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome

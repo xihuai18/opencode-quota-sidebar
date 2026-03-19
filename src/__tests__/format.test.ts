@@ -68,7 +68,7 @@ describe('renderSidebarTitle', () => {
   })
 
   it('renders Buzz balance consistently in single-line titles', () => {
-    const config = makeConfig(120)
+    const config = makeConfig(160)
     config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -107,7 +107,24 @@ describe('renderSidebarTitle', () => {
   it('renders API cost as the last token detail line', () => {
     const title = renderSidebarTitle(
       'Session',
-      makeUsage({ cacheRead: 2500, cacheWrite: 300 }),
+      makeUsage({
+        cacheRead: 2500,
+        cacheWrite: 300,
+        cacheBuckets: {
+          readOnly: {
+            input: 1500,
+            cacheRead: 2500,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 600,
+            cacheRead: 200,
+            cacheWrite: 300,
+            assistantMessages: 1,
+          },
+        },
+      }),
       [],
       makeConfig(60),
     )
@@ -118,12 +135,51 @@ describe('renderSidebarTitle', () => {
     const cacheWriteIndex = lines.findIndex((line) =>
       line.startsWith('Cache Write'),
     )
+    const cacheCoverageIndex = lines.findIndex((line) =>
+      line.startsWith('Cache Coverage'),
+    )
+    const cacheReadCoverageIndex = lines.findIndex((line) =>
+      line.startsWith('Cache Read Coverage'),
+    )
     const costIndex = lines.findIndex((line) => /as API cost$/.test(line))
 
     assert.ok(cacheReadIndex >= 0)
     assert.ok(cacheWriteIndex >= 0)
+    assert.ok(cacheCoverageIndex > cacheWriteIndex)
+    assert.ok(cacheReadCoverageIndex > cacheCoverageIndex)
     assert.ok(costIndex > cacheReadIndex)
     assert.ok(costIndex > cacheWriteIndex)
+    assert.ok(costIndex > cacheCoverageIndex)
+    assert.ok(costIndex > cacheReadCoverageIndex)
+  })
+
+  it('renders cache coverage lines for mixed cache model types', () => {
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage({
+        cacheRead: 1200,
+        cacheWrite: 300,
+        cacheBuckets: {
+          readOnly: {
+            input: 300,
+            cacheRead: 900,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 400,
+            cacheRead: 300,
+            cacheWrite: 300,
+            assistantMessages: 2,
+          },
+        },
+      }),
+      [],
+      makeConfig(60),
+    )
+
+    assert.match(title, /Cache Coverage 60%/)
+    assert.match(title, /Cache Read Coverage 75%/)
   })
 
   it('hides API cost line when sidebar.showCost=false', () => {
@@ -662,6 +718,35 @@ describe('renderSidebarTitle', () => {
 })
 
 describe('renderMarkdownReport', () => {
+  it('renders cache coverage summary lines when cache buckets are available', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage({
+        cacheRead: 1200,
+        cacheWrite: 300,
+        cacheBuckets: {
+          readOnly: {
+            input: 300,
+            cacheRead: 900,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 400,
+            cacheRead: 300,
+            cacheWrite: 300,
+            assistantMessages: 2,
+          },
+        },
+      }),
+      [],
+      { showCost: true },
+    )
+
+    assert.match(report, /Cache Coverage: 60%/)
+    assert.match(report, /Cache Read Coverage: 75%/)
+  })
+
   it('hides cost columns when showCost=false', () => {
     const report = renderMarkdownReport(
       'session',
@@ -942,6 +1027,34 @@ describe('renderMarkdownReport', () => {
 })
 
 describe('renderToastMessage', () => {
+  it('shows cache coverage rows in the token usage section', () => {
+    const toast = renderToastMessage(
+      'session',
+      makeUsage({
+        cacheRead: 1200,
+        cacheWrite: 300,
+        cacheBuckets: {
+          readOnly: {
+            input: 300,
+            cacheRead: 900,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 400,
+            cacheRead: 300,
+            cacheWrite: 300,
+            assistantMessages: 2,
+          },
+        },
+      }),
+      [],
+    )
+
+    assert.match(toast, /Cache Coverage\s+60%/)
+    assert.match(toast, /Cache Read Coverage\s+75%/)
+  })
+
   it('uses aligned token and quota sections with blank line separation', () => {
     const now = new Date()
     const sameDayReset = new Date(

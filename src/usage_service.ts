@@ -3,6 +3,7 @@ import type { PluginInput } from '@opencode-ai/plugin'
 
 import { TtlValueCache } from './cache.js'
 import {
+  cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
   modelCostKey,
@@ -119,12 +120,10 @@ export function createUsageService(deps: {
 
     const map = all.reduce<Record<string, ModelCostRates>>((acc, provider) => {
       if (!isRecord(provider)) return acc
-      const providerID =
-        typeof provider.id === 'string'
-          ? canonicalApiCostProviderID(provider.id)
-          : undefined
-      if (!providerID) return acc
-      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return acc
+      const rawProviderID =
+        typeof provider.id === 'string' ? provider.id : undefined
+      if (!rawProviderID) return acc
+      const canonicalProviderID = canonicalApiCostProviderID(rawProviderID)
 
       const models = provider.models
       if (!isRecord(models)) return acc
@@ -136,9 +135,16 @@ export function createUsageService(deps: {
 
         const modelID =
           typeof modelValue.id === 'string' ? modelValue.id : modelKey
-        acc[modelCostKey(providerID, modelID)] = rates
+        acc[modelCostKey(rawProviderID, modelID)] = rates
         if (modelKey !== modelID) {
-          acc[modelCostKey(providerID, modelKey)] = rates
+          acc[modelCostKey(rawProviderID, modelKey)] = rates
+        }
+
+        if (canonicalProviderID !== rawProviderID) {
+          acc[modelCostKey(canonicalProviderID, modelID)] = rates
+          if (modelKey !== modelID) {
+            acc[modelCostKey(canonicalProviderID, modelKey)] = rates
+          }
         }
       }
 
@@ -158,7 +164,9 @@ export function createUsageService(deps: {
     const providerID = canonicalApiCostProviderID(message.providerID)
     if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return 0
 
-    const rates = modelCostMap[modelCostKey(providerID, message.modelID)]
+    const rates =
+      modelCostMap[modelCostKey(message.providerID, message.modelID)] ||
+      modelCostMap[modelCostKey(providerID, message.modelID)]
     if (!rates) {
       const key = modelCostKey(providerID, message.modelID)
       if (!missingApiCostRateKeys.has(key)) {
@@ -169,6 +177,36 @@ export function createUsageService(deps: {
     }
 
     return calcEquivalentApiCostForMessage(message, rates)
+  }
+
+  const classifyCacheMode = (
+    message: AssistantMessage,
+    modelCostMap: Record<string, ModelCostRates>,
+  ) => {
+    const canonicalProviderID = canonicalApiCostProviderID(message.providerID)
+    const baseRates =
+      modelCostMap[modelCostKey(message.providerID, message.modelID)] ||
+      modelCostMap[modelCostKey(canonicalProviderID, message.modelID)]
+    const effectiveRates =
+      baseRates &&
+      message.tokens.input + message.tokens.cache.read > 200_000 &&
+      baseRates.contextOver200k
+        ? baseRates.contextOver200k
+        : baseRates
+    const fromRates = cacheCoverageModeFromRates(effectiveRates)
+    if (fromRates !== 'none') return fromRates
+
+    if (message.tokens.cache.write > 0) return 'read-write'
+    if (message.tokens.cache.read <= 0) return 'none'
+
+    if (
+      canonicalProviderID === 'anthropic' ||
+      message.modelID.toLowerCase().includes('claude')
+    ) {
+      return 'read-write'
+    }
+    if (canonicalProviderID === 'openai') return 'read-only'
+    return 'none'
   }
 
   type MessageEntry = { info: Message }
@@ -330,6 +368,8 @@ export function createUsageService(deps: {
       forceRescan,
       {
         calcApiCost: (message) => calcEquivalentApiCost(message, modelCostMap),
+        classifyCacheMode: (message) =>
+          classifyCacheMode(message, modelCostMap),
       },
     )
     usage.sessionCount = 1
@@ -517,6 +557,8 @@ export function createUsageService(deps: {
             {
               calcApiCost: (message) =>
                 calcEquivalentApiCost(message, modelCostMap),
+              classifyCacheMode: (message) =>
+                classifyCacheMode(message, modelCostMap),
             },
           )
           return {

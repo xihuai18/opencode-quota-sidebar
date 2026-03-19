@@ -30,6 +30,8 @@ describe('title', () => {
     assert.equal(looksDecorated('Session'), false)
     assert.equal(looksDecorated('Session\nInput 1k  Output 2k'), true)
     assert.equal(looksDecorated('Session\nCache Read 10'), true)
+    assert.equal(looksDecorated('Session\nCache Coverage 60%'), true)
+    assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
     assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), true)
     assert.equal(looksDecorated('Session\nOpenAI migration plan'), false)
