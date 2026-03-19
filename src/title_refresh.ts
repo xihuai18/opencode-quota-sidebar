@@ -53,6 +53,15 @@ export function createTitleRefreshScheduler(options: {
     await Promise.allSettled(inflight)
   }
 
+  const waitForQuiescence = async () => {
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline) {
+      await flushScheduled()
+      await waitForIdle()
+      if (refreshTimer.size === 0 && applyLocks.size === 0) return
+    }
+  }
+
   const dispose = () => {
     cancelAll()
     applyLocks.clear()
@@ -65,6 +74,7 @@ export function createTitleRefreshScheduler(options: {
     cancelAll,
     flushScheduled,
     waitForIdle,
+    waitForQuiescence,
     dispose,
   }
 }

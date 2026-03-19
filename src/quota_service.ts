@@ -114,32 +114,82 @@ export function createQuotaService(deps: {
 
     // Newer runtimes expose config.providers; older clients may only expose
     // provider.list with a slightly different response shape.
-    const response = await (
-      client.config?.providers
-        ? client.config.providers({
-            query: { directory: deps.directory },
-            throwOnError: true,
-          })
-        : client.provider!.list!({
-            query: { directory: deps.directory },
-            throwOnError: true,
-          })
-    ).catch(swallow('getProviderOptionsMap'))
+    let response: unknown
+    let fromConfigProviders = false
+    if (client.config?.providers) {
+      fromConfigProviders = true
+      response = await client.config
+        .providers({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:configProviders'))
+    }
+    if (!response && client.provider?.list) {
+      response = await client.provider
+        .list({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:providerList'))
+    }
 
     const data =
-      isRecord(response) && isRecord(response.data) ? response.data : undefined
+      isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+        ? (response as Record<string, unknown>).data
+        : undefined
 
-    if (!response || !data) {
+    if (!response || data === undefined) {
       return {}
     }
 
-    const list = Array.isArray(data?.providers)
-      ? data.providers
-      : Array.isArray(data?.all)
-        ? data.all
+    const dataRecord = isRecord(data) ? data : undefined
+    const list = Array.isArray(dataRecord?.providers)
+      ? dataRecord.providers
+      : Array.isArray(dataRecord?.all)
+        ? dataRecord.all
         : Array.isArray(data)
           ? data
           : undefined
+
+    if (!list && fromConfigProviders && client.provider?.list) {
+      response = await client.provider
+        .list({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:providerListFallback'))
+
+      const fallbackData =
+        isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+          ? (response as Record<string, unknown>).data
+          : undefined
+      const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
+      const fallbackList = Array.isArray(fallbackRecord?.providers)
+        ? fallbackRecord.providers
+        : Array.isArray(fallbackRecord?.all)
+          ? fallbackRecord.all
+          : Array.isArray(fallbackData)
+            ? fallbackData
+            : undefined
+
+      const map = Array.isArray(fallbackList)
+        ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+            if (!item || typeof item !== 'object') return acc
+            const record = item as Record<string, unknown>
+            const id = record.id
+            const options = record.options
+            if (typeof id !== 'string') return acc
+            if (!options || typeof options !== 'object' || Array.isArray(options)) {
+              acc[id] = {}
+              return acc
+            }
+            acc[id] = options as Record<string, unknown>
+            return acc
+          }, {})
+        : {}
+      return providerOptionsCache.set(map, 5_000)
+    }
 
     const map = Array.isArray(list)
       ? list.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
@@ -400,7 +450,10 @@ export function createQuotaService(deps: {
                 body: next as any,
                 throwOnError: true,
               })
-              .catch(swallow('getQuotaSnapshots:authSet'))
+              .catch((error) => {
+                swallow('getQuotaSnapshots:authSet')(error)
+                throw error
+              })
             authCache.clear()
           },
           providerOptions,

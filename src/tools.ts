@@ -9,6 +9,7 @@ export function createQuotaSidebarTools(deps: {
   setTitleEnabled: (enabled: boolean) => void
   scheduleSave: () => void
   flushSave: () => Promise<void>
+  waitForStartupTitleWork: () => Promise<void>
   refreshSessionTitle: (sessionID: string, delay?: number) => void
   cancelAllTitleRefreshes: () => void
   flushScheduledTitleRefreshes: () => Promise<void>
@@ -54,6 +55,13 @@ export function createQuotaSidebarTools(deps: {
   }
 }) {
   let toggleLock = Promise.resolve()
+
+  const waitForStartupTitleWork = async () => {
+    await Promise.race([
+      deps.waitForStartupTitleWork(),
+      new Promise((resolve) => setTimeout(resolve, 3_000)),
+    ])
+  }
 
   return {
     quota_summary: tool({
@@ -117,6 +125,7 @@ export function createQuotaSidebarTools(deps: {
           const next = args.enabled !== undefined ? args.enabled : !current
 
           if (next) {
+            await waitForStartupTitleWork()
             deps.setTitleEnabled(true)
             deps.scheduleSave()
             await deps.flushSave()
@@ -147,6 +156,8 @@ export function createQuotaSidebarTools(deps: {
           deps.scheduleSave()
           await deps.flushSave()
           await deps.refreshAllVisibleTitles()
+          await deps.refreshAllTouchedTitles()
+          deps.refreshSessionTitle(context.sessionID, 0)
           await deps.showToast('toggle', 'Sidebar usage display: OFF failed')
           return 'Sidebar usage display remains ON because some touched session titles could not be restored. Try again after the session service recovers.'
         }

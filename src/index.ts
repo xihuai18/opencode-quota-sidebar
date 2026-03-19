@@ -236,23 +236,32 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const restoreAllVisibleTitles = titleApplicator.restoreAllVisibleTitles
   const refreshAllTouchedTitles = titleApplicator.refreshAllTouchedTitles
   const refreshAllVisibleTitles = titleApplicator.refreshAllVisibleTitles
+  let startupTitleWork = Promise.resolve()
+
+  const runStartupRestore = async (attempt = 0): Promise<void> => {
+    const result = await restoreAllVisibleTitles()
+    if (result.restored === result.attempted) return
+    debug(
+      `startup restore incomplete: restored ${result.restored}/${result.attempted} touched titles while display mode remains OFF`,
+    )
+    if (state.titleEnabled || config.sidebar.enabled === false) return
+    if (attempt >= 2) return
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await runStartupRestore(attempt + 1)
+  }
 
   if (!state.titleEnabled || !config.sidebar.enabled) {
-    void restoreAllVisibleTitles()
-      .then(async (result) => {
-        if (result.restored === result.attempted) return
-        state.titleEnabled = true
-        scheduleSave()
-        await flushSave().catch(swallow('startup:restoreAllVisibleTitles:flush'))
-      })
-      .catch(swallow('startup:restoreAllVisibleTitles'))
+    startupTitleWork = runStartupRestore().catch(
+      swallow('startup:restoreAllVisibleTitles'),
+    )
   } else {
-    void refreshAllTouchedTitles().catch(swallow('startup:refreshAllTouchedTitles'))
+    startupTitleWork = refreshAllTouchedTitles().catch(
+      swallow('startup:refreshAllTouchedTitles'),
+    )
   }
 
   const shutdown = async () => {
-    await titleRefresh.flushScheduled().catch(swallow('shutdown:flushScheduled'))
-    await titleRefresh.waitForIdle().catch(swallow('shutdown:titleIdle'))
+    await titleRefresh.waitForQuiescence().catch(swallow('shutdown:titleQuiescence'))
     await flushSave().catch(swallow('shutdown:flushSave'))
   }
 
@@ -393,6 +402,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       },
       scheduleSave,
       flushSave,
+      waitForStartupTitleWork: () => startupTitleWork,
       refreshSessionTitle: (sessionID, delay) =>
         titleRefresh.schedule(sessionID, delay ?? 250),
       cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),

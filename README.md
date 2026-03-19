@@ -13,7 +13,7 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.0"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.1"]
 }
 ```
 
@@ -70,7 +70,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
 - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
-- After startup, titles refresh on the next relevant session/message event or when `quota_show` is toggled
+- After startup, titles are restored immediately when persisted display mode is OFF; when persisted display mode is ON, touched titles refresh on startup and the rest update on the next relevant session/message event or when `quota_show` is toggled
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
