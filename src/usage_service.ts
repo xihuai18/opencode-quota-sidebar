@@ -488,7 +488,10 @@ export function createUsageService(deps: {
         maxSessions: deps.config.sidebar.childrenMaxSessions,
         concurrency: deps.config.sidebar.childrenConcurrency,
       })
-    if (descendantIDs.length === 0) return usage
+    if (descendantIDs.length === 0) {
+      if (dirty) deps.persistence.scheduleSave()
+      return usage
+    }
 
     const merged = emptyUsageSummary()
     mergeUsage(merged, usage)

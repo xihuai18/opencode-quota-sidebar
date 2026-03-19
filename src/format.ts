@@ -183,6 +183,17 @@ function formatPercent(value: number, decimals = 1) {
   return `${pct.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
 }
 
+function formatQuotaPercent(
+  value: number | undefined,
+  options?: { decimals?: number; missing?: string; rounded?: boolean },
+) {
+  const missing = options?.missing ?? '-'
+  if (value === undefined) return missing
+  if (!Number.isFinite(value) || value < 0) return missing
+  if (options?.rounded) return `${Math.round(value)}%`
+  return `${value.toFixed(options?.decimals ?? 1)}%`
+}
+
 function alignPairs(
   pairs: Array<{ label: string; value: string }>,
   indent = '  ',
@@ -215,10 +226,10 @@ function compactQuotaInline(quota: QuotaSnapshot) {
     const first = quota.windows[0]
     const showPercent = first.showPercent !== false
     const firstLabel = sanitizeLine(first.label || '')
-    const pct =
-      first.remainingPercent === undefined
-        ? undefined
-        : `${Math.round(first.remainingPercent)}%`
+    const pct = formatQuotaPercent(first.remainingPercent, {
+      rounded: true,
+      missing: '',
+    })
 
     const summary = showPercent
       ? [firstLabel, pct].filter(Boolean).join(' ')
@@ -234,8 +245,12 @@ function compactQuotaInline(quota: QuotaSnapshot) {
     return `${label} Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
   }
 
-  if (quota.remainingPercent !== undefined) {
-    return `${label} ${Math.round(quota.remainingPercent)}%`
+  const singlePercent = formatQuotaPercent(quota.remainingPercent, {
+    rounded: true,
+    missing: '',
+  })
+  if (singlePercent) {
+    return `${label} ${singlePercent}`
   }
 
   return label
@@ -439,10 +454,7 @@ function compactQuotaWide(
 
   const renderWindow = (win: NonNullable<QuotaSnapshot['windows']>[number]) => {
     const showPercent = win.showPercent !== false
-    const pct =
-      win.remainingPercent === undefined
-        ? '?'
-        : `${Math.round(win.remainingPercent)}%`
+    const pct = formatQuotaPercent(win.remainingPercent, { rounded: true })
     const parts = win.label
       ? showPercent
         ? [sanitizeLine(win.label), pct]
@@ -482,10 +494,7 @@ function compactQuotaWide(
   }
 
   // Fallback: single value from top-level remainingPercent
-  const percent =
-    quota.remainingPercent === undefined
-      ? '?'
-      : `${Math.round(quota.remainingPercent)}%`
+  const percent = formatQuotaPercent(quota.remainingPercent, { rounded: true })
   const reset = compactReset(quota.resetAt, 'Rst')
   const fallbackText = `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
   return maybeBreak(fallbackText, [fallbackText])
@@ -640,6 +649,13 @@ export function renderMarkdownReport(
 
   const highlightLines = () => {
     const lines: string[] = []
+    const providerLabel = (providerID: string) =>
+      quotaDisplayLabel({
+        providerID,
+        label: providerID,
+        status: 'ok',
+        checkedAt: 0,
+      })
     const topApiCost = providerEntries
       .filter((provider) => provider.apiCost > 0)
       .sort((a, b) => b.apiCost - a.apiCost)[0]
@@ -666,7 +682,7 @@ export function renderMarkdownReport(
       .sort((a, b) => b.value - a.value)[0]
     if (bestCacheCoverage) {
       lines.push(
-        `- Best Cache Coverage: ${bestCacheCoverage.provider.providerID} (${formatPercent(bestCacheCoverage.value, 1)})`,
+        `- Best Cache Coverage: ${providerLabel(bestCacheCoverage.provider.providerID)} (${formatPercent(bestCacheCoverage.value, 1)})`,
       )
     }
 
@@ -682,7 +698,7 @@ export function renderMarkdownReport(
       .sort((a, b) => b.value - a.value)[0]
     if (bestCacheReadCoverage) {
       lines.push(
-        `- Best Cache Read Coverage: ${bestCacheReadCoverage.provider.providerID} (${formatPercent(bestCacheReadCoverage.value, 1)})`,
+        `- Best Cache Read Coverage: ${providerLabel(bestCacheReadCoverage.provider.providerID)} (${formatPercent(bestCacheReadCoverage.value, 1)})`,
       )
     }
 
@@ -691,7 +707,7 @@ export function renderMarkdownReport(
       .sort((a, b) => b.cost - a.cost)[0]
     if (highestMeasured && highestMeasured.cost > 0) {
       lines.push(
-        `- Highest measured cost: ${highestMeasured.providerID} (${formatUsd(highestMeasured.cost)})`,
+        `- Highest measured cost: ${providerLabel(highestMeasured.providerID)} (${formatUsd(highestMeasured.cost)})`,
       )
     }
 
@@ -718,9 +734,7 @@ export function renderMarkdownReport(
           )
         }
         const remaining =
-          win.remainingPercent === undefined
-            ? '-'
-            : `${win.remainingPercent.toFixed(1)}%`
+          formatQuotaPercent(win.remainingPercent)
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
           `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
@@ -750,9 +764,7 @@ export function renderMarkdownReport(
       ]
     }
     const remaining =
-      quota.remainingPercent === undefined
-        ? '-'
-        : `${quota.remainingPercent.toFixed(1)}%`
+      formatQuotaPercent(quota.remainingPercent)
     return [
       mdCell(
         `- ${displayLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
@@ -877,19 +889,18 @@ export function renderToastMessage(
   const providerCachePairs = Object.values(usage.providers)
     .map((provider) => {
       const metrics = getProviderCacheCoverageMetrics(provider)
+      const parts: string[] = []
       if (metrics.cacheCoverage !== undefined) {
-        return {
-          label: displayShortLabel(provider.providerID),
-          value: `Cov ${formatPercent(metrics.cacheCoverage, 1)}`,
-        }
+        parts.push(`Cov ${formatPercent(metrics.cacheCoverage, 1)}`)
       }
       if (metrics.cacheReadCoverage !== undefined) {
-        return {
-          label: displayShortLabel(provider.providerID),
-          value: `Read ${formatPercent(metrics.cacheReadCoverage, 1)}`,
-        }
+        parts.push(`Read ${formatPercent(metrics.cacheReadCoverage, 1)}`)
       }
-      return undefined
+      if (parts.length === 0) return undefined
+      return {
+        label: displayShortLabel(provider.providerID),
+        value: parts.join('  '),
+      }
     })
     .filter(
       (item): item is { label: string; value: string } => Boolean(item),
@@ -908,10 +919,7 @@ export function renderToastMessage(
       if (item.windows && item.windows.length > 0) {
         const pairs = item.windows.map((win, idx) => {
           const showPercent = win.showPercent !== false
-          const pct =
-            win.remainingPercent === undefined
-              ? '-'
-              : `${win.remainingPercent.toFixed(1)}%`
+          const pct = formatQuotaPercent(win.remainingPercent)
           const reset = compactReset(win.resetAt, win.resetLabel, win.label)
           const parts = [win.label]
           if (showPercent) parts.push(pct)
@@ -941,10 +949,7 @@ export function renderToastMessage(
         ]
       }
 
-      const percent =
-        item.remainingPercent === undefined
-          ? '-'
-          : `${item.remainingPercent.toFixed(1)}%`
+      const percent = formatQuotaPercent(item.remainingPercent)
       const reset = compactReset(item.resetAt, 'Rst')
       return [
         {

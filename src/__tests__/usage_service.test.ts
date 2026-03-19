@@ -197,6 +197,55 @@ describe('usage service', () => {
     assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9)
   })
 
+  it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    config.sidebar.includeChildren = true
+    const sessionID = 'solo'
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1_000,
+      baseTitle: 'Solo',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let saveCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({ data: [entry(sessionID, 'm1', 10)] }),
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {
+          saveCalls++
+        },
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, true)
+
+    assert.equal(usage.input, 10)
+    assert.equal(saveCalls, 1)
+    assert.ok(state.sessions[sessionID].usage)
+  })
+
   it('forces a full rescan when cached billing version is stale', async () => {
     const state = makeState()
     const config = makeConfig()

@@ -64,7 +64,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
   - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available; `Exp` remains date-only
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
-- Toast message includes three sections: `Token Usage`, `Cost as API` (per provider), and `Quota`
+- Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
 - `quota_summary` markdown / toast also include `Cache Coverage` and `Cache Read Coverage` summary lines when available
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
@@ -94,8 +94,13 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - per-session title state (`baseTitle`, `lastAppliedTitle`)
   - `createdAt`
   - `parentID` (when the session is a subagent child session)
-  - cached usage summary used by `quota_summary`
+  - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cache coverage reporting
   - incremental aggregation cursor
+
+Notes on cache coverage persistence:
+
+- Older cached usage written before `cacheBuckets` existed can only be approximated from top-level `cache_read` / `cache_write` totals.
+- In those legacy cases, mixed read-only + read-write cache traffic may be attributed to a single fallback bucket until the session is recomputed from messages.
 
 Example tree:
 

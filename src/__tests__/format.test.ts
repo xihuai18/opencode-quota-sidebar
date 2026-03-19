@@ -114,6 +114,30 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /OpenAI una~/)
   })
 
+  it('sanitizes invalid quota percentages in single-line titles', () => {
+    const config = makeConfig(120)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          shortLabel: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: -5, resetAt: undefined }],
+        },
+      ],
+      config,
+    )
+
+    assert.match(title, /OpenAI 5h/)
+    assert.doesNotMatch(title, /-5%|NaN%|Infinity%/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -1040,8 +1064,8 @@ describe('renderMarkdownReport', () => {
 
     assert.match(report, /### Highlights/)
     assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/)
-    assert.match(report, /Best Cache Coverage: anthropic \(60%\)/)
-    assert.match(report, /Best Cache Read Coverage: openai \(75%\)/)
+    assert.match(report, /Best Cache Coverage: Anthropic \(60%\)/)
+    assert.match(report, /Best Cache Read Coverage: OpenAI \(75%\)/)
     assert.match(
       report,
       /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
@@ -1415,6 +1439,32 @@ describe('renderToastMessage', () => {
               },
             },
           },
+          mixed: {
+            providerID: 'mixed',
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 100,
+                cacheRead: 100,
+                cacheWrite: 0,
+                assistantMessages: 1,
+              },
+              readWrite: {
+                input: 50,
+                cacheRead: 25,
+                cacheWrite: 25,
+                assistantMessages: 1,
+              },
+            },
+          },
         },
       }),
       [],
@@ -1423,6 +1473,7 @@ describe('renderToastMessage', () => {
     assert.match(toast, /Provider Cache/)
     assert.match(toast, /OpenAI\s+Read 75%/)
     assert.match(toast, /Anthropic\s+Cov 60%/)
+    assert.match(toast, /mixed\s+Cov 50%\s+Read 50%/i)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
