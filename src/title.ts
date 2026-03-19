@@ -22,13 +22,42 @@ function isCoreDecoratedDetail(line: string) {
   return false
 }
 
+function isSingleLineDecoratedPrefix(line: string) {
+  if (!line) return false
+  return /^(Input|Cache Read|Cache Write|Cache Coverage|Cache Read Coverage)\b/.test(
+    line,
+  )
+}
+
+function isSingleLineQuotaPrefix(line: string) {
+  if (!line) return false
+  return /^(OpenAI|Copilot|Anthropic|RightCode|RC|Buzz)\b/.test(line)
+}
+
+function isSingleLineApiCostPrefix(line: string) {
+  if (!line) return false
+  return /^\$\S+\s+as API cost(?:\b|~|$)/.test(line)
+}
+
+function isSingleLineDetailPrefix(line: string) {
+  return (
+    isCoreDecoratedDetail(line) ||
+    isSingleLineDecoratedPrefix(line) ||
+    isSingleLineApiCostPrefix(line) ||
+    isSingleLineQuotaPrefix(line)
+  )
+}
+
 function decoratedSingleLineBase(line: string) {
   const parts = sanitizeTitleFragment(line)
     .split(/\s*\|\s*/)
     .map((part) => part.trim())
   if (parts.length < 2) return undefined
+  if (isSingleLineDetailPrefix(parts[0] || '')) return undefined
   const details = parts.slice(1)
-  if (!details.some((detail) => isCoreDecoratedDetail(detail))) {
+  if (
+    !details.some((detail) => isSingleLineDetailPrefix(detail))
+  ) {
     return undefined
   }
   return parts[0] || 'Session'

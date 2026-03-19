@@ -47,6 +47,8 @@ describe('title', () => {
       true,
     )
     assert.equal(looksDecorated('Session|Input 1k  Output 2k|OpenAI 80%'), true)
+    assert.equal(looksDecorated('Greetin~ | Input 1.~'), true)
+    assert.equal(looksDecorated('Greetin~ | Input 1.~ | OpenAI 8~'), true)
     assert.equal(looksDecorated('Input 1k  Output 2k | OpenAI 80%'), false)
   })
 })

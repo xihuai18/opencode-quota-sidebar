@@ -307,4 +307,63 @@ describe('title apply', () => {
     assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
     assert.equal(refreshSessionID, sessionID)
   })
+
+  it('does not replace base title with truncated single-line decorated echo', async () => {
+    const config = makeConfig()
+    config.sidebar.multilineTitle = false
+    config.sidebar.width = 20
+
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Greetin~ | Input 1.~'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Greeting and quick check-in',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.applyTitle(sessionID)
+
+    assert.equal(
+      state.sessions[sessionID].baseTitle,
+      'Greeting and quick check-in',
+    )
+  })
 })
