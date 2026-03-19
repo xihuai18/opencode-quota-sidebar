@@ -53,7 +53,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const state = await loadState(statePath)
 
   // M2: evict old sessions on startup
-  evictOldSessions(state, config.retentionDays)
+  const evictedOnStartup = evictOldSessions(state, config.retentionDays)
 
   const persistence = createPersistenceScheduler({
     statePath,
@@ -63,6 +63,10 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const markDirty = persistence.markDirty
   const scheduleSave = persistence.scheduleSave
   const flushSave = persistence.flushSave
+
+  if (evictedOnStartup > 0) {
+    scheduleSave()
+  }
 
   const RESTORE_TITLE_CONCURRENCY = 5
 
@@ -227,6 +231,14 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   scheduleTitleRefresh = titleRefresh.schedule
 
   const restoreAllVisibleTitles = titleApplicator.restoreAllVisibleTitles
+  const refreshAllTouchedTitles = titleApplicator.refreshAllTouchedTitles
+  const refreshAllVisibleTitles = titleApplicator.refreshAllVisibleTitles
+
+  if (!state.titleEnabled || !config.sidebar.enabled) {
+    void restoreAllVisibleTitles().catch(swallow('startup:restoreAllVisibleTitles'))
+  } else {
+    void refreshAllTouchedTitles().catch(swallow('startup:refreshAllTouchedTitles'))
+  }
 
   const showToast = async (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
@@ -303,13 +315,21 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         state.sessionDateMap[session.id] ||
         dateKeyFromTimestamp(session.time.created)
 
+      state.deletedSessionDateMap[session.id] = dateKey
       delete state.sessions[session.id]
       delete state.sessionDateMap[session.id]
+      markDirty(dateKey)
       scheduleSave()
 
-      await deleteSessionFromDayChunk(statePath, session.id, dateKey).catch(
-        swallow('deleteSessionFromDayChunk'),
-      )
+      const deletedFromChunk = await deleteSessionFromDayChunk(
+        statePath,
+        session.id,
+        dateKey,
+      ).catch(swallow('deleteSessionFromDayChunk'))
+      if (deletedFromChunk) {
+        delete state.deletedSessionDateMap[session.id]
+        scheduleSave()
+      }
 
       if (config.sidebar.includeChildren && session.parentID) {
         titleRefresh.schedule(session.parentID, 0)
@@ -345,9 +365,14 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         state.titleEnabled = enabled
       },
       scheduleSave,
+      flushSave,
       refreshSessionTitle: (sessionID, delay) =>
         titleRefresh.schedule(sessionID, delay ?? 250),
+      cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
+      waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),
       restoreAllVisibleTitles,
+      refreshAllTouchedTitles,
+      refreshAllVisibleTitles,
       showToast,
       summarizeForTool,
       getQuotaSnapshots,

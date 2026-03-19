@@ -307,6 +307,24 @@ function addMessageUsage(
   }
 }
 
+function completedTimeOf(message: AssistantMessage) {
+  const completed = message.time.completed
+  if (typeof completed !== 'number') return undefined
+  if (!Number.isFinite(completed)) return undefined
+  return completed
+}
+
+function isCompletedAssistantInRange(
+  message: Message,
+  startAt = 0,
+  endAt = Number.POSITIVE_INFINITY,
+): message is AssistantMessage {
+  if (!isAssistant(message)) return false
+  const completed = completedTimeOf(message)
+  if (completed === undefined) return false
+  return completed >= startAt && completed <= endAt
+}
+
 export function summarizeMessages(
   entries: Array<{ info: Message }>,
   startAt = 0,
@@ -317,10 +335,25 @@ export function summarizeMessages(
   summary.sessionCount = sessionCount
 
   for (const entry of entries) {
-    if (!isAssistant(entry.info)) continue
-    if (typeof entry.info.time.completed !== 'number') continue
-    if (!Number.isFinite(entry.info.time.completed)) continue
-    if (entry.info.time.created < startAt) continue
+    if (!isCompletedAssistantInRange(entry.info, startAt)) continue
+    addMessageUsage(summary, entry.info, options)
+  }
+
+  return summary
+}
+
+export function summarizeMessagesInCompletedRange(
+  entries: Array<{ info: Message }>,
+  startAt: number,
+  endAt: number,
+  sessionCount = 1,
+  options?: UsageOptions,
+) {
+  const summary = emptyUsageSummary()
+  summary.sessionCount = sessionCount
+
+  for (const entry of entries) {
+    if (!isCompletedAssistantInRange(entry.info, startAt, endAt)) continue
     addMessageUsage(summary, entry.info, options)
   }
 

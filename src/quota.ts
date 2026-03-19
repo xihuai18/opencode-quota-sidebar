@@ -22,14 +22,12 @@ function authCandidates(
   normalizedProviderID: string,
   adapterID: string,
 ) {
-  const candidates = new Set<string>([
-    providerID,
-    normalizedProviderID,
-    adapterID,
-  ])
+  const candidates = new Set<string>([providerID])
   if (adapterID === 'github-copilot') {
     candidates.add('github-copilot-enterprise')
   }
+  candidates.add(normalizedProviderID)
+  candidates.add(adapterID)
   return [...candidates]
 }
 

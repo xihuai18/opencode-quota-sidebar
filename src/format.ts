@@ -145,9 +145,16 @@ function fitLine(value: string, width: number) {
 }
 
 function formatCurrency(value: number, currency: string) {
-  const safe = Number.isFinite(value) && value > 0 ? value : 0
+  const safe = Number.isFinite(value) ? value : 0
   const prefix = typeof currency === 'string' && currency ? currency : '$'
   if (safe === 0) return `${prefix}0.00`
+  if (safe < 0) {
+    const abs = Math.abs(safe)
+    if (abs < 10) return `-${prefix}${abs.toFixed(2)}`
+    const one = abs.toFixed(1)
+    const trimmed = one.endsWith('.0') ? one.slice(0, -2) : one
+    return `-${prefix}${trimmed}`
+  }
   if (safe < 10) return `${prefix}${safe.toFixed(2)}`
   const one = safe.toFixed(1)
   const trimmed = one.endsWith('.0') ? one.slice(0, -2) : one
@@ -195,7 +202,10 @@ function alignPairs(
 
 function compactQuotaInline(quota: QuotaSnapshot) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
-  if (quota.status !== 'ok') return label
+  if (quota.status !== 'ok') {
+    if (quota.status === 'error') return `${label} Remaining ?`
+    return `${label} ${sanitizeLine(quota.status)}`
+  }
 
   if (quota.windows && quota.windows.length > 0) {
     const first = quota.windows[0]
@@ -290,17 +300,19 @@ export function renderSidebarTitle(
   config: QuotaSidebarConfig,
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
-  const safeBaseTitle =
-    stripAnsi(baseTitle || 'Session').split(/\r?\n/, 1)[0] || 'Session'
+  const safeBaseTitle = stripAnsi(baseTitle || 'Session') || 'Session'
 
   if (config.sidebar.multilineTitle !== true) {
-    return renderSingleLineTitle(safeBaseTitle, usage, quotas, config, width)
+    const singleLineBase = safeBaseTitle.split(/\r?\n/, 1)[0] || 'Session'
+    return renderSingleLineTitle(singleLineBase, usage, quotas, config, width)
   }
 
   const cacheMetrics = getCacheCoverageMetrics(usage)
 
   const lines: string[] = []
-  lines.push(fitLine(safeBaseTitle, width))
+  for (const line of safeBaseTitle.split(/\r?\n/)) {
+    lines.push(fitLine(line || 'Session', width))
+  }
   lines.push('')
 
   // Input / Output line
@@ -509,9 +521,6 @@ function compactReset(
     if (sameDay) return hhmm
     return `${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
   }
-  if (sameDay) {
-    return `${two(value.getHours())}:${two(value.getMinutes())}`
-  }
   return `${two(value.getMonth() + 1)}-${two(value.getDate())}`
 }
 
@@ -563,6 +572,7 @@ export function renderMarkdownReport(
     const canonical = canonicalProviderID(providerID)
     const isSubscription =
       canonical === 'openai' ||
+      canonical === 'anthropic' ||
       canonical === 'github-copilot' ||
       rightCodeSubscriptionProviderIDs.has(providerID)
     if (isSubscription) return '-'
@@ -573,6 +583,7 @@ export function renderMarkdownReport(
     const canonical = canonicalProviderID(providerID)
     return (
       canonical === 'openai' ||
+      canonical === 'anthropic' ||
       canonical === 'github-copilot' ||
       rightCodeSubscriptionProviderIDs.has(providerID)
     )
@@ -615,13 +626,14 @@ export function renderMarkdownReport(
     })
 
   const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
+    const displayLabel = quotaDisplayLabel(quota)
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
-      return quota.windows.map((win) => {
+      const windowLines = quota.windows.map((win) => {
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
-            `- ${quota.label}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
           )
         }
         const remaining =
@@ -630,14 +642,29 @@ export function renderMarkdownReport(
             : `${win.remainingPercent.toFixed(1)}%`
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
-          `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
         )
       })
+      if (quota.balance) {
+        windowLines.push(
+          mdCell(
+            `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+          ),
+        )
+      }
+      return windowLines
     }
     if (quota.status === 'ok' && quota.balance) {
       return [
         mdCell(
-          `- ${quota.label}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+          `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+        ),
+      ]
+    }
+    if (quota.status !== 'ok') {
+      return [
+        mdCell(
+          `- ${displayLabel}: ${quota.status}${quota.note ? ` | ${quota.note}` : ''}`,
         ),
       ]
     }
@@ -647,7 +674,7 @@ export function renderMarkdownReport(
         : `${quota.remainingPercent.toFixed(1)}%`
     return [
       mdCell(
-        `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+        `- ${displayLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
       ),
     ]
   })
@@ -738,15 +765,6 @@ export function renderToastMessage(
       value: formatPercent(cacheMetrics.cacheReadCoverage, 1),
     })
   }
-  if (showCost) {
-    if (usage.apiCost > 0) {
-      tokenPairs.push({
-        label: 'API Cost',
-        value: formatApiCostValue(usage.apiCost),
-      })
-    }
-  }
-
   lines.push(...alignPairs(tokenPairs).map((line) => fitLine(line, width)))
 
   if (showCost) {

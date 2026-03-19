@@ -36,9 +36,19 @@ export function createTitleRefreshScheduler(options: {
     refreshTimer.delete(sessionID)
   }
 
-  const dispose = () => {
+  const cancelAll = () => {
     for (const timer of refreshTimer.values()) clearTimeout(timer)
     refreshTimer.clear()
+  }
+
+  const waitForIdle = async () => {
+    const inflight = Array.from(applyLocks.values())
+    if (inflight.length === 0) return
+    await Promise.allSettled(inflight)
+  }
+
+  const dispose = () => {
+    cancelAll()
     applyLocks.clear()
   }
 
@@ -46,6 +56,8 @@ export function createTitleRefreshScheduler(options: {
     schedule,
     apply: applyLocked,
     cancel,
+    cancelAll,
+    waitForIdle,
     dispose,
   }
 }

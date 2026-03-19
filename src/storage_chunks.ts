@@ -53,14 +53,18 @@ class ChunkCache {
     this.maxSize = maxSize
   }
 
-  get(dateKey: string): Record<string, SessionState> | undefined {
-    const entry = this.cache.get(dateKey)
+  private key(rootPath: string, dateKey: string) {
+    return `${path.resolve(rootPath)}::${dateKey}`
+  }
+
+  get(rootPath: string, dateKey: string): Record<string, SessionState> | undefined {
+    const entry = this.cache.get(this.key(rootPath, dateKey))
     if (!entry) return undefined
     entry.accessedAt = Date.now()
     return entry.sessions
   }
 
-  set(dateKey: string, sessions: Record<string, SessionState>) {
+  set(rootPath: string, dateKey: string, sessions: Record<string, SessionState>) {
     if (this.cache.size >= this.maxSize) {
       // Evict least recently accessed
       let oldestKey: string | undefined
@@ -73,11 +77,14 @@ class ChunkCache {
       }
       if (oldestKey) this.cache.delete(oldestKey)
     }
-    this.cache.set(dateKey, { sessions, accessedAt: Date.now() })
+    this.cache.set(this.key(rootPath, dateKey), {
+      sessions,
+      accessedAt: Date.now(),
+    })
   }
 
-  invalidate(dateKey: string) {
-    this.cache.delete(dateKey)
+  invalidate(rootPath: string, dateKey: string) {
+    this.cache.delete(this.key(rootPath, dateKey))
   }
 }
 
@@ -88,7 +95,7 @@ export async function readDayChunk(
   dateKey: string,
 ): Promise<Record<string, SessionState>> {
   if (!isDateKey(dateKey)) return {}
-  const cached = chunkCache.get(dateKey)
+  const cached = chunkCache.get(rootPath, dateKey)
   if (cached) return cached
 
   const filePath = chunkFilePath(rootPath, dateKey)
@@ -114,7 +121,7 @@ export async function readDayChunk(
     return acc
   }, {})
 
-  chunkCache.set(dateKey, sessions)
+  chunkCache.set(rootPath, dateKey, sessions)
   return sessions
 }
 
@@ -201,13 +208,18 @@ export async function writeDayChunk(
     throw new Error(`unsafe chunk root at ${rootPath}`)
   }
   await mkdirpNoSymlink(rootPath, path.dirname(filePath))
+  if (Object.keys(sessions).length === 0) {
+    await fs.rm(filePath, { force: true }).catch(() => undefined)
+    chunkCache.invalidate(rootPath, dateKey)
+    return
+  }
   const chunk: SessionDayChunk = {
     version: 1,
     dateKey,
     sessions,
   }
   await safeWriteFile(filePath, `${JSON.stringify(chunk, null, 2)}\n`)
-  chunkCache.invalidate(dateKey)
+  chunkCache.invalidate(rootPath, dateKey)
 }
 
 export async function discoverChunks(rootPath: string): Promise<string[]> {

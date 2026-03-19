@@ -1,4 +1,5 @@
 import { asNumber, isRecord } from './helpers.js'
+import { normalizeTimestampMs } from './storage_dates.js'
 import type {
   CacheUsageBucket,
   CacheUsageBuckets,
@@ -123,7 +124,7 @@ export function parseSessionState(value: unknown): SessionState | undefined {
   const title = parseSessionTitleState(value)
   if (!title) return undefined
 
-  const createdAt = asNumber(value.createdAt, 0)
+  const createdAt = normalizeTimestampMs(value.createdAt, 0)
   if (!createdAt) return undefined
 
   return {
@@ -131,6 +132,7 @@ export function parseSessionState(value: unknown): SessionState | undefined {
     createdAt,
     parentID: typeof value.parentID === 'string' ? value.parentID : undefined,
     usage: parseCachedUsage(value.usage),
+    dirty: value.dirty === true,
     cursor: parseCursor(value.cursor),
   }
 }

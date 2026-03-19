@@ -113,6 +113,119 @@ describe('storage state persistence', () => {
     const loaded = await loadState(statePath)
     assert.equal(loaded.sessions.s1, undefined)
     assert.equal(loaded.sessionDateMap.s1, undefined)
+
+    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    const chunkStat = await fs.stat(chunkPath).catch(() => undefined)
+    assert.equal(chunkStat, undefined)
+  })
+
+  it('saveState clears tombstoned sessions from dirty day chunks', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.s1 = makeSession(createdAt, 'S1')
+    state.sessionDateMap.s1 = dateKey
+    await saveState(statePath, state, { writeAll: true })
+
+    delete state.sessions.s1
+    delete state.sessionDateMap.s1
+    state.deletedSessionDateMap.s1 = dateKey
+
+    await saveState(statePath, state, { dirtyDateKeys: [dateKey] })
+
+    const loaded = await loadState(statePath)
+    assert.equal(loaded.sessions.s1, undefined)
+    assert.equal(loaded.sessionDateMap.s1, undefined)
+    assert.equal(loaded.deletedSessionDateMap.s1, undefined)
+
+    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    const chunkStat = await fs.stat(chunkPath).catch(() => undefined)
+    assert.equal(chunkStat, undefined)
+  })
+
+  it('loadState skips sessions that still have deletion tombstones', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    await fs.mkdir(path.dirname(chunkPath), { recursive: true })
+
+    await fs.writeFile(
+      statePath,
+      `${JSON.stringify(
+        {
+          version: 2,
+          titleEnabled: true,
+          sessionDateMap: {},
+          deletedSessionDateMap: { s1: dateKey },
+          quotaCache: {},
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    await fs.writeFile(
+      chunkPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          dateKey,
+          sessions: {
+            s1: makeSession(createdAt, 'Ghost'),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    const loaded = await loadState(statePath)
+    assert.equal(loaded.sessions.s1, undefined)
+    assert.equal(loaded.sessionDateMap.s1, undefined)
+    assert.equal(loaded.deletedSessionDateMap.s1, dateKey)
+  })
+
+  it('isolates day chunk cache by root path', async () => {
+    const dirA = await makeTempDir()
+    const dirB = await makeTempDir()
+    const statePathA = stateFilePath(dirA)
+    const statePathB = stateFilePath(dirB)
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    const stateA = defaultState()
+    stateA.sessions.a1 = makeSession(createdAt, 'From A')
+    stateA.sessionDateMap.a1 = dateKey
+    await saveState(statePathA, stateA, { writeAll: true })
+
+    const stateB = defaultState()
+    stateB.sessions.b1 = makeSession(createdAt, 'From B')
+    stateB.sessionDateMap.b1 = dateKey
+    await saveState(statePathB, stateB, { writeAll: true })
+
+    const scannedA = await scanSessionsByCreatedRange(
+      statePathA,
+      createdAt - 1,
+      createdAt + 1,
+      defaultState(),
+    )
+    const scannedB = await scanSessionsByCreatedRange(
+      statePathB,
+      createdAt - 1,
+      createdAt + 1,
+      defaultState(),
+    )
+
+    assert.deepEqual(scannedA.map((item) => item.sessionID), ['a1'])
+    assert.deepEqual(scannedB.map((item) => item.sessionID), ['b1'])
   })
 
   it('does not discover disk chunks when sessionDateMap exists but is empty', async () => {
@@ -263,5 +376,23 @@ describe('storage state persistence', () => {
     assert.equal(evicted, 1)
     assert.equal(state.sessions.old, undefined)
     assert.ok(state.sessions.new)
+  })
+
+  it('evicts old sessions even when lastAppliedTitle is set', () => {
+    const state = defaultState()
+    const now = Date.now()
+    const oldCreatedAt = now - 800 * 24 * 60 * 60 * 1000
+
+    state.sessions.old = {
+      createdAt: oldCreatedAt,
+      baseTitle: 'old',
+      lastAppliedTitle: 'old\nInput 10  Output 20',
+    }
+    state.sessionDateMap.old = dateKeyFromTimestamp(oldCreatedAt)
+
+    const evicted = evictOldSessions(state, 730)
+    assert.equal(evicted, 1)
+    assert.equal(state.sessions.old, undefined)
+    assert.equal(state.sessionDateMap.old, undefined)
   })
 })

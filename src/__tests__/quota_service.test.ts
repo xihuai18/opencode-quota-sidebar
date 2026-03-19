@@ -664,4 +664,88 @@ describe('quota service', () => {
     assert.equal(snapshots.length, 1)
     assert.equal(snapshots[0].providerID, 'rightcode-openai')
   })
+
+  it('does not dedupe distinct provider options that share a base quota key', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    const calls: string[] = []
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (id: string, _opts?: Record<string, unknown>) =>
+        id.startsWith('rc-') ? { id: 'rightcode' } : undefined,
+      quotaCacheKey: (_id: string, opts?: Record<string, unknown>) =>
+        `rightcode@${String(opts?.baseURL || '')}`,
+      fetchQuotaSnapshot: async (
+        providerID: string,
+        _authMap: Record<string, unknown>,
+        _cfg: unknown,
+        _updateAuth: unknown,
+        providerOptions?: Record<string, unknown>,
+      ) => {
+        calls.push(`${providerID}:${String(providerOptions?.apiKey || '')}`)
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'rightcode',
+          label: providerID,
+          shortLabel: providerID,
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 1, currency: 'USD' },
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => ({
+            data: {
+              providers: [
+                {
+                  id: 'rc-a',
+                  options: {
+                    baseURL: 'https://www.right.codes/codex/v1',
+                    apiKey: 'key-a',
+                  },
+                },
+                {
+                  id: 'rc-b',
+                  options: {
+                    baseURL: 'https://www.right.codes/codex/v1',
+                    apiKey: 'key-b',
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(snapshots.length, 2)
+    assert.deepEqual(calls.sort(), ['rc-a:key-a', 'rc-b:key-b'])
+    const matchingKeys = Object.keys(state.quotaCache).filter((key) =>
+      key.startsWith('rightcode@https://www.right.codes/codex/v1#options@'),
+    )
+    assert.equal(matchingKeys.length, 2)
+  })
 })

@@ -83,6 +83,7 @@ export function defaultState(): QuotaSidebarState {
     titleEnabled: true,
     sessionDateMap: {},
     sessions: {},
+    deletedSessionDateMap: {},
     quotaCache: {},
   }
 }
@@ -256,6 +257,18 @@ async function loadVersion2State(
     return acc
   }, {})
 
+  const deletedSessionDateMapRaw = isRecord(raw.deletedSessionDateMap)
+    ? raw.deletedSessionDateMap
+    : {}
+  const deletedSessionDateMap = Object.entries(deletedSessionDateMapRaw).reduce<
+    Record<string, string>
+  >((acc, [sessionID, value]) => {
+    if (typeof value !== 'string') return acc
+    if (!isDateKey(value)) return acc
+    acc[sessionID] = value
+    return acc
+  }, {})
+
   const hadRawSessionDateMapEntries =
     isRecord(raw.sessionDateMap) && Object.keys(raw.sessionDateMap).length > 0
 
@@ -284,6 +297,7 @@ async function loadVersion2State(
   const sessions: Record<string, SessionState> = {}
   for (const [dateKey, chunkSessions] of chunks) {
     for (const [sessionID, session] of Object.entries(chunkSessions)) {
+      if (deletedSessionDateMap[sessionID]) continue
       sessions[sessionID] = session
       if (!sessionDateMap[sessionID]) sessionDateMap[sessionID] = dateKey
     }
@@ -294,6 +308,7 @@ async function loadVersion2State(
     titleEnabled,
     sessionDateMap,
     sessions,
+    deletedSessionDateMap,
     quotaCache,
   }
 }
@@ -398,24 +413,38 @@ export async function saveState(
 
   if (!skipChunks) {
     const keysToWrite = writeAll
-      ? Object.keys(sessionsByDate)
+      ? Array.from(
+          new Set([
+            ...Object.keys(sessionsByDate),
+            ...Object.values(state.deletedSessionDateMap),
+          ]),
+        )
       : Array.from(dirtySet ?? [])
 
     await Promise.all(
       keysToWrite
         .map((dateKey) => {
-          if (!Object.prototype.hasOwnProperty.call(sessionsByDate, dateKey)) {
-            return undefined
-          }
           return withDayChunkWriteLock(dateKey, async () => {
             const memorySessions = sessionsByDate[dateKey] || {}
+            const tombstonedIDs = Object.entries(state.deletedSessionDateMap)
+              .filter(([, tombstoneDateKey]) => tombstoneDateKey === dateKey)
+              .map(([sessionID]) => sessionID)
             const next = writeAll
               ? memorySessions
               : {
                   ...(await readDayChunk(rootPath, dateKey)),
                   ...memorySessions,
                 }
+
+            for (const sessionID of tombstonedIDs) {
+              delete next[sessionID]
+            }
+
             await writeDayChunk(rootPath, dateKey, next)
+
+            for (const sessionID of tombstonedIDs) {
+              delete state.deletedSessionDateMap[sessionID]
+            }
           })
         })
         .filter((promise): promise is Promise<void> => Boolean(promise)),
@@ -426,12 +455,13 @@ export async function saveState(
   await safeWriteFile(
     statePath,
     `${JSON.stringify(
-      {
-        version: 2,
-        titleEnabled: state.titleEnabled,
-        sessionDateMap: state.sessionDateMap,
-        quotaCache: state.quotaCache,
-      },
+        {
+          version: 2,
+          titleEnabled: state.titleEnabled,
+          sessionDateMap: state.sessionDateMap,
+          deletedSessionDateMap: state.deletedSessionDateMap,
+          quotaCache: state.quotaCache,
+        },
       null,
       2,
     )}\n`,
@@ -476,6 +506,9 @@ export async function scanSessionsByCreatedRange(
   memoryState?: QuotaSidebarState,
 ) {
   const rootPath = chunkRootPathFromStateFile(statePath)
+  const deletedSessionIDs = new Set(
+    Object.keys(memoryState?.deletedSessionDateMap || {}),
+  )
   const dateKeys = dateKeysInRange(startAt, endAt)
   if (!dateKeys.length) {
     return [] as Array<{
@@ -497,6 +530,7 @@ export async function scanSessionsByCreatedRange(
   if (memoryState) {
     const dateKeySet = new Set(dateKeys)
     for (const [sessionID, session] of Object.entries(memoryState.sessions)) {
+      if (deletedSessionIDs.has(sessionID)) continue
       const dk = memoryState.sessionDateMap[sessionID]
       if (!dk || !dateKeySet.has(dk)) continue
       const createdAt =
@@ -531,6 +565,7 @@ export async function scanSessionsByCreatedRange(
 
     for (const entry of chunkEntries.flat()) {
       if (seenSessionIDs.has(entry.sessionID)) continue
+      if (deletedSessionIDs.has(entry.sessionID)) continue
       const createdAt =
         Number.isFinite(entry.state.createdAt) && entry.state.createdAt > 0
           ? entry.state.createdAt
@@ -540,6 +575,61 @@ export async function scanSessionsByCreatedRange(
         seenSessionIDs.add(entry.sessionID)
       }
     }
+  }
+
+  return results
+}
+
+export async function scanAllSessions(
+  statePath: string,
+  memoryState?: QuotaSidebarState,
+) {
+  const rootPath = chunkRootPathFromStateFile(statePath)
+  const deletedSessionIDs = new Set(
+    Object.keys(memoryState?.deletedSessionDateMap || {}),
+  )
+  type SessionEntry = {
+    sessionID: string
+    dateKey: string
+    state: SessionState
+  }
+
+  const results: SessionEntry[] = []
+  const seenSessionIDs = new Set<string>()
+
+  if (memoryState) {
+    for (const [sessionID, sessionState] of Object.entries(memoryState.sessions)) {
+      if (deletedSessionIDs.has(sessionID)) continue
+      const dateKey =
+        memoryState.sessionDateMap[sessionID] ||
+        dateKeyFromTimestamp(sessionState.createdAt)
+      results.push({ sessionID, dateKey, state: sessionState })
+      seenSessionIDs.add(sessionID)
+    }
+  }
+
+  const dateKeys = await discoverChunks(rootPath)
+  if (dateKeys.length === 0) return results
+
+  const RANGE_SCAN_CONCURRENCY = 5
+  const chunkEntries = await mapConcurrent(
+    dateKeys,
+    RANGE_SCAN_CONCURRENCY,
+    async (dateKey) => {
+      const sessions = await readDayChunk(rootPath, dateKey)
+      return Object.entries(sessions).map(([sessionID, state]) => ({
+        sessionID,
+        dateKey,
+        state,
+      }))
+    },
+  )
+
+  for (const entry of chunkEntries.flat()) {
+    if (seenSessionIDs.has(entry.sessionID)) continue
+    if (deletedSessionIDs.has(entry.sessionID)) continue
+    results.push(entry)
+    seenSessionIDs.add(entry.sessionID)
   }
 
   return results

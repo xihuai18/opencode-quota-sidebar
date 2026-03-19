@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { PluginInput } from '@opencode-ai/plugin'
 
 import { TtlValueCache } from './cache.js'
@@ -49,6 +50,38 @@ export function createQuotaService(deps: {
 
   const inFlight = new Map<string, Promise<QuotaSnapshot | undefined>>()
 
+  const authFingerprint = (auth: unknown) => {
+    if (!auth || typeof auth !== 'object') return undefined
+    const stable = JSON.stringify(
+      Object.keys(auth as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          const value = (auth as Record<string, unknown>)[key]
+          if (value !== undefined) acc[key] = value
+          return acc
+        }, {}),
+    )
+    return createHash('sha256').update(stable).digest('hex').slice(0, 12)
+  }
+
+  const providerOptionsFingerprint = (
+    providerOptions?: Record<string, unknown>,
+  ) => {
+    if (!providerOptions) return undefined
+    const stable = JSON.stringify(
+      Object.keys(providerOptions)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          if (key === 'baseURL') return acc
+          const value = providerOptions[key]
+          if (value !== undefined) acc[key] = value
+          return acc
+        }, {}),
+    )
+    if (stable === '{}') return undefined
+    return createHash('sha256').update(stable).digest('hex').slice(0, 12)
+  }
+
   const getAuthMap = async () => {
     const cached = authCache.get()
     if (cached) return cached
@@ -76,7 +109,7 @@ export function createQuotaService(deps: {
     }
 
     if (!client.config?.providers && !client.provider?.list) {
-      return providerOptionsCache.set({}, 30_000)
+      return providerOptionsCache.set({}, 5_000)
     }
 
     // Newer runtimes expose config.providers; older clients may only expose
@@ -124,7 +157,7 @@ export function createQuotaService(deps: {
         }, {})
       : {}
 
-    return providerOptionsCache.set(map, 30_000)
+    return providerOptionsCache.set(map, 5_000)
   }
 
   const isValidQuotaCache = (snapshot: QuotaSnapshot) => {
@@ -257,19 +290,6 @@ export function createQuotaService(deps: {
       ),
     )
 
-    const dedupedCandidates = Array.from(
-      matchedCandidates
-        .reduce((acc, candidate) => {
-          const key = deps.quotaRuntime.quotaCacheKey(
-            candidate.providerID,
-            candidate.providerOptions,
-          )
-          if (!acc.has(key)) acc.set(key, candidate)
-          return acc
-        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
-        .values(),
-    )
-
     function authScopeFor(
       providerID: string,
       providerOptions?: Record<string, unknown>,
@@ -287,26 +307,57 @@ export function createQuotaService(deps: {
         if (!candidates.includes(value)) candidates.push(value)
       }
       push(providerID)
+      if (adapterID === 'github-copilot') push('github-copilot-enterprise')
       push(normalized)
       push(adapterID)
-      if (adapterID === 'github-copilot') push('github-copilot-enterprise')
 
+      const optionsFingerprint = providerOptionsFingerprint(providerOptions)
       for (const key of candidates) {
         const auth = authMap[key]
         if (!auth) continue
-        if (
-          key === 'openai' &&
-          auth.type === 'oauth' &&
-          typeof auth.accountId === 'string' &&
-          auth.accountId
-        ) {
-          return `${key}@${auth.accountId}`
+        if (auth.type === 'oauth') {
+          const authRecord = auth as unknown as Record<string, unknown>
+          const identity =
+            (typeof auth.accountId === 'string' && auth.accountId) ||
+            (typeof authRecord.login === 'string' && authRecord.login) ||
+            (typeof authRecord.userId === 'string' && authRecord.userId)
+          if (identity) {
+            return optionsFingerprint
+              ? `${key}@${identity}|options@${optionsFingerprint}`
+              : `${key}@${identity}`
+          }
         }
-        return key
+        const fingerprint = authFingerprint(auth)
+        if (fingerprint) {
+          return optionsFingerprint
+            ? `${key}@${fingerprint}|options@${optionsFingerprint}`
+            : `${key}@${fingerprint}`
+        }
+        return optionsFingerprint ? `${key}|options@${optionsFingerprint}` : key
+      }
+      if (optionsFingerprint) {
+        return `options@${optionsFingerprint}`
       }
 
       return 'none'
     }
+
+    const dedupedCandidates = Array.from(
+      matchedCandidates
+        .reduce((acc, candidate) => {
+          const baseKey = deps.quotaRuntime.quotaCacheKey(
+            candidate.providerID,
+            candidate.providerOptions,
+          )
+          const key = `${baseKey}#${authScopeFor(
+            candidate.providerID,
+            candidate.providerOptions,
+          )}`
+          if (!acc.has(key)) acc.set(key, candidate)
+          return acc
+        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
+        .values(),
+    )
 
     let cacheChanged = false
 

@@ -4,7 +4,6 @@ import {
   canonicalizeTitle,
   canonicalizeTitleForCompare,
   looksDecorated,
-  normalizeBaseTitle,
 } from './title.js'
 import type {
   QuotaSidebarConfig,
@@ -103,7 +102,7 @@ export function createTitleApplicator(deps: {
           }
         }
       } else {
-        const nextBase = normalizeBaseTitle(currentTitle)
+        const nextBase = canonicalizeTitle(currentTitle) || 'Session'
         if (sessionState.baseTitle !== nextBase) {
           sessionState.baseTitle = nextBase
           stateMutated = true
@@ -132,6 +131,8 @@ export function createTitleApplicator(deps: {
       quotas,
       deps.config,
     )
+
+    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return
 
     if (
       canonicalizeTitleForCompare(nextTitle) ===
@@ -218,12 +219,17 @@ export function createTitleApplicator(deps: {
       return
     }
 
-    if (looksDecorated(args.incomingTitle)) {
-      debug(`ignoring late decorated echo for session ${args.sessionID}`)
-      return
+    if (looksDecorated(args.incomingTitle) && args.sessionState.lastAppliedTitle) {
+      if (
+        canonicalizeTitleForCompare(args.incomingTitle) ===
+        canonicalizeTitleForCompare(args.sessionState.lastAppliedTitle)
+      ) {
+        debug(`ignoring late decorated echo for session ${args.sessionID}`)
+        return
+      }
     }
 
-    args.sessionState.baseTitle = normalizeBaseTitle(args.incomingTitle)
+    args.sessionState.baseTitle = canonicalizeTitle(args.incomingTitle) || 'Session'
     args.sessionState.lastAppliedTitle = undefined
     deps.markDirty(deps.state.sessionDateMap[args.sessionID])
     deps.scheduleSave()
@@ -246,10 +252,17 @@ export function createTitleApplicator(deps: {
       session.data.time.created,
       session.data.parentID ?? null,
     )
-    const baseTitle = normalizeBaseTitle(sessionState.baseTitle)
-    if (session.data.title === baseTitle) return
+    const baseTitle = canonicalizeTitle(sessionState.baseTitle) || 'Session'
+    if (session.data.title === baseTitle) {
+      if (sessionState.lastAppliedTitle !== undefined) {
+        sessionState.lastAppliedTitle = undefined
+        deps.markDirty(deps.state.sessionDateMap[sessionID])
+        deps.scheduleSave()
+      }
+      return
+    }
 
-    await deps.client.session
+    const updated = await deps.client.session
       .update({
         path: { id: sessionID },
         query: { directory: deps.directory },
@@ -258,25 +271,42 @@ export function createTitleApplicator(deps: {
       })
       .catch(swallow('restoreSessionTitle:update'))
 
+    if (!updated) return
+
     sessionState.lastAppliedTitle = undefined
     deps.markDirty(deps.state.sessionDateMap[sessionID])
     deps.scheduleSave()
   }
 
   const restoreAllVisibleTitles = async () => {
+    const touched = Object.entries(deps.state.sessions)
+      .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
+      .map(([sessionID]) => sessionID)
+    await mapConcurrent(touched, deps.restoreConcurrency, async (sessionID) => {
+      await restoreSessionTitle(sessionID)
+    })
+  }
+
+  const refreshAllTouchedTitles = async () => {
+    const touched = Object.entries(deps.state.sessions)
+      .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
+      .map(([sessionID]) => sessionID)
+    await mapConcurrent(touched, deps.restoreConcurrency, async (sessionID) => {
+      await applyTitle(sessionID)
+    })
+  }
+
+  const refreshAllVisibleTitles = async () => {
     const list = await deps.client.session
       .list({
         query: { directory: deps.directory },
         throwOnError: true,
       })
-      .catch(swallow('restoreAllVisibleTitles:list'))
+      .catch(swallow('refreshAllVisibleTitles:list'))
     if (!list?.data) return
 
-    const touched = list.data.filter(
-      (s) => deps.state.sessions[s.id]?.lastAppliedTitle,
-    )
-    await mapConcurrent(touched, deps.restoreConcurrency, async (s) => {
-      await restoreSessionTitle(s.id)
+    await mapConcurrent(list.data, deps.restoreConcurrency, async (session) => {
+      await applyTitle(session.id)
     })
   }
 
@@ -285,6 +315,8 @@ export function createTitleApplicator(deps: {
     handleSessionUpdatedTitle,
     restoreSessionTitle,
     restoreAllVisibleTitles,
+    refreshAllTouchedTitles,
+    refreshAllVisibleTitles,
     forgetSession,
   }
 }

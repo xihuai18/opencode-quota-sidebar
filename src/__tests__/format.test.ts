@@ -92,6 +92,28 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /Buzz\s+Balance ￥10\.2/)
   })
 
+  it('shows non-ok quota status in single-line titles', () => {
+    const config = makeConfig(120)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          shortLabel: 'OpenAI',
+          status: 'unavailable',
+          checkedAt: Date.now(),
+        },
+      ],
+      config,
+    )
+
+    assert.match(title, /OpenAI una~/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -994,7 +1016,7 @@ describe('renderMarkdownReport', () => {
       line.startsWith('- Anthropic (Weekly):'),
     )
     const rightCodeDaily = lines.find((line) =>
-      line.startsWith('- RightCode (Daily $88.9/$60):'),
+      line.startsWith('- RC (Daily $88.9/$60):'),
     )
 
     assert.match(anthro5h || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
@@ -1023,6 +1045,72 @@ describe('renderMarkdownReport', () => {
     )
 
     assert.match(report, /- Buzz: ok \\\| balance ￥10\.2/)
+  })
+  it('renders non-ok quota snapshots as plain status lines in markdown', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'anthropic',
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          status: 'unsupported',
+          checkedAt: Date.now(),
+          note: 'oauth quota endpoint is not publicly documented',
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- Anthropic: unsupported \\| oauth quota endpoint is not publicly documented/,
+    )
+    assert.doesNotMatch(report, /remaining - \\| reset -/)
+  })
+
+  it('uses display labels for markdown quota lines', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'rightcode-openai',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC-openai',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 8.5, currency: '$' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- RC-openai: ok \\| balance \$8\.50/)
+  })
+
+  it('preserves negative balances in markdown reports', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'buzz',
+          label: 'Buzz',
+          shortLabel: 'Buzz',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: -2.5, currency: '$' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- Buzz: ok \\| balance -\$2\.50/)
   })
 })
 
@@ -1079,7 +1167,7 @@ describe('renderToastMessage', () => {
     const lines = toast.split('\n')
     assert.equal(lines[1], '')
     assert.equal(lines[2], 'Token Usage')
-    assert.ok(lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
+    assert.ok(!lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
     const quotaHeaderIndex = lines.findIndex((line) => line === 'Quota')
     assert.ok(quotaHeaderIndex > 0)
     assert.equal(lines[quotaHeaderIndex - 1], '')
@@ -1159,6 +1247,14 @@ describe('renderToastMessage', () => {
     ])
 
     assert.match(toast, /Buzz\s+Balance ￥10\.2/)
+  })
+
+  it('does not duplicate API cost inside token usage section', () => {
+    const toast = renderToastMessage('session', makeUsage({ apiCost: 2.34 }), [])
+
+    const apiCostMatches = toast.match(/API Cost/g) || []
+    assert.equal(apiCostMatches.length, 0)
+    assert.match(toast, /Cost as API/)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {

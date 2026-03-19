@@ -13,7 +13,7 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@1.13.2"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.0"]
 }
 ```
 
@@ -55,9 +55,10 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 - Session title becomes multiline in sidebar:
   - line 1: original session title
-  - line 2: Input/Output tokens
-  - line 3: Cache Read tokens (only if non-zero)
-  - line 4: Cache Write tokens (only if non-zero)
+  - line 2: blank separator
+  - line 3: Input/Output tokens
+  - line 4: Cache Read tokens (only if non-zero)
+  - line 5: Cache Write tokens (only if non-zero)
   - next lines: `Cache Coverage` (read/write cache models) and `Cache Read Coverage` (read-only cache models) when enough cache telemetry is available; mixed sessions can show both
   - next line: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
@@ -68,7 +69,8 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
-  - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
+- `quota_show` — toggle sidebar title display on/off (state persists across sessions)
+- After startup, titles refresh on the next relevant session/message event or when `quota_show` is toggled
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
@@ -296,7 +298,7 @@ Other defaults:
 - When OpenCode exposes a long-context tier like `context_over_200k`, the plugin uses that premium rate for the whole request once `input > 200000`, matching OpenCode's current pricing schema.
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
-- Usage chunks cache both measured `cost` and computed `apiCost`. `quota_summary` (`/qday`, `/qweek`, `/qmonth`) usually reads those cached aggregates first, but a billing-cache version bump or missing/legacy API-cost data will trigger a rescan and persist refreshed values.
+- Usage chunks cache both measured `cost` and computed `apiCost`. `quota_summary` (`/qday`, `/qweek`, `/qmonth`) recomputes range totals from session messages so period filtering follows message completion time; refreshed full-session usage may then be persisted back into day chunks when billing-cache refresh is needed.
 
 ### Buzz provider example
 
@@ -319,7 +321,7 @@ The adapter also tolerates `https://buzzai.cc/v1`, but `https://buzzai.cc` is th
 With that setup, the sidebar/toast quota line will look like:
 
 ```text
-Buzz Balance CNY 10.17
+Buzz Balance ￥10.17
 ```
 
 ## Rendering examples
@@ -382,7 +384,7 @@ OpenAI
   5h 78% Rst 05:05
 Copilot
   Monthly 78% Rst 04-01
-Buzz Balance CNY 10.2
+Buzz Balance ￥10.2
 ```
 
 Balance-style quota:
@@ -394,7 +396,7 @@ RC Balance $260
 Buzz balance quota:
 
 ```text
-Buzz Balance CNY 10.17
+Buzz Balance ￥10.17
 ```
 
 Multi-detail quota (window + balance):
@@ -424,7 +426,7 @@ Quota is rendered inline as part of a single-line title:
 Mixed with Buzz balance:
 
 ```text
-<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance CNY 10.2
+<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance ￥10.2
 ```
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.

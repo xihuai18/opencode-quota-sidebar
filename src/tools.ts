@@ -8,8 +8,13 @@ export function createQuotaSidebarTools(deps: {
   getTitleEnabled: () => boolean
   setTitleEnabled: (enabled: boolean) => void
   scheduleSave: () => void
+  flushSave: () => Promise<void>
   refreshSessionTitle: (sessionID: string, delay?: number) => void
+  cancelAllTitleRefreshes: () => void
+  waitForTitleRefreshIdle: () => Promise<void>
   restoreAllVisibleTitles: () => Promise<void>
+  refreshAllTouchedTitles: () => Promise<void>
+  refreshAllVisibleTitles: () => Promise<void>
   showToast: (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
     message: string,
@@ -64,7 +69,6 @@ export function createQuotaSidebarTools(deps: {
           context.sessionID,
           includeChildren,
         )
-        deps.scheduleSave()
 
         // For quota_summary, always show all subscription quota balances,
         // regardless of which providers were used in the session.
@@ -101,18 +105,23 @@ export function createQuotaSidebarTools(deps: {
         const next = args.enabled !== undefined ? args.enabled : !current
         deps.setTitleEnabled(next)
         deps.scheduleSave()
+        await deps.flushSave()
 
         if (next) {
-          // Turning on — re-render current session immediately
+          // Turning on — refresh visible sessions, plus touched sessions as backup.
+          await deps.refreshAllVisibleTitles()
+          await deps.refreshAllTouchedTitles()
           deps.refreshSessionTitle(context.sessionID, 0)
           await deps.showToast('toggle', 'Sidebar usage display: ON')
-          return 'Sidebar usage display is now ON. Session titles will show token usage and quota.'
+          return 'Sidebar usage display is now ON. Visible session titles are refreshing to show token usage and quota.'
         }
 
         // Turning off — restore all touched sessions to base titles
+        deps.cancelAllTitleRefreshes()
+        await deps.waitForTitleRefreshIdle()
         await deps.restoreAllVisibleTitles()
         await deps.showToast('toggle', 'Sidebar usage display: OFF')
-        return 'Sidebar usage display is now OFF. Session titles restored to original.'
+        return 'Sidebar usage display is now OFF. Restore was attempted for touched session titles.'
       },
     }),
   }

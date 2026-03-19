@@ -6,7 +6,9 @@ function sanitizeTitleFragment(value: string) {
 
 function isCoreDecoratedDetail(line: string) {
   if (!line) return false
-  if (/^Input\s+\S+\s+Output(?:\s+\S+)?/.test(line)) return true
+  if (/^Input\s+\$?[\d.,]+[kKmM]?(?:\s+Output(?:\s+\$?[\d.,]+[kKmM]?)?)?~?$/.test(line)) {
+    return true
+  }
   if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
   if (/^\$\S+\s+as API cost$/.test(line)) return true
 
@@ -24,28 +26,22 @@ function isCoreDecoratedDetail(line: string) {
 
 function isSingleLineDecoratedPrefix(line: string) {
   if (!line) return false
-  return /^(Input|Cache Read|Cache Write|Cache Coverage|Cache Read Coverage)\b/.test(
-    line,
-  )
-}
-
-function isSingleLineQuotaPrefix(line: string) {
-  if (!line) return false
-  return /^(OpenAI|Copilot|Anthropic|RightCode|RC|Buzz)\b/.test(line)
-}
-
-function isSingleLineApiCostPrefix(line: string) {
-  if (!line) return false
-  return /^\$\S+\s+as API cost(?:\b|~|$)/.test(line)
+  if (/^Input\s+\$?[\d.,]+[kKmM]?~?$/.test(line)) return true
+  if (/^Input\s+\$?[\d.,]+[kKmM]?\s+Output(?:\s+\$?[\d.,]+[kKmM]?~?)?$/.test(line)) {
+    return true
+  }
+  if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?(?:~|$)/.test(line)) {
+    return true
+  }
+  if (/^Cache(?:\s+Read)?\s+Coverage\s+\d[\d.,]*(?:%|~)$/.test(line)) {
+    return true
+  }
+  if (/^\$\S+\s+as API cost(?:~|$)/.test(line)) return true
+  return false
 }
 
 function isSingleLineDetailPrefix(line: string) {
-  return (
-    isCoreDecoratedDetail(line) ||
-    isSingleLineDecoratedPrefix(line) ||
-    isSingleLineApiCostPrefix(line) ||
-    isSingleLineQuotaPrefix(line)
-  )
+  return isCoreDecoratedDetail(line) || isSingleLineDecoratedPrefix(line)
 }
 
 function decoratedSingleLineBase(line: string) {
@@ -64,10 +60,20 @@ function decoratedSingleLineBase(line: string) {
 }
 
 export function normalizeBaseTitle(title: string) {
-  const firstLine = stripAnsi(title).split(/\r?\n/, 1)[0] || 'Session'
+  const safeTitle = canonicalizeTitle(title) || 'Session'
+  const firstLine = stripAnsi(safeTitle).split(/\r?\n/, 1)[0] || 'Session'
   const decoratedBase = decoratedSingleLineBase(firstLine)
   if (decoratedBase) return decoratedBase
-  return sanitizeTitleFragment(firstLine) || 'Session'
+
+  const lines = stripAnsi(safeTitle).split(/\r?\n/)
+  if (lines.length > 1) {
+    const detail = lines.slice(1).map((line) => sanitizeTitleFragment(line).trim())
+    if (detail.some((line) => isCoreDecoratedDetail(line))) {
+      return sanitizeTitleFragment(firstLine) || 'Session'
+    }
+  }
+
+  return safeTitle
 }
 
 export function stripAnsi(value: string) {
