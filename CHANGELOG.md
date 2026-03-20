@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add MiniMax token plan quota support via `GET /v1/api/openplatform/coding_plan/remains` (5h + weekly windows).
 - Add Buzz API balance support for OpenAI-compatible providers that use a Buzz `baseURL`.
 - Document Buzz configuration, rendering, and outbound billing endpoints.
 - Keep session measured cost aligned with OpenCode root-session `message.cost` while still including descendant subagent usage in API-equivalent cost.
