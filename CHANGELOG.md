@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add MiniMax token plan quota support via `GET /v1/api/openplatform/coding_plan/remains` (5h + weekly windows).
 - Add built-in `kimi-for-coding` subscription quota support via `GET https://api.kimi.com/coding/v1/usages`.
 - Parse Kimi's `5h` and `Weekly` windows, including reset timestamps, and render them like other subscription providers.
 - Accept OpenCode provider discovery responses that expose Kimi API keys through provider `key` fields.

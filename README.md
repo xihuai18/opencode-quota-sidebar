@@ -41,14 +41,14 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 
 ## Supported quota providers
 
-| Provider       | Endpoint                               | Auth            | Status                                  |
-| -------------- | -------------------------------------- | --------------- | --------------------------------------- |
-| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
-| GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                           |
-| Kimi For Coding | `api.kimi.com/coding/v1/usages`       | API key         | Multi-window subscription (5h + weekly) |
-| RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)     |
-| Buzz           | `buzzai.cc/v1/dashboard/billing/*`     | API key         | Balance only (computed from total-used) |
-| Anthropic      | `api.anthropic.com/api/oauth/usage`    | OAuth           | Multi-window (5h + weekly / plan-based) |
+| Provider       | Endpoint                                         | Auth            | Status                                  |
+| -------------- | ------------------------------------------------ | --------------- | --------------------------------------- |
+| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`             | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
+| GitHub Copilot | `api.github.com/copilot_internal/user`           | OAuth           | Monthly quota                           |
+| RightCode      | `www.right.codes/account/summary`               | API key         | Subscription or balance (by prefix)     |
+| Buzz           | `buzzai.cc/v1/dashboard/billing/*`              | API key         | Balance only (computed from total-used) |
+| Anthropic      | `api.anthropic.com/api/oauth/usage`              | OAuth           | Multi-window (5h + weekly / plan-based) |
+| MiniMax        | `api.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key | Multi-window (5h + weekly) |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -79,6 +79,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - RightCode API key (`/account/summary`)
   - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
+  - MiniMax API key (`/v1/api/openplatform/coding_plan/remains`)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
 - API key providers still show usage aggregation (quota only applies to subscription providers)
 - Incremental usage aggregation — only processes new messages since last cursor
