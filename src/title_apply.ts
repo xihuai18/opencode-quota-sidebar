@@ -72,6 +72,15 @@ export function createTitleApplicator(deps: {
       .catch(swallow('applyTitle:getSession'))
 
     if (!session) return false
+    if (
+      !session.data ||
+      typeof session.data.title !== 'string' ||
+      !session.data.time ||
+      typeof session.data.time.created !== 'number'
+    ) {
+      debug(`applyTitle skipped malformed session payload for ${sessionID}`)
+      return false
+    }
 
     const sessionState = deps.ensureSessionState(
       sessionID,
@@ -235,6 +244,11 @@ export function createTitleApplicator(deps: {
       }
     }
 
+    if (looksDecorated(args.incomingTitle) && !args.sessionState.lastAppliedTitle) {
+      debug(`ignoring untracked decorated title for session ${args.sessionID}`)
+      return
+    }
+
     const restored = recentRestore.get(args.sessionID)
     if (restored) {
       if (restored.expiresAt <= Date.now()) {
@@ -309,6 +323,7 @@ export function createTitleApplicator(deps: {
 
     if (!updated) return false
 
+    pendingAppliedTitle.delete(sessionID)
     recentRestore.set(sessionID, {
       baseTitle,
       decoratedTitle: sessionState.lastAppliedTitle,
@@ -345,7 +360,11 @@ export function createTitleApplicator(deps: {
       deps.restoreConcurrency,
       async (sessionID) => applyTitle(sessionID),
     )
-    void results
+    return {
+      attempted: touched.length,
+      refreshed: results.filter(Boolean).length,
+      listFailed: false,
+    }
   }
 
   const refreshAllVisibleTitles = async () => {

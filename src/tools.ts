@@ -20,7 +20,11 @@ export function createQuotaSidebarTools(deps: {
     restored: number
     listFailed: boolean
   }>
-  refreshAllTouchedTitles: () => Promise<void>
+  refreshAllTouchedTitles: () => Promise<{
+    attempted: number
+    refreshed: number
+    listFailed: boolean
+  }>
   refreshAllVisibleTitles: () => Promise<{
     attempted: number
     refreshed: number
@@ -53,15 +57,17 @@ export function createQuotaSidebarTools(deps: {
   ) => string
   config: {
     sidebar: { showCost: boolean; width: number; includeChildren: boolean }
+    sidebarEnabled: boolean
   }
 }) {
   let toggleLock = Promise.resolve()
 
   const waitForStartupTitleWork = async () => {
-    await Promise.race([
+    const timedOut = await Promise.race([
       deps.waitForStartupTitleWork(),
-      new Promise((resolve) => setTimeout(resolve, 3_000)),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 3_000)),
     ])
+    return timedOut === 'timeout'
   }
 
   return {
@@ -126,16 +132,31 @@ export function createQuotaSidebarTools(deps: {
           const next = args.enabled !== undefined ? args.enabled : !current
 
           if (next) {
-            await waitForStartupTitleWork()
+            if (!deps.config.sidebarEnabled) {
+              return 'Sidebar usage display cannot be enabled because `sidebar.enabled=false` in config. Re-enable the sidebar feature first.'
+            }
+            const startupTimedOut = await waitForStartupTitleWork()
             deps.setTitleEnabled(true)
             deps.scheduleSave()
             await deps.flushSave()
 
             const visible = await deps.refreshAllVisibleTitles()
-            await deps.refreshAllTouchedTitles()
+            const touched = await deps.refreshAllTouchedTitles()
             deps.refreshSessionTitle(context.sessionID, 0)
+            if (startupTimedOut) {
+              void deps.waitForStartupTitleWork().then(() => {
+                if (!deps.getTitleEnabled()) return
+                void deps.refreshAllVisibleTitles()
+                void deps.refreshAllTouchedTitles()
+                deps.refreshSessionTitle(context.sessionID, 0)
+              })
+            }
             await deps.showToast('toggle', 'Sidebar usage display: ON')
-            if (visible.listFailed) {
+            if (
+              visible.listFailed ||
+              visible.refreshed < visible.attempted ||
+              touched.refreshed < touched.attempted
+            ) {
               return 'Sidebar usage display is now ON. Visible-session refresh failed, so only touched/current session titles are guaranteed to refresh immediately.'
             }
             return 'Sidebar usage display is now ON. Visible session titles are refreshing to show token usage and quota.'

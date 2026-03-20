@@ -28,6 +28,7 @@ describe('quota_show tool', () => {
       }),
       refreshAllTouchedTitles: async () => {
         refreshTouchedCalls++
+        return { attempted: 1, refreshed: 1, listFailed: false }
       },
       refreshAllVisibleTitles: async () => {
         refreshVisibleCalls++
@@ -50,7 +51,10 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
-      config: { sidebar: { showCost: true, width: 36, includeChildren: true } },
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
     })
 
     const result = await toolset.quota_show.execute(
@@ -88,6 +92,7 @@ describe('quota_show tool', () => {
       restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
       refreshAllTouchedTitles: async () => {
         order.push('refreshTouched')
+        return { attempted: 0, refreshed: 0, listFailed: false }
       },
       refreshAllVisibleTitles: async () => {
         order.push('refreshVisible')
@@ -112,7 +117,10 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
-      config: { sidebar: { showCost: true, width: 36, includeChildren: true } },
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
     })
 
     await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
@@ -139,7 +147,7 @@ describe('quota_show tool', () => {
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => {},
+      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
       refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
       showToast: async () => {},
       summarizeForTool: async () => ({
@@ -158,7 +166,10 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
-      config: { sidebar: { showCost: true, width: 36, includeChildren: true } },
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
     })
 
     const result = await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
@@ -187,7 +198,7 @@ describe('quota_show tool', () => {
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
       restoreAllVisibleTitles: async () => ({ attempted: 1, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => {},
+      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
       refreshAllVisibleTitles: async () => ({ attempted: 1, refreshed: 1, listFailed: false }),
       showToast: async () => {},
       summarizeForTool: async () => ({
@@ -206,12 +217,68 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
-      config: { sidebar: { showCost: true, width: 36, includeChildren: true } },
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
     })
 
     await toolset.quota_show.execute({ enabled: false }, { sessionID: 's1' } as never)
 
     assert.equal(titleEnabled, true)
     assert.equal(currentRefreshCalls, 1)
+  })
+
+  it('refuses to enable display when sidebar feature is disabled in config', async () => {
+    let titleEnabled = false
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => titleEnabled,
+      setTitleEnabled: (enabled) => {
+        titleEnabled = enabled
+      },
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {
+        throw new Error('unexpected refreshSessionTitle')
+      },
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
+      refreshAllTouchedTitles: async () => {
+        throw new Error('unexpected refreshAllTouchedTitles')
+      },
+      refreshAllVisibleTitles: async () => {
+        throw new Error('unexpected refreshAllVisibleTitles')
+      },
+      showToast: async () => {},
+      summarizeForTool: async () => ({
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 0,
+        sessionCount: 0,
+        providers: {},
+      }),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: false,
+      },
+    })
+
+    const result = await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
+
+    assert.equal(titleEnabled, false)
+    assert.match(result, /cannot be enabled/i)
   })
 })

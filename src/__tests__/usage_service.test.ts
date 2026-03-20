@@ -527,6 +527,52 @@ describe('usage service', () => {
     assert.ok(state.sessions[sessionID].usage?.apiCost)
   })
 
+  it('fails session-only tool summary when messages cannot load and no cache exists', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1_000,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            throw new Error('load failed')
+          },
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    await assert.rejects(
+      service.summarizeForTool('session', sessionID, false),
+      /session usage unavailable: failed to load messages for s1/,
+    )
+  })
+
   it('does not reuse an in-flight computation after session becomes dirty', async () => {
     const state = makeState()
     const config = makeConfig()

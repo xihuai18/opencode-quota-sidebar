@@ -49,6 +49,7 @@ export function createQuotaService(deps: {
   >()
 
   const inFlight = new Map<string, Promise<QuotaSnapshot | undefined>>()
+  let lastSuccessfulProviderOptionsMap: Record<string, Record<string, unknown>> = {}
 
   const authFingerprint = (auth: unknown) => {
     if (!auth || typeof auth !== 'object') return undefined
@@ -140,7 +141,50 @@ export function createQuotaService(deps: {
         : undefined
 
     if (!response || data === undefined) {
-      return {}
+      if (client.provider?.list && fromConfigProviders) {
+        response = await client.provider
+          .list({
+            query: { directory: deps.directory },
+            throwOnError: true,
+          })
+          .catch(swallow('getProviderOptionsMap:providerListNoDataFallback'))
+
+        const fallbackData =
+          isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+            ? (response as Record<string, unknown>).data
+            : undefined
+        const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
+        const fallbackList = Array.isArray(fallbackRecord?.providers)
+          ? fallbackRecord.providers
+          : Array.isArray(fallbackRecord?.all)
+            ? fallbackRecord.all
+            : Array.isArray(fallbackData)
+              ? fallbackData
+              : undefined
+
+        const map = Array.isArray(fallbackList)
+          ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+              if (!item || typeof item !== 'object') return acc
+              const record = item as Record<string, unknown>
+              const id = record.id
+              const options = record.options
+              if (typeof id !== 'string') return acc
+              if (!options || typeof options !== 'object' || Array.isArray(options)) {
+                acc[id] = {}
+                return acc
+              }
+              acc[id] = options as Record<string, unknown>
+              return acc
+            }, {})
+          : {}
+        if (Object.keys(map).length > 0) {
+          lastSuccessfulProviderOptionsMap = map
+          return providerOptionsCache.set(map, 5_000)
+        }
+      }
+      return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+        ? lastSuccessfulProviderOptionsMap
+        : {}
     }
 
     const dataRecord = isRecord(data) ? data : undefined
@@ -188,6 +232,15 @@ export function createQuotaService(deps: {
             return acc
           }, {})
         : {}
+      if (Object.keys(map).length > 0) {
+        lastSuccessfulProviderOptionsMap = map
+        return providerOptionsCache.set(map, 5_000)
+      }
+      if (!Array.isArray(fallbackList)) {
+        return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+          ? lastSuccessfulProviderOptionsMap
+          : {}
+      }
       return providerOptionsCache.set(map, 5_000)
     }
 
@@ -211,6 +264,15 @@ export function createQuotaService(deps: {
         }, {})
       : {}
 
+    if (Object.keys(map).length > 0) {
+      lastSuccessfulProviderOptionsMap = map
+      return providerOptionsCache.set(map, 5_000)
+    }
+    if (!Array.isArray(list)) {
+      return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+        ? lastSuccessfulProviderOptionsMap
+        : providerOptionsCache.set(map, 5_000)
+    }
     return providerOptionsCache.set(map, 5_000)
   }
 

@@ -318,6 +318,7 @@ export function createUsageService(deps: {
       debug(
         `message entries partially decoded: kept ${decoded.length}/${value.length}`,
       )
+      return undefined
     }
 
     // If the API returned entries but none match the expected shape,
@@ -380,6 +381,7 @@ export function createUsageService(deps: {
   const summarizeSessionUsage = async (
     sessionID: string,
     generationAtStart: number,
+    options?: { requireEntries?: boolean },
   ): Promise<SessionUsageResult> => {
     const entries = await loadSessionEntries(sessionID)
     const sessionState = deps.state.sessions[sessionID]
@@ -392,6 +394,9 @@ export function createUsageService(deps: {
           usage: fromCachedSessionUsage(sessionState.usage, 1),
           persist: false,
         }
+      }
+      if (options?.requireEntries) {
+        throw new Error(`session usage unavailable: failed to load messages for ${sessionID}`)
       }
       const empty = emptyUsageSummary()
       empty.sessionCount = 1
@@ -437,7 +442,10 @@ export function createUsageService(deps: {
     return { usage, persist: true }
   }
 
-  const summarizeSessionUsageLocked = async (sessionID: string) => {
+  const summarizeSessionUsageLocked = async (
+    sessionID: string,
+    options?: { requireEntries?: boolean },
+  ) => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const generationAtStart = dirtyGeneration.get(sessionID) || 0
 
@@ -449,12 +457,14 @@ export function createUsageService(deps: {
         return result
       }
 
-      const promise = summarizeSessionUsage(sessionID, generationAtStart)
+      const promise = summarizeSessionUsage(sessionID, generationAtStart, options)
       const entry = { generation: generationAtStart, promise }
-      promise.finally(() => {
-        const current = usageInFlight.get(sessionID)
-        if (current?.promise === promise) usageInFlight.delete(sessionID)
-      })
+      void promise
+        .finally(() => {
+          const current = usageInFlight.get(sessionID)
+          if (current?.promise === promise) usageInFlight.delete(sessionID)
+        })
+        .catch(() => undefined)
       usageInFlight.set(sessionID, entry)
 
       const result = await promise
@@ -577,6 +587,7 @@ export function createUsageService(deps: {
               dateKey: session.dateKey,
               createdAt: session.state.createdAt,
               lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
               computed: emptyUsageSummary(),
               fullUsage: undefined,
               loadFailed: true,
@@ -607,6 +618,7 @@ export function createUsageService(deps: {
               dateKey: session.dateKey,
               createdAt: session.state.createdAt,
               lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
               computed,
               fullUsage: undefined,
               loadFailed: false,
@@ -632,6 +644,7 @@ export function createUsageService(deps: {
             dateKey: session.dateKey,
             createdAt: session.state.createdAt,
             lastMessageTime: cursor.lastMessageTime,
+            dirty: false,
             computed,
             fullUsage,
             loadFailed: false,
@@ -643,6 +656,7 @@ export function createUsageService(deps: {
 
       const failedLoads = fetched.filter((item) => {
         if (!item.loadFailed) return false
+        if (item.dirty) return true
         const lastMessageTime = item.lastMessageTime
         if (typeof lastMessageTime === 'number' && lastMessageTime < startAt) {
           return false
@@ -677,6 +691,7 @@ export function createUsageService(deps: {
             dateKeyFromTimestamp(memoryState.createdAt)
           deps.state.sessionDateMap[sessionID] = resolvedDateKey
           deps.persistence.markDirty(resolvedDateKey)
+          memoryState.dirty = false
           dirty = true
         } else if (persist && fullUsage) {
           diskOnlyUpdates.push({
@@ -689,9 +704,18 @@ export function createUsageService(deps: {
       }
 
       if (diskOnlyUpdates.length > 0) {
-        await updateSessionsInDayChunks(deps.statePath, diskOnlyUpdates).catch(
-          swallow('updateSessionsInDayChunks'),
-        )
+        const persisted = await updateSessionsInDayChunks(
+          deps.statePath,
+          diskOnlyUpdates,
+        ).catch((error) => {
+          swallow('updateSessionsInDayChunks')(error)
+          return false
+        })
+        if (!persisted) {
+          throw new Error(
+            `range usage unavailable: failed to persist ${diskOnlyUpdates.length} disk-only session(s)`,
+          )
+        }
       }
 
       if (dirty) deps.persistence.scheduleSave()
@@ -706,6 +730,16 @@ export function createUsageService(deps: {
     includeChildren: boolean,
   ) => {
     if (period === 'session') {
+      if (!includeChildren) {
+        const session = await summarizeSessionUsageLocked(sessionID, {
+          requireEntries: true,
+        })
+        if (session.persist) {
+          persistSessionUsage(sessionID, toCachedSessionUsage(session.usage))
+          deps.persistence.scheduleSave()
+        }
+        return session.usage
+      }
       return summarizeSessionUsageForDisplay(sessionID, includeChildren)
     }
     return summarizeRangeUsage(period)

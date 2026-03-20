@@ -603,6 +603,91 @@ describe('range usage persistence', () => {
     }
   })
 
+  it('fails day summary when a dirty session cannot load even if last cursor is before the range', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+
+    try {
+      const dataDir = resolveOpencodeDataDir()
+      await fs.mkdir(dataDir, { recursive: true })
+      const statePath = stateFilePath(dataDir)
+
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      const yesterday = todayStart.getTime() - 24 * 60 * 60 * 1000
+      const dateKey = dateKeyFromTimestamp(yesterday)
+      const [year, month, day] = dateKey.split('-')
+      const chunkRoot = path.join(dataDir, 'quota-sidebar-sessions')
+      const chunkPath = path.join(chunkRoot, year, month, `${day}.json`)
+      await fs.mkdir(path.dirname(chunkPath), { recursive: true })
+
+      await fs.writeFile(
+        statePath,
+        `${JSON.stringify(
+          {
+            version: 2,
+            titleEnabled: true,
+            sessionDateMap: { s1: dateKey },
+            deletedSessionDateMap: {},
+            quotaCache: {},
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      await fs.writeFile(
+        chunkPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            dateKey,
+            sessions: {
+              s1: {
+                createdAt: yesterday,
+                baseTitle: 'Dirty Session',
+                dirty: true,
+                cursor: {
+                  lastMessageId: 'old',
+                  lastMessageTime: yesterday,
+                  lastMessageIdsAtTime: ['old'],
+                },
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            messages: async () => {
+              throw new Error('load failed')
+            },
+          },
+          provider: {
+            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+          },
+        },
+      } as never)
+
+      await assert.rejects(
+        hooks.tool!.quota_summary.execute({ period: 'day', toast: false }, { sessionID: 's1' } as never),
+        /range usage unavailable: failed to load 1 session\(s\)/,
+      )
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('treats user-only sessions as zero-usage instead of load failures', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()

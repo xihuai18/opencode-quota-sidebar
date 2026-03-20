@@ -711,4 +711,5 @@ describe('plugin integration', () => {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
+
 })
