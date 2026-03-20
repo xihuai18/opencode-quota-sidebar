@@ -301,6 +301,37 @@ describe('renderSidebarTitle', () => {
     assert.match(lines[anthropicIndex + 3], /^  Sonnet 7d 65%$/)
   })
 
+  it('renders Kimi multi-window quota lines like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'kimi-for-coding',
+        adapterID: 'kimi-for-coding',
+        label: 'Kimi For Coding',
+        shortLabel: 'Kimi',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    const lines = title.split('\n')
+    const kimiIndex = lines.findIndex((line) => line === 'Kimi')
+    assert.ok(kimiIndex >= 0)
+    assert.match(lines[kimiIndex + 1], /^  5h 84% Rst \d{2}-\d{2} \d{2}:\d{2}$/)
+    assert.match(lines[kimiIndex + 2], /^  Weekly 72% Rst \d{2}-\d{2}$/)
+  })
+
   it('applies short-window time formatting consistently across providers', () => {
     const now = new Date()
     const crossDayShortReset = new Date(
@@ -1171,6 +1202,40 @@ describe('renderMarkdownReport', () => {
 
     assert.match(report, /- Buzz: ok \\\| balance ￥10\.2/)
   })
+
+  it('renders Kimi markdown report like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'kimi-for-coding',
+          adapterID: 'kimi-for-coding',
+          label: 'Kimi For Coding',
+          shortLabel: 'Kimi',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+            { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+          ],
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset \d{2}-\d{2} \d{2}:\d{2}/,
+    )
+    assert.match(
+      report,
+      /- Kimi \(Weekly\): ok \\\| remaining 72\.0% \\\| reset \d{2}-\d{2}/,
+    )
+  })
+
   it('renders non-ok quota snapshots as plain status lines in markdown', () => {
     const report = renderMarkdownReport(
       'session',
@@ -1719,5 +1784,27 @@ describe('renderToastMessage', () => {
     assert.match(toast, /OpenAI\s+5h 80\.0%/)
     assert.match(toast, /Copilot\s+Monthly 60\.0%/)
     assert.match(toast, /Buzz\s+Balance ￥10\.2/)
+  })
+
+  it('renders Kimi toast like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const toast = renderToastMessage('week', makeUsage(), [
+      {
+        providerID: 'kimi-for-coding',
+        adapterID: 'kimi-for-coding',
+        label: 'Kimi For Coding',
+        shortLabel: 'Kimi',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+        ],
+      },
+    ])
+
+    assert.match(toast, /Kimi\s+5h 84\.0% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(toast, /Weekly 72\.0% Rst \d{2}-\d{2}/)
   })
 })

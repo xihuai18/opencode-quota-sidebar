@@ -45,6 +45,7 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 | -------------- | -------------------------------------- | --------------- | --------------------------------------- |
 | OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
 | GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                           |
+| Kimi For Coding | `api.kimi.com/coding/v1/usages`       | API key         | Multi-window subscription (5h + weekly) |
 | RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)     |
 | Buzz           | `buzzai.cc/v1/dashboard/billing/*`     | API key         | Balance only (computed from total-used) |
 | Anthropic      | `api.anthropic.com/api/oauth/usage`    | OAuth           | Multi-window (5h + weekly / plan-based) |
@@ -74,6 +75,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
+  - Kimi For Coding API key (`/usages`, built-in `kimi-for-coding` provider)
   - RightCode API key (`/account/summary`)
   - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)

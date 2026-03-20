@@ -59,7 +59,7 @@ export function quotaSort(left: QuotaSnapshot, right: QuotaSnapshot) {
 
 export function listDefaultQuotaProviderIDs() {
   // Keep default report behavior stable for built-in subscription providers.
-  return ['openai', 'github-copilot', 'anthropic']
+  return ['openai', 'kimi-for-coding', 'github-copilot', 'anthropic']
 }
 
 export function createQuotaRuntime() {

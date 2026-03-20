@@ -168,12 +168,20 @@ export function createQuotaService(deps: {
               const record = item as Record<string, unknown>
               const id = record.id
               const options = record.options
+              const key = record.key
               if (typeof id !== 'string') return acc
               if (!options || typeof options !== 'object' || Array.isArray(options)) {
-                acc[id] = {}
+                acc[id] =
+                  typeof key === 'string' && key ? { apiKey: key } : {}
                 return acc
               }
-              acc[id] = options as Record<string, unknown>
+              const optionsRecord = options as Record<string, unknown>
+              acc[id] = {
+                ...optionsRecord,
+                ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+                  ? { apiKey: key }
+                  : {}),
+              }
               return acc
             }, {})
           : {}
@@ -223,12 +231,19 @@ export function createQuotaService(deps: {
             const record = item as Record<string, unknown>
             const id = record.id
             const options = record.options
+            const key = record.key
             if (typeof id !== 'string') return acc
             if (!options || typeof options !== 'object' || Array.isArray(options)) {
-              acc[id] = {}
+              acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
               return acc
             }
-            acc[id] = options as Record<string, unknown>
+            const optionsRecord = options as Record<string, unknown>
+            acc[id] = {
+              ...optionsRecord,
+              ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+                ? { apiKey: key }
+                : {}),
+            }
             return acc
           }, {})
         : {}
@@ -250,16 +265,23 @@ export function createQuotaService(deps: {
           const record = item as Record<string, unknown>
           const id = record.id
           const options = record.options
+          const key = record.key
           if (typeof id !== 'string') return acc
           if (
             !options ||
             typeof options !== 'object' ||
             Array.isArray(options)
           ) {
-            acc[id] = {}
+            acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
             return acc
           }
-          acc[id] = options as Record<string, unknown>
+          const optionsRecord = options as Record<string, unknown>
+          acc[id] = {
+            ...optionsRecord,
+            ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+              ? { apiKey: key }
+              : {}),
+          }
           return acc
         }, {})
       : {}

@@ -24,11 +24,35 @@ describe('provider registry', () => {
     assert.equal(adapter!.id, 'buzz')
   })
 
-  it('normalizes copilot variants', () => {
+  it('matches built-in kimi-for-coding provider', () => {
+    const registry = createDefaultProviderRegistry()
+    const adapter = registry.resolve({
+      providerID: 'kimi-for-coding',
+      providerOptions: {},
+    })
+    assert.ok(adapter)
+    assert.equal(adapter!.id, 'kimi-for-coding')
+  })
+
+  it('prefers kimi-for-coding adapter when baseURL matches coding endpoint', () => {
+    const registry = createDefaultProviderRegistry()
+    const adapter = registry.resolve({
+      providerID: 'openai',
+      providerOptions: { baseURL: 'https://api.kimi.com/coding/v1' },
+    })
+    assert.ok(adapter)
+    assert.equal(adapter!.id, 'kimi-for-coding')
+  })
+
+  it('normalizes known provider variants', () => {
     const registry = createDefaultProviderRegistry()
     assert.equal(
       registry.normalizeProviderID('github-copilot-enterprise'),
       'github-copilot',
+    )
+    assert.equal(
+      registry.normalizeProviderID('kimi-for-coding'),
+      'kimi-for-coding',
     )
     assert.equal(registry.normalizeProviderID('openai'), 'openai')
   })

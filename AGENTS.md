@@ -183,6 +183,7 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 | ---------------------- | -------------------------------------- | ----------------- |
 | OpenAI Codex (OAuth)   | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
 | GitHub Copilot (OAuth) | `api.github.com/copilot_internal/user` | 支持，月度        |
+| Kimi For Coding       | `api.kimi.com/coding/v1/usages`        | 支持，5h+周窗口   |
 | RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
 | Buzz                   | `buzzai.cc/v1/dashboard/billing/*`     | 支持，余额        |
 | Anthropic              | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |

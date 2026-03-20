@@ -1075,4 +1075,72 @@ describe('quota service', () => {
     assert.equal(snapshots.length, 1)
     assert.equal(fetchCalls, 1)
   })
+
+  it('injects provider key into providerOptions for env-backed built-in providers', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+    const calls: Array<Record<string, unknown> | undefined> = []
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (id: string) =>
+        id === 'kimi-for-coding' ? { id: 'kimi-for-coding' } : undefined,
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (
+        providerID: string,
+        _authMap: unknown,
+        _config: unknown,
+        _updateAuth: unknown,
+        providerOptions?: Record<string, unknown>,
+      ) => {
+        calls.push(providerOptions)
+        return {
+          providerID,
+          adapterID: 'kimi-for-coding',
+          label: 'Kimi For Coding',
+          shortLabel: 'Kimi',
+          sortOrder: 15,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => ({
+            data: {
+              providers: [
+                {
+                  id: 'kimi-for-coding',
+                  key: 'env-kimi-key',
+                  options: {},
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['kimi-for-coding'])
+    assert.equal(snapshots.length, 1)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.apiKey, 'env-kimi-key')
+  })
 })
