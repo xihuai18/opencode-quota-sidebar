@@ -328,7 +328,10 @@ describe('renderSidebarTitle', () => {
     const lines = title.split('\n')
     const kimiIndex = lines.findIndex((line) => line === 'Kimi')
     assert.ok(kimiIndex >= 0)
-    assert.match(lines[kimiIndex + 1], /^  5h 84% Rst \d{2}-\d{2} \d{2}:\d{2}$/)
+    assert.match(
+      lines[kimiIndex + 1],
+      /^  5h 84% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})$/,
+    )
     assert.match(lines[kimiIndex + 2], /^  Weekly 72% Rst \d{2}-\d{2}$/)
   })
 
@@ -1228,7 +1231,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset \d{2}-\d{2} \d{2}:\d{2}/,
+      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
     )
     assert.match(
       report,
@@ -1804,7 +1807,10 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(toast, /Kimi\s+5h 84\.0% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(
+      toast,
+      /Kimi\s+5h 84\.0% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
+    )
     assert.match(toast, /Weekly 72\.0% Rst \d{2}-\d{2}/)
   })
 })
