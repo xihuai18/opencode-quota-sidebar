@@ -33,6 +33,9 @@ import { createQuotaService } from './quota_service.js'
 import { createUsageService } from './usage_service.js'
 import { createTitleApplicator } from './title_apply.js'
 
+const SHUTDOWN_HOOK_KEY = Symbol.for('opencode-quota-sidebar.shutdown-hook')
+const SHUTDOWN_CALLBACKS_KEY = Symbol.for('opencode-quota-sidebar.shutdown-callbacks')
+
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const quotaRuntime = createQuotaRuntime()
   const configDir = resolveOpencodeConfigDir()
@@ -53,7 +56,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const state = await loadState(statePath)
 
   // M2: evict old sessions on startup
-  evictOldSessions(state, config.retentionDays)
+  const evictedOnStartup = evictOldSessions(state, config.retentionDays)
 
   const persistence = createPersistenceScheduler({
     statePath,
@@ -63,6 +66,10 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const markDirty = persistence.markDirty
   const scheduleSave = persistence.scheduleSave
   const flushSave = persistence.flushSave
+
+  if (evictedOnStartup > 0) {
+    scheduleSave()
+  }
 
   const RESTORE_TITLE_CONCURRENCY = 5
 
@@ -221,12 +228,75 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   })
 
   const titleRefresh = createTitleRefreshScheduler({
-    apply: titleApplicator.applyTitle,
+    apply: async (sessionID: string) => {
+      await titleApplicator.applyTitle(sessionID)
+    },
     onError: swallow('titleRefresh'),
   })
   scheduleTitleRefresh = titleRefresh.schedule
 
   const restoreAllVisibleTitles = titleApplicator.restoreAllVisibleTitles
+  const refreshAllTouchedTitles = titleApplicator.refreshAllTouchedTitles
+  const refreshAllVisibleTitles = titleApplicator.refreshAllVisibleTitles
+  let startupTitleWork = Promise.resolve()
+
+  const runStartupRestore = async (attempt = 0): Promise<void> => {
+    const result = await restoreAllVisibleTitles({
+      abortIfEnabled: config.sidebar.enabled,
+    })
+    if (result.restored === result.attempted) return
+    debug(
+      `startup restore incomplete: restored ${result.restored}/${result.attempted} touched titles while display mode remains OFF`,
+    )
+    if (state.titleEnabled || config.sidebar.enabled === false) return
+    if (attempt >= 2) return
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await runStartupRestore(attempt + 1)
+  }
+
+  if (!state.titleEnabled || !config.sidebar.enabled) {
+    startupTitleWork = runStartupRestore().catch(
+      swallow('startup:restoreAllVisibleTitles'),
+    )
+  } else {
+    startupTitleWork = refreshAllTouchedTitles()
+      .then(() => undefined)
+      .catch(swallow('startup:refreshAllTouchedTitles'))
+  }
+
+  const shutdown = async () => {
+    await Promise.race([
+      startupTitleWork,
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]).catch(swallow('shutdown:startupTitleWork'))
+    await titleRefresh.waitForQuiescence().catch(swallow('shutdown:titleQuiescence'))
+    await flushSave().catch(swallow('shutdown:flushSave'))
+  }
+
+  const processWithHook = process as NodeJS.Process & {
+    [SHUTDOWN_HOOK_KEY]?: boolean
+    [SHUTDOWN_CALLBACKS_KEY]?: Set<() => Promise<void>>
+  }
+  const shutdownCallbacks =
+    (processWithHook[SHUTDOWN_CALLBACKS_KEY] ||= new Set<() => Promise<void>>())
+  shutdownCallbacks.add(shutdown)
+  if (!processWithHook[SHUTDOWN_HOOK_KEY]) {
+    processWithHook[SHUTDOWN_HOOK_KEY] = true
+    process.once('beforeExit', () => {
+      void Promise.allSettled(
+        Array.from(shutdownCallbacks).map((callback) => callback()),
+      )
+    })
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        void Promise.allSettled(
+          Array.from(shutdownCallbacks).map((callback) => callback()),
+        ).finally(() => {
+          process.kill(process.pid, signal)
+        })
+      })
+    }
+  }
 
   const showToast = async (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
@@ -303,13 +373,21 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         state.sessionDateMap[session.id] ||
         dateKeyFromTimestamp(session.time.created)
 
+      state.deletedSessionDateMap[session.id] = dateKey
       delete state.sessions[session.id]
       delete state.sessionDateMap[session.id]
+      markDirty(dateKey)
       scheduleSave()
 
-      await deleteSessionFromDayChunk(statePath, session.id, dateKey).catch(
-        swallow('deleteSessionFromDayChunk'),
-      )
+      const deletedFromChunk = await deleteSessionFromDayChunk(
+        statePath,
+        session.id,
+        dateKey,
+      ).catch(swallow('deleteSessionFromDayChunk'))
+      if (deletedFromChunk) {
+        delete state.deletedSessionDateMap[session.id]
+        scheduleSave()
+      }
 
       if (config.sidebar.includeChildren && session.parentID) {
         titleRefresh.schedule(session.parentID, 0)
@@ -345,15 +423,26 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         state.titleEnabled = enabled
       },
       scheduleSave,
+      flushSave,
+      waitForStartupTitleWork: () => startupTitleWork,
       refreshSessionTitle: (sessionID, delay) =>
         titleRefresh.schedule(sessionID, delay ?? 250),
+      cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
+      flushScheduledTitleRefreshes: () => titleRefresh.flushScheduled(),
+      waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),
+      waitForTitleRefreshQuiescence: () => titleRefresh.waitForQuiescence(),
       restoreAllVisibleTitles,
+      refreshAllTouchedTitles,
+      refreshAllVisibleTitles,
       showToast,
       summarizeForTool,
       getQuotaSnapshots,
       renderMarkdownReport,
       renderToastMessage,
-      config,
+      config: {
+        sidebar: config.sidebar,
+        sidebarEnabled: config.sidebar.enabled,
+      },
     }),
   }
 }

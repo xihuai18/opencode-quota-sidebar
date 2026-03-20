@@ -30,6 +30,7 @@ export type ProviderUsage = {
   cost: number
   apiCost: number
   assistantMessages: number
+  cacheBuckets?: CacheUsageBuckets
 }
 
 export type UsageSummary = {
@@ -211,6 +212,15 @@ export function getCacheCoverageMetrics(
   }
 }
 
+export function getProviderCacheCoverageMetrics(
+  usage: Pick<
+    ProviderUsage,
+    'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
+  >,
+): CacheCoverageMetrics {
+  return getCacheCoverageMetrics(usage)
+}
+
 export function emptyUsageSummary(): UsageSummary {
   return {
     input: 0,
@@ -239,6 +249,7 @@ function emptyProviderUsage(providerID: string): ProviderUsage {
     cost: 0,
     apiCost: 0,
     assistantMessages: 0,
+    cacheBuckets: undefined,
   }
 }
 
@@ -301,10 +312,32 @@ function addMessageUsage(
   if (cacheMode === 'read-only') {
     const buckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
     addMessageCacheUsage(buckets.readOnly, message)
+    const providerBuckets = (provider.cacheBuckets ||= emptyCacheUsageBuckets())
+    addMessageCacheUsage(providerBuckets.readOnly, message)
   } else if (cacheMode === 'read-write') {
     const buckets = (target.cacheBuckets ||= emptyCacheUsageBuckets())
     addMessageCacheUsage(buckets.readWrite, message)
+    const providerBuckets = (provider.cacheBuckets ||= emptyCacheUsageBuckets())
+    addMessageCacheUsage(providerBuckets.readWrite, message)
   }
+}
+
+function completedTimeOf(message: AssistantMessage) {
+  const completed = message.time.completed
+  if (typeof completed !== 'number') return undefined
+  if (!Number.isFinite(completed)) return undefined
+  return completed
+}
+
+function isCompletedAssistantInRange(
+  message: Message,
+  startAt = 0,
+  endAt = Number.POSITIVE_INFINITY,
+): message is AssistantMessage {
+  if (!isAssistant(message)) return false
+  const completed = completedTimeOf(message)
+  if (completed === undefined) return false
+  return completed >= startAt && completed <= endAt
 }
 
 export function summarizeMessages(
@@ -317,10 +350,25 @@ export function summarizeMessages(
   summary.sessionCount = sessionCount
 
   for (const entry of entries) {
-    if (!isAssistant(entry.info)) continue
-    if (typeof entry.info.time.completed !== 'number') continue
-    if (!Number.isFinite(entry.info.time.completed)) continue
-    if (entry.info.time.created < startAt) continue
+    if (!isCompletedAssistantInRange(entry.info, startAt)) continue
+    addMessageUsage(summary, entry.info, options)
+  }
+
+  return summary
+}
+
+export function summarizeMessagesInCompletedRange(
+  entries: Array<{ info: Message }>,
+  startAt: number,
+  endAt: number,
+  sessionCount = 1,
+  options?: UsageOptions,
+) {
+  const summary = emptyUsageSummary()
+  summary.sessionCount = sessionCount
+
+  for (const entry of entries) {
+    if (!isCompletedAssistantInRange(entry.info, startAt, endAt)) continue
     addMessageUsage(summary, entry.info, options)
   }
 
@@ -564,6 +612,11 @@ export function mergeUsage(
     }
     existing.apiCost += provider.apiCost
     existing.assistantMessages += provider.assistantMessages
+    if (provider.cacheBuckets) {
+      const providerBuckets = (existing.cacheBuckets ||= emptyCacheUsageBuckets())
+      mergeCacheUsageBucket(providerBuckets.readOnly, provider.cacheBuckets.readOnly)
+      mergeCacheUsageBucket(providerBuckets.readWrite, provider.cacheBuckets.readWrite)
+    }
     target.providers[provider.providerID] = existing
   }
 
@@ -587,6 +640,7 @@ export function toCachedSessionUsage(
       cost: provider.cost,
       apiCost: provider.apiCost,
       assistantMessages: provider.assistantMessages,
+      cacheBuckets: cloneCacheUsageBuckets(provider.cacheBuckets),
     }
     return acc
   }, {})
@@ -641,6 +695,7 @@ export function fromCachedSessionUsage(
         cost: provider.cost,
         apiCost: provider.apiCost || 0,
         assistantMessages: provider.assistantMessages,
+        cacheBuckets: cloneCacheUsageBuckets(provider.cacheBuckets),
       }
       return acc
     }, {}),

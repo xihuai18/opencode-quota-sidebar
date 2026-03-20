@@ -239,7 +239,10 @@ describe('title apply', () => {
       },
     })
 
-    assert.equal(state.sessions[sessionID].baseTitle, 'Project notes')
+    assert.equal(
+      state.sessions[sessionID].baseTitle,
+      'Project notes\nCache Coverage plan',
+    )
     assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
     assert.equal(refreshSessionID, sessionID)
   })
@@ -303,7 +306,10 @@ describe('title apply', () => {
       },
     })
 
-    assert.equal(state.sessions[sessionID].baseTitle, 'Project rollout')
+    assert.equal(
+      state.sessions[sessionID].baseTitle,
+      'Project rollout\nOpenAI 50% complete',
+    )
     assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
     assert.equal(refreshSessionID, sessionID)
   })
@@ -365,5 +371,259 @@ describe('title apply', () => {
       state.sessions[sessionID].baseTitle,
       'Greeting and quick check-in',
     )
+  })
+
+  it('keeps natural pipe-delimited titles intact in single-line mode', async () => {
+    const config = makeConfig()
+    config.sidebar.multilineTitle = false
+    config.sidebar.width = 24
+
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Notes | OpenAI migration plan'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Old title',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let refreshSessionID: string | undefined
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: (id) => {
+        refreshSessionID = id
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle)
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(refreshSessionID, sessionID)
+  })
+
+  it('keeps lastAppliedTitle when restoreSessionTitle update fails', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Session',
+      lastAppliedTitle: 'Session\nInput 10  Output 20',
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: 'Session\nInput 10  Output 20',
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('boom')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => 'ignored',
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.restoreSessionTitle(sessionID)
+    assert.equal(
+      state.sessions[sessionID].lastAppliedTitle,
+      'Session\nInput 10  Output 20',
+    )
+  })
+
+  it('accepts a manual decorated-looking rename even when lastAppliedTitle exists', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Budget\n$1.23 as API cost'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Old title',
+      lastAppliedTitle: 'Old title\nInput 10  Output 20',
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let refreshSessionID: string | undefined
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: (id) => {
+        refreshSessionID = id
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle)
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(refreshSessionID, sessionID)
+  })
+
+  it('ignores delayed decorated echo after restore even if titles are re-enabled', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const decorated = 'Session\nInput 10  Output 20'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Session',
+      lastAppliedTitle: decorated,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let currentTitle = decorated
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: currentTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async (args: any) => {
+            currentTitle = args.body.title
+            return { data: { ok: true } }
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => decorated,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.restoreSessionTitle(sessionID)
+    state.titleEnabled = true
+
+    let scheduled = false
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle: decorated,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: () => {
+        scheduled = true
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, 'Session')
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(scheduled, false)
   })
 })

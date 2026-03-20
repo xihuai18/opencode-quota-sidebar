@@ -80,6 +80,8 @@ export type CachedProviderUsage = {
   /** Equivalent API billing cost (USD) computed from model pricing. */
   apiCost: number
   assistantMessages: number
+  /** Provider-level cache coverage buckets grouped by model cache behavior. */
+  cacheBuckets?: CacheUsageBuckets
 }
 
 export type CachedSessionUsage = {
@@ -121,6 +123,8 @@ export type SessionState = SessionTitleState & {
   /** Parent session ID for subagent child sessions. */
   parentID?: string
   usage?: CachedSessionUsage
+  /** Persisted dirtiness flag so descendant aggregation survives restart. */
+  dirty?: boolean
   /** Incremental aggregation cursor (P1). */
   cursor?: IncrementalCursor
 }
@@ -137,6 +141,8 @@ export type QuotaSidebarState = {
   titleEnabled: boolean
   sessionDateMap: Record<string, string>
   sessions: Record<string, SessionState>
+  /** Tombstones for sessions deleted from memory but not yet purged from day chunks. */
+  deletedSessionDateMap: Record<string, string>
   quotaCache: Record<string, QuotaSnapshot>
 }
 

@@ -183,7 +183,9 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 | ---------------------- | -------------------------------------- | ----------------- |
 | OpenAI Codex (OAuth)   | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
 | GitHub Copilot (OAuth) | `api.github.com/copilot_internal/user` | 支持，月度        |
+| Kimi For Coding       | `api.kimi.com/coding/v1/usages`        | 支持，5h+周窗口   |
 | RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
+| Buzz                   | `buzzai.cc/v1/dashboard/billing/*`     | 支持，余额        |
 | Anthropic              | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |
 | API Key providers      | 无 quota 概念                          | 仅显示 token 用量 |
 
@@ -326,7 +328,7 @@ Copilot-Integration-Id: vscode-chat
 | `src/persistence.ts`    | 脏日期键追踪与持久化调度（markDirty/scheduleSave/flushSave）    |
 | `src/cache.ts`          | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）       |
 | `src/quota_render.ts`   | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）   |
-| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/RightCode）         |
+| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/RightCode/Buzz）    |
 | `src/usage.ts`          | Token 聚合，增量 cursor，UsageSummary 类型                      |
 | `src/usage_service.ts`  | session/range 用量聚合服务（session+subagent merge 与范围统计） |
 | `src/storage.ts`        | v2 存储门面：config/state/save/load/scan/evict 编排             |

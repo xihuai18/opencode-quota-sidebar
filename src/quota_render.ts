@@ -2,6 +2,7 @@ import type { QuotaSnapshot } from './types.js'
 
 const PROVIDER_SHORT_LABELS: Record<string, string> = {
   openai: 'OpenAI',
+  'kimi-for-coding': 'Kimi',
   'github-copilot': 'Copilot',
   anthropic: 'Anthropic',
   rightcode: 'RC',

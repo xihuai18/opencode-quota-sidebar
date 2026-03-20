@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { PluginInput } from '@opencode-ai/plugin'
 
 import { TtlValueCache } from './cache.js'
@@ -48,12 +49,45 @@ export function createQuotaService(deps: {
   >()
 
   const inFlight = new Map<string, Promise<QuotaSnapshot | undefined>>()
+  let lastSuccessfulProviderOptionsMap: Record<string, Record<string, unknown>> = {}
+
+  const authFingerprint = (auth: unknown) => {
+    if (!auth || typeof auth !== 'object') return undefined
+    const stable = JSON.stringify(
+      Object.keys(auth as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          const value = (auth as Record<string, unknown>)[key]
+          if (value !== undefined) acc[key] = value
+          return acc
+        }, {}),
+    )
+    return createHash('sha256').update(stable).digest('hex').slice(0, 12)
+  }
+
+  const providerOptionsFingerprint = (
+    providerOptions?: Record<string, unknown>,
+  ) => {
+    if (!providerOptions) return undefined
+    const stable = JSON.stringify(
+      Object.keys(providerOptions)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, key) => {
+          if (key === 'baseURL') return acc
+          const value = providerOptions[key]
+          if (value !== undefined) acc[key] = value
+          return acc
+        }, {}),
+    )
+    if (stable === '{}') return undefined
+    return createHash('sha256').update(stable).digest('hex').slice(0, 12)
+  }
 
   const getAuthMap = async () => {
     const cached = authCache.get()
     if (cached) return cached
     const value = await loadAuthMap(deps.authPath)
-    return authCache.set(value, 30_000)
+    return authCache.set(value, 5_000)
   }
 
   const getProviderOptionsMap = async () => {
@@ -76,33 +110,154 @@ export function createQuotaService(deps: {
     }
 
     if (!client.config?.providers && !client.provider?.list) {
-      return providerOptionsCache.set({}, 30_000)
+      return providerOptionsCache.set({}, 5_000)
     }
 
     // Newer runtimes expose config.providers; older clients may only expose
     // provider.list with a slightly different response shape.
-    const response = await (
-      client.config?.providers
-        ? client.config.providers({
-            query: { directory: deps.directory },
-            throwOnError: true,
-          })
-        : client.provider!.list!({
-            query: { directory: deps.directory },
-            throwOnError: true,
-          })
-    ).catch(swallow('getProviderOptionsMap'))
+    let response: unknown
+    let fromConfigProviders = false
+    if (client.config?.providers) {
+      fromConfigProviders = true
+      response = await client.config
+        .providers({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:configProviders'))
+    }
+    if (!response && client.provider?.list) {
+      response = await client.provider
+        .list({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:providerList'))
+    }
 
     const data =
-      isRecord(response) && isRecord(response.data) ? response.data : undefined
+      isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+        ? (response as Record<string, unknown>).data
+        : undefined
 
-    const list = Array.isArray(data?.providers)
-      ? data.providers
-      : Array.isArray(data?.all)
-        ? data.all
+    if (!response || data === undefined) {
+      if (client.provider?.list && fromConfigProviders) {
+        response = await client.provider
+          .list({
+            query: { directory: deps.directory },
+            throwOnError: true,
+          })
+          .catch(swallow('getProviderOptionsMap:providerListNoDataFallback'))
+
+        const fallbackData =
+          isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+            ? (response as Record<string, unknown>).data
+            : undefined
+        const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
+        const fallbackList = Array.isArray(fallbackRecord?.providers)
+          ? fallbackRecord.providers
+          : Array.isArray(fallbackRecord?.all)
+            ? fallbackRecord.all
+            : Array.isArray(fallbackData)
+              ? fallbackData
+              : undefined
+
+        const map = Array.isArray(fallbackList)
+          ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+              if (!item || typeof item !== 'object') return acc
+              const record = item as Record<string, unknown>
+              const id = record.id
+              const options = record.options
+              const key = record.key
+              if (typeof id !== 'string') return acc
+              if (!options || typeof options !== 'object' || Array.isArray(options)) {
+                acc[id] =
+                  typeof key === 'string' && key ? { apiKey: key } : {}
+                return acc
+              }
+              const optionsRecord = options as Record<string, unknown>
+              acc[id] = {
+                ...optionsRecord,
+                ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+                  ? { apiKey: key }
+                  : {}),
+              }
+              return acc
+            }, {})
+          : {}
+        if (Object.keys(map).length > 0) {
+          lastSuccessfulProviderOptionsMap = map
+          return providerOptionsCache.set(map, 5_000)
+        }
+      }
+      return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+        ? lastSuccessfulProviderOptionsMap
+        : {}
+    }
+
+    const dataRecord = isRecord(data) ? data : undefined
+    const list = Array.isArray(dataRecord?.providers)
+      ? dataRecord.providers
+      : Array.isArray(dataRecord?.all)
+        ? dataRecord.all
         : Array.isArray(data)
           ? data
           : undefined
+
+    if (!list && fromConfigProviders && client.provider?.list) {
+      response = await client.provider
+        .list({
+          query: { directory: deps.directory },
+          throwOnError: true,
+        })
+        .catch(swallow('getProviderOptionsMap:providerListFallback'))
+
+      const fallbackData =
+        isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+          ? (response as Record<string, unknown>).data
+          : undefined
+      const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
+      const fallbackList = Array.isArray(fallbackRecord?.providers)
+        ? fallbackRecord.providers
+        : Array.isArray(fallbackRecord?.all)
+          ? fallbackRecord.all
+          : Array.isArray(fallbackData)
+            ? fallbackData
+            : undefined
+
+      const map = Array.isArray(fallbackList)
+        ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
+            if (!item || typeof item !== 'object') return acc
+            const record = item as Record<string, unknown>
+            const id = record.id
+            const options = record.options
+            const key = record.key
+            if (typeof id !== 'string') return acc
+            if (!options || typeof options !== 'object' || Array.isArray(options)) {
+              acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
+              return acc
+            }
+            const optionsRecord = options as Record<string, unknown>
+            acc[id] = {
+              ...optionsRecord,
+              ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+                ? { apiKey: key }
+                : {}),
+            }
+            return acc
+          }, {})
+        : {}
+      if (Object.keys(map).length > 0) {
+        lastSuccessfulProviderOptionsMap = map
+        return providerOptionsCache.set(map, 5_000)
+      }
+      if (!Array.isArray(fallbackList)) {
+        return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+          ? lastSuccessfulProviderOptionsMap
+          : {}
+      }
+      return providerOptionsCache.set(map, 5_000)
+    }
 
     const map = Array.isArray(list)
       ? list.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
@@ -110,21 +265,37 @@ export function createQuotaService(deps: {
           const record = item as Record<string, unknown>
           const id = record.id
           const options = record.options
+          const key = record.key
           if (typeof id !== 'string') return acc
           if (
             !options ||
             typeof options !== 'object' ||
             Array.isArray(options)
           ) {
-            acc[id] = {}
+            acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
             return acc
           }
-          acc[id] = options as Record<string, unknown>
+          const optionsRecord = options as Record<string, unknown>
+          acc[id] = {
+            ...optionsRecord,
+            ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+              ? { apiKey: key }
+              : {}),
+          }
           return acc
         }, {})
       : {}
 
-    return providerOptionsCache.set(map, 30_000)
+    if (Object.keys(map).length > 0) {
+      lastSuccessfulProviderOptionsMap = map
+      return providerOptionsCache.set(map, 5_000)
+    }
+    if (!Array.isArray(list)) {
+      return Object.keys(lastSuccessfulProviderOptionsMap).length > 0
+        ? lastSuccessfulProviderOptionsMap
+        : providerOptionsCache.set(map, 5_000)
+    }
+    return providerOptionsCache.set(map, 5_000)
   }
 
   const isValidQuotaCache = (snapshot: QuotaSnapshot) => {
@@ -257,19 +428,6 @@ export function createQuotaService(deps: {
       ),
     )
 
-    const dedupedCandidates = Array.from(
-      matchedCandidates
-        .reduce((acc, candidate) => {
-          const key = deps.quotaRuntime.quotaCacheKey(
-            candidate.providerID,
-            candidate.providerOptions,
-          )
-          if (!acc.has(key)) acc.set(key, candidate)
-          return acc
-        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
-        .values(),
-    )
-
     function authScopeFor(
       providerID: string,
       providerOptions?: Record<string, unknown>,
@@ -287,26 +445,57 @@ export function createQuotaService(deps: {
         if (!candidates.includes(value)) candidates.push(value)
       }
       push(providerID)
+      if (adapterID === 'github-copilot') push('github-copilot-enterprise')
       push(normalized)
       push(adapterID)
-      if (adapterID === 'github-copilot') push('github-copilot-enterprise')
 
+      const optionsFingerprint = providerOptionsFingerprint(providerOptions)
       for (const key of candidates) {
         const auth = authMap[key]
         if (!auth) continue
-        if (
-          key === 'openai' &&
-          auth.type === 'oauth' &&
-          typeof auth.accountId === 'string' &&
-          auth.accountId
-        ) {
-          return `${key}@${auth.accountId}`
+        if (auth.type === 'oauth') {
+          const authRecord = auth as unknown as Record<string, unknown>
+          const identity =
+            (typeof auth.accountId === 'string' && auth.accountId) ||
+            (typeof authRecord.login === 'string' && authRecord.login) ||
+            (typeof authRecord.userId === 'string' && authRecord.userId)
+          if (identity) {
+            return optionsFingerprint
+              ? `${key}@${identity}|options@${optionsFingerprint}`
+              : `${key}@${identity}`
+          }
         }
-        return key
+        const fingerprint = authFingerprint(auth)
+        if (fingerprint) {
+          return optionsFingerprint
+            ? `${key}@${fingerprint}|options@${optionsFingerprint}`
+            : `${key}@${fingerprint}`
+        }
+        return optionsFingerprint ? `${key}|options@${optionsFingerprint}` : key
+      }
+      if (optionsFingerprint) {
+        return `options@${optionsFingerprint}`
       }
 
       return 'none'
     }
+
+    const dedupedCandidates = Array.from(
+      matchedCandidates
+        .reduce((acc, candidate) => {
+          const baseKey = deps.quotaRuntime.quotaCacheKey(
+            candidate.providerID,
+            candidate.providerOptions,
+          )
+          const key = `${baseKey}#${authScopeFor(
+            candidate.providerID,
+            candidate.providerOptions,
+          )}`
+          if (!acc.has(key)) acc.set(key, candidate)
+          return acc
+        }, new Map<string, { providerID: string; providerOptions?: Record<string, unknown> }>())
+        .values(),
+    )
 
     let cacheChanged = false
 
@@ -345,7 +534,11 @@ export function createQuotaService(deps: {
                 body: next as any,
                 throwOnError: true,
               })
-              .catch(swallow('getQuotaSnapshots:authSet'))
+              .catch((error) => {
+                swallow('getQuotaSnapshots:authSet')(error)
+                throw error
+              })
+            authCache.clear()
           },
           providerOptions,
         )

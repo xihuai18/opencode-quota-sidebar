@@ -10,7 +10,7 @@ import {
 describe('title', () => {
   it('normalizes base title to first line', () => {
     assert.equal(normalizeBaseTitle('Hello\nInput 1 Output 2'), 'Hello')
-    assert.equal(normalizeBaseTitle('\u001b[2mHello\u001b[0m\nWorld'), 'Hello')
+    assert.equal(normalizeBaseTitle('\u001b[2mHello\u001b[0m\nWorld'), 'Hello\nWorld')
     assert.equal(
       normalizeBaseTitle('Hello | Input 1  Output 2 | OpenAI 80%'),
       'Hello',
@@ -49,6 +49,10 @@ describe('title', () => {
     assert.equal(looksDecorated('Session|Input 1k  Output 2k|OpenAI 80%'), true)
     assert.equal(looksDecorated('Greetin~ | Input 1.~'), true)
     assert.equal(looksDecorated('Greetin~ | Input 1.~ | OpenAI 8~'), true)
+    assert.equal(looksDecorated('Spec | Input validation'), false)
+    assert.equal(looksDecorated('Spec | Input 1 Output format'), false)
+    assert.equal(looksDecorated('Notes | OpenAI migration plan'), false)
+    assert.equal(looksDecorated('Budget | $100 as API cost target'), false)
     assert.equal(looksDecorated('Input 1k  Output 2k | OpenAI 80%'), false)
   })
 })

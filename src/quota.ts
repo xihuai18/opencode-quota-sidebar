@@ -22,14 +22,12 @@ function authCandidates(
   normalizedProviderID: string,
   adapterID: string,
 ) {
-  const candidates = new Set<string>([
-    providerID,
-    normalizedProviderID,
-    adapterID,
-  ])
+  const candidates = new Set<string>([providerID])
   if (adapterID === 'github-copilot') {
     candidates.add('github-copilot-enterprise')
   }
+  candidates.add(normalizedProviderID)
+  candidates.add(adapterID)
   return [...candidates]
 }
 
@@ -61,7 +59,7 @@ export function quotaSort(left: QuotaSnapshot, right: QuotaSnapshot) {
 
 export function listDefaultQuotaProviderIDs() {
   // Keep default report behavior stable for built-in subscription providers.
-  return ['openai', 'github-copilot', 'anthropic', 'minimax']
+  return ['openai', 'kimi-for-coding', 'github-copilot', 'anthropic', 'minimax']
 }
 
 export function createQuotaRuntime() {

@@ -184,6 +184,73 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows![0].remainingPercent, 50)
   })
 
+  it('uses built-in kimi-for-coding adapter and parses 5h + weekly windows', async () => {
+    setFetch(async (input, init) => {
+      assert.equal(String(input), 'https://api.kimi.com/coding/v1/usages')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'Bearer kimi-key')
+      return jsonResponse({
+        usage: {
+          limit: '100',
+          remaining: '74',
+          resetTime: '2026-03-26T00:00:00Z',
+        },
+        limits: [
+          {
+            window: {
+              duration: 300,
+              timeUnit: 'TIME_UNIT_MINUTE',
+            },
+            detail: {
+              limit: '100',
+              remaining: '85',
+              resetTime: '2026-03-20T16:20:00Z',
+            },
+          },
+        ],
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'kimi-for-coding',
+      {
+        'kimi-for-coding': { type: 'api', key: 'kimi-key' },
+      },
+      makeConfig(),
+      undefined,
+      { apiKey: 'kimi-key' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'kimi-for-coding')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'Kimi For Coding')
+    assert.equal(snapshot!.shortLabel, 'Kimi')
+    assert.equal(snapshot!.remainingPercent, 85)
+    assert.equal(snapshot!.resetAt, '2026-03-20T16:20:00.000Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 85)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 74)
+  })
+
+  it('returns unavailable for kimi-for-coding when api key is missing', async () => {
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'kimi-for-coding',
+      {},
+      makeConfig(),
+      undefined,
+      {},
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'kimi-for-coding')
+    assert.equal(snapshot!.status, 'unavailable')
+    assert.equal(snapshot!.note, 'missing api key')
+  })
+
   it('preserves Copilot enterprise provider identity in snapshots', async () => {
     setFetch(async (input) => {
       assert.equal(
@@ -329,6 +396,8 @@ describe('fetchQuotaSnapshot', () => {
       }),
       'buzz@https://buzzai.cc/v1',
     )
+
+    assert.equal(quota.quotaCacheKey('kimi-for-coding'), 'kimi-for-coding')
 
     assert.equal(
       quota.quotaCacheKey('github-copilot-enterprise'),

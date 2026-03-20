@@ -42,4 +42,22 @@ describe('persistence scheduler', () => {
     assert.equal(calls.length, 1)
     assert.deepEqual(calls[0].dirtyDateKeys, ['2026-02-25'])
   })
+
+  it('retries a failed background save automatically', async () => {
+    let calls = 0
+    const scheduler = createPersistenceScheduler({
+      statePath: '/tmp/state.json',
+      state: { value: 1 },
+      saveState: async () => {
+        calls++
+        if (calls === 1) throw new Error('transient failure')
+      },
+    })
+
+    scheduler.scheduleSave()
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await scheduler.flushSave()
+
+    assert.equal(calls, 2)
+  })
 })

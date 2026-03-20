@@ -664,4 +664,483 @@ describe('quota service', () => {
     assert.equal(snapshots.length, 1)
     assert.equal(snapshots[0].providerID, 'rightcode-openai')
   })
+
+  it('falls back to provider.list when config.providers exists but fails', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let providerListCalls = 0
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: { set: async () => ({ data: { ok: true } }) as any },
+        config: {
+          providers: async () => {
+            throw new Error('config.providers failed')
+          },
+        },
+        provider: {
+          list: async () => {
+            providerListCalls++
+            return {
+              data: {
+                all: [
+                  {
+                    id: 'rightcode-openai',
+                    options: { baseURL: 'https://www.right.codes/codex/v1' },
+                  },
+                ],
+              },
+            }
+          },
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(providerListCalls, 1)
+    assert.equal(fetchCalls, 1)
+    assert.equal(snapshots.length, 1)
+  })
+
+  it('falls back to provider.list when config.providers returns malformed data', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let providerListCalls = 0
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: { set: async () => ({ data: { ok: true } }) as any },
+        config: {
+          providers: async () => ({ data: {} }),
+        },
+        provider: {
+          list: async () => {
+            providerListCalls++
+            return {
+              data: {
+                all: [
+                  {
+                    id: 'rightcode-openai',
+                    options: { baseURL: 'https://www.right.codes/codex/v1' },
+                  },
+                ],
+              },
+            }
+          },
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(providerListCalls, 1)
+    assert.equal(fetchCalls, 1)
+    assert.equal(snapshots.length, 1)
+  })
+
+  it('does not dedupe distinct provider options that share a base quota key', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    const calls: string[] = []
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (id: string, _opts?: Record<string, unknown>) =>
+        id.startsWith('rc-') ? { id: 'rightcode' } : undefined,
+      quotaCacheKey: (_id: string, opts?: Record<string, unknown>) =>
+        `rightcode@${String(opts?.baseURL || '')}`,
+      fetchQuotaSnapshot: async (
+        providerID: string,
+        _authMap: Record<string, unknown>,
+        _cfg: unknown,
+        _updateAuth: unknown,
+        providerOptions?: Record<string, unknown>,
+      ) => {
+        calls.push(`${providerID}:${String(providerOptions?.apiKey || '')}`)
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'rightcode',
+          label: providerID,
+          shortLabel: providerID,
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 1, currency: 'USD' },
+        }
+        return snapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => ({
+            data: {
+              providers: [
+                {
+                  id: 'rc-a',
+                  options: {
+                    baseURL: 'https://www.right.codes/codex/v1',
+                    apiKey: 'key-a',
+                  },
+                },
+                {
+                  id: 'rc-b',
+                  options: {
+                    baseURL: 'https://www.right.codes/codex/v1',
+                    apiKey: 'key-b',
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(snapshots.length, 2)
+    assert.deepEqual(calls.sort(), ['rc-a:key-a', 'rc-b:key-b'])
+    const matchingKeys = Object.keys(state.quotaCache).filter((key) =>
+      key.startsWith('rightcode@https://www.right.codes/codex/v1#options@'),
+    )
+    assert.equal(matchingKeys.length, 2)
+  })
+
+  it('does not cache provider discovery failures as empty options', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let providerCalls = 0
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => {
+            providerCalls++
+            if (providerCalls === 1) throw new Error('temporary discovery failure')
+            return {
+              data: {
+                providers: [
+                  {
+                    id: 'rightcode-openai',
+                    options: { baseURL: 'https://www.right.codes/codex/v1' },
+                  },
+                ],
+              },
+            }
+          },
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = await service.getQuotaSnapshots([], { allowDefault: true })
+    await new Promise((resolve) => setTimeout(resolve, 5_100))
+    const second = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(first.length, 0)
+    assert.equal(second.length, 1)
+    assert.equal(fetchCalls, 1)
+  })
+
+  it('reuses last successful provider options when later discovery returns no data field', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let configCalls = 0
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: { set: async () => ({ data: { ok: true } }) as any },
+        config: {
+          providers: async () => {
+            configCalls++
+            if (configCalls === 1) {
+              return {
+                data: {
+                  providers: [
+                    {
+                      id: 'rightcode-openai',
+                      options: { baseURL: 'https://www.right.codes/codex/v1' },
+                    },
+                  ],
+                },
+              }
+            }
+            return {} as any
+          },
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = await service.getQuotaSnapshots([], { allowDefault: true })
+    const second = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(first.length, 1)
+    assert.equal(second.length, 1)
+    assert.ok(fetchCalls >= 1)
+  })
+
+  it('accepts provider discovery responses where data itself is an array', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+
+    let fetchCalls = 0
+    const service = createQuotaService({
+      quotaRuntime: {
+        normalizeProviderID: (id: string) => id,
+        resolveQuotaAdapter: (_id: string, opts?: Record<string, unknown>) =>
+          opts?.baseURL ? { id: 'rightcode' } : undefined,
+        quotaCacheKey: (id: string) => id,
+        fetchQuotaSnapshot: async (providerID: string) => {
+          fetchCalls++
+          return {
+            providerID,
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC',
+            sortOrder: 10,
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 1, currency: '$' },
+          }
+        },
+      },
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        provider: {
+          list: async () => ({
+            data: [
+              {
+                id: 'rightcode-openai',
+                options: { baseURL: 'https://www.right.codes/codex/v1' },
+              },
+            ],
+          }),
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+
+    assert.equal(snapshots.length, 1)
+    assert.equal(fetchCalls, 1)
+  })
+
+  it('injects provider key into providerOptions for env-backed built-in providers', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig()
+    const calls: Array<Record<string, unknown> | undefined> = []
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (id: string) =>
+        id === 'kimi-for-coding' ? { id: 'kimi-for-coding' } : undefined,
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (
+        providerID: string,
+        _authMap: unknown,
+        _config: unknown,
+        _updateAuth: unknown,
+        providerOptions?: Record<string, unknown>,
+      ) => {
+        calls.push(providerOptions)
+        return {
+          providerID,
+          adapterID: 'kimi-for-coding',
+          label: 'Kimi For Coding',
+          shortLabel: 'Kimi',
+          sortOrder: 15,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+        config: {
+          providers: async () => ({
+            data: {
+              providers: [
+                {
+                  id: 'kimi-for-coding',
+                  key: 'env-kimi-key',
+                  options: {},
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['kimi-for-coding'])
+    assert.equal(snapshots.length, 1)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.apiKey, 'env-kimi-key')
+  })
 })

@@ -13,7 +13,7 @@ Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to i
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@1.13.2"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.1"]
 }
 ```
 
@@ -56,23 +56,26 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 - Session title becomes multiline in sidebar:
   - line 1: original session title
-  - line 2: Input/Output tokens
-  - line 3: Cache Read tokens (only if non-zero)
-  - line 4: Cache Write tokens (only if non-zero)
+  - line 2: blank separator
+  - line 3: Input/Output tokens
+  - line 4: Cache Read tokens (only if non-zero)
+  - line 5: Cache Write tokens (only if non-zero)
   - next lines: `Cache Coverage` (read/write cache models) and `Cache Read Coverage` (read-only cache models) when enough cache telemetry is available; mixed sessions can show both
   - next line: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
   - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available; `Exp` remains date-only
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
-- Toast message includes three sections: `Token Usage`, `Cost as API` (per provider), and `Quota`
+- Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
 - `quota_summary` markdown / toast also include `Cache Coverage` and `Cache Read Coverage` summary lines when available
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
-  - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
+- `quota_show` — toggle sidebar title display on/off (state persists across sessions)
+- After startup, titles are restored immediately when persisted display mode is OFF; when persisted display mode is ON, touched titles refresh on startup and the rest update on the next relevant session/message event or when `quota_show` is toggled
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
+  - Kimi For Coding API key (`/usages`, built-in `kimi-for-coding` provider)
   - RightCode API key (`/account/summary`)
   - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
@@ -81,6 +84,14 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - API key providers still show usage aggregation (quota only applies to subscription providers)
 - Incremental usage aggregation — only processes new messages since last cursor
 - Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
+
+### Kimi For Coding notes
+
+- OpenCode's built-in provider ID is `kimi-for-coding` and its runtime base URL is `https://api.kimi.com/coding/v1`.
+- The plugin treats Kimi as a subscription quota source, not a balance source.
+- Quota data is read from `GET https://api.kimi.com/coding/v1/usages`.
+- The current implementation maps the short rolling window in `limits[]` to `5h` and the top-level `usage` block to `Weekly`.
+- Rendering follows the same compact reset formatting as OpenAI: short windows show `Rst MM-DD HH:MM` when they cross days, and longer windows show `Rst MM-DD`.
 
 ## Storage layout
 
@@ -94,8 +105,13 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - per-session title state (`baseTitle`, `lastAppliedTitle`)
   - `createdAt`
   - `parentID` (when the session is a subagent child session)
-  - cached usage summary used by `quota_summary`
+  - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cache coverage reporting
   - incremental aggregation cursor
+
+Notes on cache coverage persistence:
+
+- Older cached usage written before `cacheBuckets` existed can only be approximated from top-level `cache_read` / `cache_write` totals.
+- In those legacy cases, mixed read-only + read-write cache traffic may be attributed to a single fallback bucket until the session is recomputed from messages.
 
 Example tree:
 
@@ -298,7 +314,7 @@ Other defaults:
 - When OpenCode exposes a long-context tier like `context_over_200k`, the plugin uses that premium rate for the whole request once `input > 200000`, matching OpenCode's current pricing schema.
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
-- Usage chunks cache both measured `cost` and computed `apiCost`. `quota_summary` (`/qday`, `/qweek`, `/qmonth`) usually reads those cached aggregates first, but a billing-cache version bump or missing/legacy API-cost data will trigger a rescan and persist refreshed values.
+- Usage chunks cache both measured `cost` and computed `apiCost`. `quota_summary` (`/qday`, `/qweek`, `/qmonth`) recomputes range totals from session messages so period filtering follows message completion time; refreshed full-session usage may then be persisted back into day chunks when billing-cache refresh is needed.
 
 ### Buzz provider example
 
@@ -321,7 +337,7 @@ The adapter also tolerates `https://buzzai.cc/v1`, but `https://buzzai.cc` is th
 With that setup, the sidebar/toast quota line will look like:
 
 ```text
-Buzz Balance CNY 10.17
+Buzz Balance ￥10.17
 ```
 
 ## Rendering examples
@@ -384,7 +400,7 @@ OpenAI
   5h 78% Rst 05:05
 Copilot
   Monthly 78% Rst 04-01
-Buzz Balance CNY 10.2
+Buzz Balance ￥10.2
 ```
 
 Balance-style quota:
@@ -396,7 +412,7 @@ RC Balance $260
 Buzz balance quota:
 
 ```text
-Buzz Balance CNY 10.17
+Buzz Balance ￥10.17
 ```
 
 Multi-detail quota (window + balance):
@@ -426,7 +442,7 @@ Quota is rendered inline as part of a single-line title:
 Mixed with Buzz balance:
 
 ```text
-<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance CNY 10.2
+<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance ￥10.2
 ```
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
@@ -453,6 +469,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - If enabled, quota checks call external endpoints:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
+  - Kimi For Coding: `https://api.kimi.com/coding/v1/usages`
   - RightCode: `https://www.right.codes/account/summary`
   - Buzz: `https://buzzai.cc/v1/dashboard/billing/subscription` and `https://buzzai.cc/v1/dashboard/billing/usage`
   - Anthropic: `https://api.anthropic.com/api/oauth/usage`
@@ -467,6 +484,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
   tokens when expired.
 - Anthropic quota currently uses a beta/internal-style OAuth usage endpoint and
   request header; response fields may change without notice.
+- Kimi For Coding quota uses the current `/usages` response shape exposed by the Kimi coding service; if Kimi changes that payload, window parsing may need to be updated.
 - State/chunk file writes refuse to write through symlinked targets (best-effort defense-in-depth).
 - The `OPENCODE_QUOTA_DATA_HOME` env var overrides the OpenCode data directory
   path (for testing); do not set this in production.

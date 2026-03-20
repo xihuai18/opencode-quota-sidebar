@@ -92,6 +92,52 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /Buzz\s+Balance ￥10\.2/)
   })
 
+  it('shows non-ok quota status in single-line titles', () => {
+    const config = makeConfig(120)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          shortLabel: 'OpenAI',
+          status: 'unavailable',
+          checkedAt: Date.now(),
+        },
+      ],
+      config,
+    )
+
+    assert.match(title, /OpenAI una~/)
+  })
+
+  it('sanitizes invalid quota percentages in single-line titles', () => {
+    const config = makeConfig(120)
+    config.sidebar.multilineTitle = false
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          shortLabel: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: -5, resetAt: undefined }],
+        },
+      ],
+      config,
+    )
+
+    assert.match(title, /OpenAI 5h/)
+    assert.doesNotMatch(title, /-5%|NaN%|Infinity%/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -253,6 +299,40 @@ describe('renderSidebarTitle', () => {
     assert.match(lines[anthropicIndex + 1], /^  5h 80%$/)
     assert.match(lines[anthropicIndex + 2], /^  Weekly 70%$/)
     assert.match(lines[anthropicIndex + 3], /^  Sonnet 7d 65%$/)
+  })
+
+  it('renders Kimi multi-window quota lines like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'kimi-for-coding',
+        adapterID: 'kimi-for-coding',
+        label: 'Kimi For Coding',
+        shortLabel: 'Kimi',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    const lines = title.split('\n')
+    const kimiIndex = lines.findIndex((line) => line === 'Kimi')
+    assert.ok(kimiIndex >= 0)
+    assert.match(
+      lines[kimiIndex + 1],
+      /^  5h 84% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})$/,
+    )
+    assert.match(lines[kimiIndex + 2], /^  Weekly 72% Rst \d{2}-\d{2}$/)
   })
 
   it('applies short-window time formatting consistently across providers', () => {
@@ -811,15 +891,15 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /Measured cost: -/)
     assert.match(
       report,
-      /\| Provider \| Input \| Output \| Cache \| Total \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| \$0\.35 \|/,
+      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$0\.35 \|/,
     )
     assert.match(
       report,
-      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \|/,
+      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
     )
   })
 
@@ -888,7 +968,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| \$4\.57 \|/,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$4\.57 \|/,
     )
   })
 
@@ -929,7 +1009,108 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| \$9\.88 \| \$4\.57 \|/,
+      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$9\.88 \| \$4\.57 \|/,
+    )
+  })
+
+  it('renders provider-level cache coverage columns and highlights in markdown', () => {
+    const report = renderMarkdownReport(
+      'week',
+      makeUsage({
+        input: 700,
+        output: 880,
+        cacheRead: 1200,
+        cacheWrite: 300,
+        cost: 3.17,
+        apiCost: 14.82,
+        cacheBuckets: {
+          readOnly: {
+            input: 300,
+            cacheRead: 900,
+            cacheWrite: 0,
+            assistantMessages: 2,
+          },
+          readWrite: {
+            input: 400,
+            cacheRead: 300,
+            cacheWrite: 300,
+            assistantMessages: 2,
+          },
+        },
+        providers: {
+          openai: {
+            providerID: 'openai',
+            input: 300,
+            output: 400,
+            reasoning: 0,
+            cacheRead: 900,
+            cacheWrite: 0,
+            total: 1600,
+            cost: 0,
+            apiCost: 8.3,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 300,
+                cacheRead: 900,
+                cacheWrite: 0,
+                assistantMessages: 2,
+              },
+              readWrite: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+            },
+          },
+          anthropic: {
+            providerID: 'anthropic',
+            input: 400,
+            output: 480,
+            reasoning: 0,
+            cacheRead: 300,
+            cacheWrite: 300,
+            total: 1480,
+            cost: 0,
+            apiCost: 6.52,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+              readWrite: {
+                input: 400,
+                cacheRead: 300,
+                cacheWrite: 300,
+                assistantMessages: 2,
+              },
+            },
+          },
+        },
+      }),
+      [],
+      { showCost: true },
+    )
+
+    assert.match(report, /### Highlights/)
+    assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/)
+    assert.match(report, /Best Cache Coverage: Anthropic \(60%\)/)
+    assert.match(report, /Best Cache Read Coverage: OpenAI \(75%\)/)
+    assert.match(
+      report,
+      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+    )
+    assert.match(
+      report,
+      /\| openai \| 300 \| 400 \| 900 \| 1\.6k \| - \| 75% \| - \| \$8\.30 \|/,
+    )
+    assert.match(
+      report,
+      /\| anthropic \| 400 \| 480 \| 600 \| 1\.5k \| 60% \| - \| - \| \$6\.52 \|/,
     )
   })
 
@@ -994,7 +1175,7 @@ describe('renderMarkdownReport', () => {
       line.startsWith('- Anthropic (Weekly):'),
     )
     const rightCodeDaily = lines.find((line) =>
-      line.startsWith('- RightCode (Daily $88.9/$60):'),
+      line.startsWith('- RC (Daily $88.9/$60):'),
     )
 
     assert.match(anthro5h || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
@@ -1023,6 +1204,106 @@ describe('renderMarkdownReport', () => {
     )
 
     assert.match(report, /- Buzz: ok \\\| balance ￥10\.2/)
+  })
+
+  it('renders Kimi markdown report like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'kimi-for-coding',
+          adapterID: 'kimi-for-coding',
+          label: 'Kimi For Coding',
+          shortLabel: 'Kimi',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+            { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+          ],
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
+    )
+    assert.match(
+      report,
+      /- Kimi \(Weekly\): ok \\\| remaining 72\.0% \\\| reset \d{2}-\d{2}/,
+    )
+  })
+
+  it('renders non-ok quota snapshots as plain status lines in markdown', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'anthropic',
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          status: 'unsupported',
+          checkedAt: Date.now(),
+          note: 'oauth quota endpoint is not publicly documented',
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- Anthropic: unsupported \\| oauth quota endpoint is not publicly documented/,
+    )
+    assert.doesNotMatch(report, /remaining - \\| reset -/)
+  })
+
+  it('uses display labels for markdown quota lines', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'rightcode-openai',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC-openai',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: 8.5, currency: '$' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- RC-openai: ok \\| balance \$8\.50/)
+  })
+
+  it('preserves negative balances in markdown reports', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'buzz',
+          label: 'Buzz',
+          shortLabel: 'Buzz',
+          status: 'ok',
+          checkedAt: Date.now(),
+          balance: { amount: -2.5, currency: '$' },
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- Buzz: ok \\| balance -\$2\.50/)
   })
 })
 
@@ -1079,7 +1360,7 @@ describe('renderToastMessage', () => {
     const lines = toast.split('\n')
     assert.equal(lines[1], '')
     assert.equal(lines[2], 'Token Usage')
-    assert.ok(lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
+    assert.ok(!lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
     const quotaHeaderIndex = lines.findIndex((line) => line === 'Quota')
     assert.ok(quotaHeaderIndex > 0)
     assert.equal(lines[quotaHeaderIndex - 1], '')
@@ -1159,6 +1440,108 @@ describe('renderToastMessage', () => {
     ])
 
     assert.match(toast, /Buzz\s+Balance ￥10\.2/)
+  })
+
+  it('does not duplicate API cost inside token usage section', () => {
+    const toast = renderToastMessage('session', makeUsage({ apiCost: 2.34 }), [])
+
+    const apiCostMatches = toast.match(/API Cost/g) || []
+    assert.equal(apiCostMatches.length, 0)
+    assert.match(toast, /Cost as API/)
+  })
+
+  it('renders provider cache section in toast', () => {
+    const toast = renderToastMessage(
+      'week',
+      makeUsage({
+        providers: {
+          openai: {
+            providerID: 'openai',
+            input: 300,
+            output: 400,
+            reasoning: 0,
+            cacheRead: 900,
+            cacheWrite: 0,
+            total: 1600,
+            cost: 0,
+            apiCost: 8.3,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 300,
+                cacheRead: 900,
+                cacheWrite: 0,
+                assistantMessages: 2,
+              },
+              readWrite: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+            },
+          },
+          anthropic: {
+            providerID: 'anthropic',
+            input: 400,
+            output: 480,
+            reasoning: 0,
+            cacheRead: 300,
+            cacheWrite: 300,
+            total: 1480,
+            cost: 0,
+            apiCost: 6.52,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                assistantMessages: 0,
+              },
+              readWrite: {
+                input: 400,
+                cacheRead: 300,
+                cacheWrite: 300,
+                assistantMessages: 2,
+              },
+            },
+          },
+          mixed: {
+            providerID: 'mixed',
+            input: 0,
+            output: 0,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 2,
+            cacheBuckets: {
+              readOnly: {
+                input: 100,
+                cacheRead: 100,
+                cacheWrite: 0,
+                assistantMessages: 1,
+              },
+              readWrite: {
+                input: 50,
+                cacheRead: 25,
+                cacheWrite: 25,
+                assistantMessages: 1,
+              },
+            },
+          },
+        },
+      }),
+      [],
+    )
+
+    assert.match(toast, /Provider Cache/)
+    assert.match(toast, /OpenAI\s+Read 75%/)
+    assert.match(toast, /Anthropic\s+Cov 60%/)
+    assert.match(toast, /mixed\s+Cov 50%\s+Read 50%/i)
   })
 
   it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
@@ -1404,5 +1787,30 @@ describe('renderToastMessage', () => {
     assert.match(toast, /OpenAI\s+5h 80\.0%/)
     assert.match(toast, /Copilot\s+Monthly 60\.0%/)
     assert.match(toast, /Buzz\s+Balance ￥10\.2/)
+  })
+
+  it('renders Kimi toast like other subscription providers', () => {
+    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
+    const weeklyReset = '2026-03-27T14:44:15.855Z'
+    const toast = renderToastMessage('week', makeUsage(), [
+      {
+        providerID: 'kimi-for-coding',
+        adapterID: 'kimi-for-coding',
+        label: 'Kimi For Coding',
+        shortLabel: 'Kimi',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+        ],
+      },
+    ])
+
+    assert.match(
+      toast,
+      /Kimi\s+5h 84\.0% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
+    )
+    assert.match(toast, /Weekly 72\.0% Rst \d{2}-\d{2}/)
   })
 })

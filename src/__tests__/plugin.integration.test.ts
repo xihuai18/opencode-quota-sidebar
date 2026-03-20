@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
 import { QuotaSidebarPlugin } from '../index.js'
+import { dateKeyFromTimestamp } from '../storage.js'
 
 const tmpDirs: string[] = []
 
@@ -36,6 +37,98 @@ afterEach(async () => {
 })
 
 describe('plugin integration', () => {
+  it('restores touched titles on startup when persisted display mode is off', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    try {
+      await fs.mkdir(dataHome, { recursive: true })
+      const statePath = path.join(dataHome, 'quota-sidebar.state.json')
+      const createdAt = Date.now() - 10_000
+      const dateKey = dateKeyFromTimestamp(createdAt)
+      const [year, month, day] = dateKey.split('-')
+      const chunkPath = path.join(
+        dataHome,
+        'quota-sidebar-sessions',
+        year,
+        month,
+        `${day}.json`,
+      )
+      await fs.writeFile(
+        statePath,
+        `${JSON.stringify(
+          {
+            version: 2,
+            titleEnabled: false,
+            sessionDateMap: { s1: dateKey },
+            deletedSessionDateMap: {},
+            quotaCache: {},
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+      await fs.mkdir(path.dirname(chunkPath), { recursive: true })
+      await fs.writeFile(
+        chunkPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            dateKey,
+            sessions: {
+              s1: {
+                createdAt,
+                baseTitle: 'Greeting and quick check-in',
+                lastAppliedTitle: 'Greeting and quick check-in\n\nInput 18.9k  Output 53',
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      let title = 'Greeting and quick check-in\n\nInput 18.9k  Output 53'
+      const updates: string[] = []
+
+      await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's1', title, time: { created: createdAt } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+          },
+        },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+      assert.equal(title, 'Greeting and quick check-in')
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('updates session title after assistant message with plain text lines', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
@@ -618,4 +711,5 @@ describe('plugin integration', () => {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
+
 })

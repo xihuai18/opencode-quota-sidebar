@@ -42,6 +42,7 @@ function makeState(): QuotaSidebarState {
     titleEnabled: true,
     sessionDateMap: {},
     sessions: {},
+    deletedSessionDateMap: {},
     quotaCache: {},
   }
 }
@@ -194,6 +195,55 @@ describe('usage service', () => {
     const metrics = getCacheCoverageMetrics(usage)
     assert.equal(metrics.cacheCoverage, undefined)
     assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9)
+  })
+
+  it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    config.sidebar.includeChildren = true
+    const sessionID = 'solo'
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1_000,
+      baseTitle: 'Solo',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let saveCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({ data: [entry(sessionID, 'm1', 10)] }),
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {
+          saveCalls++
+        },
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, true)
+
+    assert.equal(usage.input, 10)
+    assert.equal(saveCalls, 1)
+    assert.ok(state.sessions[sessionID].usage)
   })
 
   it('forces a full rescan when cached billing version is stale', async () => {
@@ -358,6 +408,169 @@ describe('usage service', () => {
 
     assert.equal(metrics.cacheCoverage, undefined)
     assert.equal(metrics.cacheReadCoverage, 50 / 150)
+  })
+
+  it('recomputes current-version cached usage when apiCost was previously zero', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: USAGE_BILLING_CACHE_VERSION,
+        input: 100,
+        output: 20,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 120,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {
+          openai: {
+            input: 100,
+            output: 20,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 120,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'old',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['old'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let messageCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            messageCalls++
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'old',
+                    sessionID,
+                    role: 'assistant',
+                    providerID: 'openai',
+                    modelID: 'gpt-5',
+                    time: { created: completedAt - 10, completed: completedAt },
+                    tokens: {
+                      input: 100,
+                      output: 20,
+                      reasoning: 0,
+                      cache: { read: 0, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0.0005,
+                        output: 0.001,
+                        cache_read: 0.00025,
+                        cache_write: 0,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+
+    assert.equal(messageCalls, 1)
+    assert.ok(usage.apiCost > 0)
+    assert.ok(state.sessions[sessionID].usage?.apiCost)
+  })
+
+  it('fails session-only tool summary when messages cannot load and no cache exists', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1_000,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            throw new Error('load failed')
+          },
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    await assert.rejects(
+      service.summarizeForTool('session', sessionID, false),
+      /session usage unavailable: failed to load messages for s1/,
+    )
   })
 
   it('does not reuse an in-flight computation after session becomes dirty', async () => {

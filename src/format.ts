@@ -1,5 +1,9 @@
 import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
-import { getCacheCoverageMetrics, type UsageSummary } from './usage.js'
+import {
+  getCacheCoverageMetrics,
+  getProviderCacheCoverageMetrics,
+  type UsageSummary,
+} from './usage.js'
 import {
   canonicalProviderID,
   collapseQuotaSnapshots,
@@ -145,9 +149,16 @@ function fitLine(value: string, width: number) {
 }
 
 function formatCurrency(value: number, currency: string) {
-  const safe = Number.isFinite(value) && value > 0 ? value : 0
+  const safe = Number.isFinite(value) ? value : 0
   const prefix = typeof currency === 'string' && currency ? currency : '$'
   if (safe === 0) return `${prefix}0.00`
+  if (safe < 0) {
+    const abs = Math.abs(safe)
+    if (abs < 10) return `-${prefix}${abs.toFixed(2)}`
+    const one = abs.toFixed(1)
+    const trimmed = one.endsWith('.0') ? one.slice(0, -2) : one
+    return `-${prefix}${trimmed}`
+  }
   if (safe < 10) return `${prefix}${safe.toFixed(2)}`
   const one = safe.toFixed(1)
   const trimmed = one.endsWith('.0') ? one.slice(0, -2) : one
@@ -170,6 +181,17 @@ function formatPercent(value: number, decimals = 1) {
   const safe = Number.isFinite(value) && value >= 0 ? value : 0
   const pct = (safe * 100).toFixed(decimals)
   return `${pct.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
+}
+
+function formatQuotaPercent(
+  value: number | undefined,
+  options?: { decimals?: number; missing?: string; rounded?: boolean },
+) {
+  const missing = options?.missing ?? '-'
+  if (value === undefined) return missing
+  if (!Number.isFinite(value) || value < 0) return missing
+  if (options?.rounded) return `${Math.round(value)}%`
+  return `${value.toFixed(options?.decimals ?? 1)}%`
 }
 
 function alignPairs(
@@ -195,16 +217,19 @@ function alignPairs(
 
 function compactQuotaInline(quota: QuotaSnapshot) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
-  if (quota.status !== 'ok') return label
+  if (quota.status !== 'ok') {
+    if (quota.status === 'error') return `${label} Remaining ?`
+    return `${label} ${sanitizeLine(quota.status)}`
+  }
 
   if (quota.windows && quota.windows.length > 0) {
     const first = quota.windows[0]
     const showPercent = first.showPercent !== false
     const firstLabel = sanitizeLine(first.label || '')
-    const pct =
-      first.remainingPercent === undefined
-        ? undefined
-        : `${Math.round(first.remainingPercent)}%`
+    const pct = formatQuotaPercent(first.remainingPercent, {
+      rounded: true,
+      missing: '',
+    })
 
     const summary = showPercent
       ? [firstLabel, pct].filter(Boolean).join(' ')
@@ -220,8 +245,12 @@ function compactQuotaInline(quota: QuotaSnapshot) {
     return `${label} Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
   }
 
-  if (quota.remainingPercent !== undefined) {
-    return `${label} ${Math.round(quota.remainingPercent)}%`
+  const singlePercent = formatQuotaPercent(quota.remainingPercent, {
+    rounded: true,
+    missing: '',
+  })
+  if (singlePercent) {
+    return `${label} ${singlePercent}`
   }
 
   return label
@@ -290,17 +319,19 @@ export function renderSidebarTitle(
   config: QuotaSidebarConfig,
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
-  const safeBaseTitle =
-    stripAnsi(baseTitle || 'Session').split(/\r?\n/, 1)[0] || 'Session'
+  const safeBaseTitle = stripAnsi(baseTitle || 'Session') || 'Session'
 
   if (config.sidebar.multilineTitle !== true) {
-    return renderSingleLineTitle(safeBaseTitle, usage, quotas, config, width)
+    const singleLineBase = safeBaseTitle.split(/\r?\n/, 1)[0] || 'Session'
+    return renderSingleLineTitle(singleLineBase, usage, quotas, config, width)
   }
 
   const cacheMetrics = getCacheCoverageMetrics(usage)
 
   const lines: string[] = []
-  lines.push(fitLine(safeBaseTitle, width))
+  for (const line of safeBaseTitle.split(/\r?\n/)) {
+    lines.push(fitLine(line || 'Session', width))
+  }
   lines.push('')
 
   // Input / Output line
@@ -423,10 +454,7 @@ function compactQuotaWide(
 
   const renderWindow = (win: NonNullable<QuotaSnapshot['windows']>[number]) => {
     const showPercent = win.showPercent !== false
-    const pct =
-      win.remainingPercent === undefined
-        ? '?'
-        : `${Math.round(win.remainingPercent)}%`
+    const pct = formatQuotaPercent(win.remainingPercent, { rounded: true })
     const parts = win.label
       ? showPercent
         ? [sanitizeLine(win.label), pct]
@@ -466,10 +494,7 @@ function compactQuotaWide(
   }
 
   // Fallback: single value from top-level remainingPercent
-  const percent =
-    quota.remainingPercent === undefined
-      ? '?'
-      : `${Math.round(quota.remainingPercent)}%`
+  const percent = formatQuotaPercent(quota.remainingPercent, { rounded: true })
   const reset = compactReset(quota.resetAt, 'Rst')
   const fallbackText = `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
   return maybeBreak(fallbackText, [fallbackText])
@@ -508,9 +533,6 @@ function compactReset(
     const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
     if (sameDay) return hhmm
     return `${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
-  }
-  if (sameDay) {
-    return `${two(value.getHours())}:${two(value.getMinutes())}`
   }
   return `${two(value.getMonth() + 1)}-${two(value.getDate())}`
 }
@@ -563,6 +585,7 @@ export function renderMarkdownReport(
     const canonical = canonicalProviderID(providerID)
     const isSubscription =
       canonical === 'openai' ||
+      canonical === 'anthropic' ||
       canonical === 'github-copilot' ||
       rightCodeSubscriptionProviderIDs.has(providerID)
     if (isSubscription) return '-'
@@ -573,6 +596,7 @@ export function renderMarkdownReport(
     const canonical = canonicalProviderID(providerID)
     return (
       canonical === 'openai' ||
+      canonical === 'anthropic' ||
       canonical === 'github-copilot' ||
       rightCodeSubscriptionProviderIDs.has(providerID)
     )
@@ -605,49 +629,145 @@ export function renderMarkdownReport(
     return formatApiCostValue(usage.apiCost)
   }
 
-  const providerRows = Object.values(usage.providers)
-    .sort((a, b) => b.total - a.total)
+  const cacheCoverageCell = (provider: UsageSummary['providers'][string]) => {
+    const metrics = getProviderCacheCoverageMetrics(provider)
+    return metrics.cacheCoverage !== undefined
+      ? formatPercent(metrics.cacheCoverage, 1)
+      : '-'
+  }
+
+  const cacheReadCoverageCell = (provider: UsageSummary['providers'][string]) => {
+    const metrics = getProviderCacheCoverageMetrics(provider)
+    return metrics.cacheReadCoverage !== undefined
+      ? formatPercent(metrics.cacheReadCoverage, 1)
+      : '-'
+  }
+
+  const providerEntries = Object.values(usage.providers).sort(
+    (a, b) => b.total - a.total,
+  )
+
+  const highlightLines = () => {
+    const lines: string[] = []
+    const providerLabel = (providerID: string) =>
+      quotaDisplayLabel({
+        providerID,
+        label: providerID,
+        status: 'ok',
+        checkedAt: 0,
+      })
+    const topApiCost = providerEntries
+      .filter((provider) => provider.apiCost > 0)
+      .sort((a, b) => b.apiCost - a.apiCost)[0]
+    if (topApiCost) {
+      lines.push(
+        `- Top API cost: ${quotaDisplayLabel({
+          providerID: topApiCost.providerID,
+          label: topApiCost.providerID,
+          status: 'ok',
+          checkedAt: 0,
+        })} (${formatUsd(topApiCost.apiCost)})`,
+      )
+    }
+
+    const bestCacheCoverage = providerEntries
+      .map((provider) => ({
+        provider,
+        value: getProviderCacheCoverageMetrics(provider).cacheCoverage,
+      }))
+      .filter(
+        (entry): entry is { provider: UsageSummary['providers'][string]; value: number } =>
+          entry.value !== undefined,
+      )
+      .sort((a, b) => b.value - a.value)[0]
+    if (bestCacheCoverage) {
+      lines.push(
+        `- Best Cache Coverage: ${providerLabel(bestCacheCoverage.provider.providerID)} (${formatPercent(bestCacheCoverage.value, 1)})`,
+      )
+    }
+
+    const bestCacheReadCoverage = providerEntries
+      .map((provider) => ({
+        provider,
+        value: getProviderCacheCoverageMetrics(provider).cacheReadCoverage,
+      }))
+      .filter(
+        (entry): entry is { provider: UsageSummary['providers'][string]; value: number } =>
+          entry.value !== undefined,
+      )
+      .sort((a, b) => b.value - a.value)[0]
+    if (bestCacheReadCoverage) {
+      lines.push(
+        `- Best Cache Read Coverage: ${providerLabel(bestCacheReadCoverage.provider.providerID)} (${formatPercent(bestCacheReadCoverage.value, 1)})`,
+      )
+    }
+
+    const highestMeasured = providerEntries
+      .filter((provider) => measuredCostCell(provider.providerID, provider.cost) !== '-')
+      .sort((a, b) => b.cost - a.cost)[0]
+    if (highestMeasured && highestMeasured.cost > 0) {
+      lines.push(
+        `- Highest measured cost: ${providerLabel(highestMeasured.providerID)} (${formatUsd(highestMeasured.cost)})`,
+      )
+    }
+
+    return lines
+  }
+
+  const providerRows = providerEntries
     .map((provider) => {
       const providerID = mdCell(provider.providerID)
       return showCost
-        ? `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
+        ? `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} | ${cacheCoverageCell(provider)} | ${cacheReadCoverageCell(provider)} | ${measuredCostCell(provider.providerID, provider.cost)} | ${apiCostCell(provider.providerID, provider.apiCost)} |`
         : `| ${providerID} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`
     })
 
   const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
+    const displayLabel = quotaDisplayLabel(quota)
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
-      return quota.windows.map((win) => {
+      const windowLines = quota.windows.map((win) => {
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
-            `- ${quota.label}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
           )
         }
         const remaining =
-          win.remainingPercent === undefined
-            ? '-'
-            : `${win.remainingPercent.toFixed(1)}%`
+          formatQuotaPercent(win.remainingPercent)
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
-          `- ${quota.label}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
         )
       })
+      if (quota.balance) {
+        windowLines.push(
+          mdCell(
+            `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+          ),
+        )
+      }
+      return windowLines
     }
     if (quota.status === 'ok' && quota.balance) {
       return [
         mdCell(
-          `- ${quota.label}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+          `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+        ),
+      ]
+    }
+    if (quota.status !== 'ok') {
+      return [
+        mdCell(
+          `- ${displayLabel}: ${quota.status}${quota.note ? ` | ${quota.note}` : ''}`,
         ),
       ]
     }
     const remaining =
-      quota.remainingPercent === undefined
-        ? '-'
-        : `${quota.remainingPercent.toFixed(1)}%`
+      formatQuotaPercent(quota.remainingPercent)
     return [
       mdCell(
-        `- ${quota.label}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+        `- ${displayLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
       ),
     ]
   })
@@ -672,17 +792,20 @@ export function renderMarkdownReport(
           `- API cost: ${apiCostSummaryValue()}`,
         ]
       : []),
+    ...(highlightLines().length > 0
+      ? ['', '### Highlights', ...highlightLines()]
+      : []),
     '',
     '### Usage by Provider',
     showCost
-      ? '| Provider | Input | Output | Cache | Total | Measured Cost | API Cost |'
+      ? '| Provider | Input | Output | Cache | Total | Cache Coverage | Cache Read Coverage | Measured Cost | API Cost |'
       : '| Provider | Input | Output | Cache | Total |',
     showCost
-      ? '|---|---:|---:|---:|---:|---:|---:|'
+      ? '|---|---:|---:|---:|---:|---:|---:|---:|---:|'
       : '|---|---:|---:|---:|---:|',
     ...(providerRows.length
       ? providerRows
-      : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
+      : [showCost ? '| - | - | - | - | - | - | - | - | - |' : '| - | - | - | - | - |']),
     '',
     '### Subscription Quota',
     ...(quotaLines.length
@@ -738,15 +861,6 @@ export function renderToastMessage(
       value: formatPercent(cacheMetrics.cacheReadCoverage, 1),
     })
   }
-  if (showCost) {
-    if (usage.apiCost > 0) {
-      tokenPairs.push({
-        label: 'API Cost',
-        value: formatApiCostValue(usage.apiCost),
-      })
-    }
-  }
-
   lines.push(...alignPairs(tokenPairs).map((line) => fitLine(line, width)))
 
   if (showCost) {
@@ -772,15 +886,40 @@ export function renderToastMessage(
     }
   }
 
+  const providerCachePairs = Object.values(usage.providers)
+    .map((provider) => {
+      const metrics = getProviderCacheCoverageMetrics(provider)
+      const parts: string[] = []
+      if (metrics.cacheCoverage !== undefined) {
+        parts.push(`Cov ${formatPercent(metrics.cacheCoverage, 1)}`)
+      }
+      if (metrics.cacheReadCoverage !== undefined) {
+        parts.push(`Read ${formatPercent(metrics.cacheReadCoverage, 1)}`)
+      }
+      if (parts.length === 0) return undefined
+      return {
+        label: displayShortLabel(provider.providerID),
+        value: parts.join('  '),
+      }
+    })
+    .filter(
+      (item): item is { label: string; value: string } => Boolean(item),
+    )
+
+  if (providerCachePairs.length > 0) {
+    lines.push('')
+    lines.push(fitLine('Provider Cache', width))
+    lines.push(
+      ...alignPairs(providerCachePairs).map((line) => fitLine(line, width)),
+    )
+  }
+
   const quotaPairs = collapseQuotaSnapshots(quotas).flatMap((item) => {
     if (item.status === 'ok') {
       if (item.windows && item.windows.length > 0) {
         const pairs = item.windows.map((win, idx) => {
           const showPercent = win.showPercent !== false
-          const pct =
-            win.remainingPercent === undefined
-              ? '-'
-              : `${win.remainingPercent.toFixed(1)}%`
+          const pct = formatQuotaPercent(win.remainingPercent)
           const reset = compactReset(win.resetAt, win.resetLabel, win.label)
           const parts = [win.label]
           if (showPercent) parts.push(pct)
@@ -810,10 +949,7 @@ export function renderToastMessage(
         ]
       }
 
-      const percent =
-        item.remainingPercent === undefined
-          ? '-'
-          : `${item.remainingPercent.toFixed(1)}%`
+      const percent = formatQuotaPercent(item.remainingPercent)
       const reset = compactReset(item.resetAt, 'Rst')
       return [
         {

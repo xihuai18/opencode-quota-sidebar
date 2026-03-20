@@ -13,7 +13,7 @@ import {
 } from './cost.js'
 import {
   dateKeyFromTimestamp,
-  scanSessionsByCreatedRange,
+  scanAllSessions,
   updateSessionsInDayChunks,
 } from './storage.js'
 import { periodStart } from './period.js'
@@ -22,6 +22,7 @@ import {
   emptyUsageSummary,
   fromCachedSessionUsage,
   mergeUsage,
+  summarizeMessagesInCompletedRange,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
   USAGE_BILLING_CACHE_VERSION,
@@ -72,6 +73,7 @@ export function createUsageService(deps: {
   }
 
   const isDirty = (sessionID: string) => {
+    if (deps.state.sessions[sessionID]?.dirty) return true
     return (
       (dirtyGeneration.get(sessionID) || 0) !==
       (cleanGeneration.get(sessionID) || 0)
@@ -262,8 +264,6 @@ export function createUsageService(deps: {
     if (typeof value.id !== 'string') return undefined
     if (typeof value.sessionID !== 'string') return undefined
     if (typeof value.role !== 'string') return undefined
-    if (typeof value.providerID !== 'string') return undefined
-    if (typeof value.modelID !== 'string') return undefined
     if (!isRecord(value.time)) return undefined
     if (!isFiniteNumber(value.time.created)) return undefined
     if (
@@ -272,6 +272,19 @@ export function createUsageService(deps: {
     ) {
       return undefined
     }
+
+    if (value.role !== 'assistant') {
+      return {
+        ...(value as any),
+        time: {
+          created: value.time.created,
+          completed: value.time.completed,
+        },
+      } as Message
+    }
+
+    if (typeof value.providerID !== 'string') return undefined
+    if (typeof value.modelID !== 'string') return undefined
 
     const tokens = decodeTokens(value.tokens)
     if (!tokens) return undefined
@@ -305,6 +318,7 @@ export function createUsageService(deps: {
       debug(
         `message entries partially decoded: kept ${decoded.length}/${value.length}`,
       )
+      return undefined
     }
 
     // If the API returned entries but none match the expected shape,
@@ -345,11 +359,29 @@ export function createUsageService(deps: {
     return cached.billingVersion === USAGE_BILLING_CACHE_VERSION
   }
 
+  const hasStaleZeroApiCost = (
+    cached: CachedSessionUsage | undefined,
+    modelCostMap: Record<string, ModelCostRates>,
+  ) => {
+    if (!cached) return false
+    if (cached.apiCost > 0) return false
+    return Object.entries(cached.providers).some(([providerID, provider]) => {
+      if (provider.apiCost > 0) return false
+      const canonicalProviderID = canonicalApiCostProviderID(providerID)
+      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(canonicalProviderID)) return false
+      return Object.keys(modelCostMap).some((key) =>
+        key.startsWith(`${providerID}:`) ||
+        key.startsWith(`${canonicalProviderID}:`),
+      )
+    })
+  }
+
   type SessionUsageResult = { usage: UsageSummary; persist: boolean }
 
   const summarizeSessionUsage = async (
     sessionID: string,
     generationAtStart: number,
+    options?: { requireEntries?: boolean },
   ): Promise<SessionUsageResult> => {
     const entries = await loadSessionEntries(sessionID)
     const sessionState = deps.state.sessions[sessionID]
@@ -363,6 +395,9 @@ export function createUsageService(deps: {
           persist: false,
         }
       }
+      if (options?.requireEntries) {
+        throw new Error(`session usage unavailable: failed to load messages for ${sessionID}`)
+      }
       const empty = emptyUsageSummary()
       empty.sessionCount = 1
       return { usage: empty, persist: false }
@@ -372,7 +407,8 @@ export function createUsageService(deps: {
 
     const staleBillingCache =
       Boolean(sessionState?.usage) &&
-      !isUsageBillingCurrent(sessionState?.usage)
+      (!isUsageBillingCurrent(sessionState?.usage) ||
+        hasStaleZeroApiCost(sessionState?.usage, modelCostMap))
     const forceRescan = forceRescanSessions.has(sessionID) || staleBillingCache
     if (forceRescan) forceRescanSessions.delete(sessionID)
 
@@ -396,6 +432,7 @@ export function createUsageService(deps: {
     // Update cursor in state
     if (sessionState) {
       sessionState.cursor = cursor
+      sessionState.dirty = false
     }
 
     if ((dirtyGeneration.get(sessionID) || 0) === generationAtStart) {
@@ -405,7 +442,10 @@ export function createUsageService(deps: {
     return { usage, persist: true }
   }
 
-  const summarizeSessionUsageLocked = async (sessionID: string) => {
+  const summarizeSessionUsageLocked = async (
+    sessionID: string,
+    options?: { requireEntries?: boolean },
+  ) => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const generationAtStart = dirtyGeneration.get(sessionID) || 0
 
@@ -417,12 +457,14 @@ export function createUsageService(deps: {
         return result
       }
 
-      const promise = summarizeSessionUsage(sessionID, generationAtStart)
+      const promise = summarizeSessionUsage(sessionID, generationAtStart, options)
       const entry = { generation: generationAtStart, promise }
-      promise.finally(() => {
-        const current = usageInFlight.get(sessionID)
-        if (current?.promise === promise) usageInFlight.delete(sessionID)
-      })
+      void promise
+        .finally(() => {
+          const current = usageInFlight.get(sessionID)
+          if (current?.promise === promise) usageInFlight.delete(sessionID)
+        })
+        .catch(() => undefined)
       usageInFlight.set(sessionID, entry)
 
       const result = await promise
@@ -440,10 +482,15 @@ export function createUsageService(deps: {
   ): Promise<UsageSummary> => {
     const root = await summarizeSessionUsageLocked(sessionID)
     const usage = root.usage
+    let dirty = false
     if (root.persist) {
       persistSessionUsage(sessionID, toCachedSessionUsage(usage))
+      dirty = true
     }
-    if (!includeChildren) return usage
+    if (!includeChildren) {
+      if (dirty) deps.persistence.scheduleSave()
+      return usage
+    }
 
     const descendantIDs =
       await deps.descendantsResolver.listDescendantSessionIDs(sessionID, {
@@ -451,7 +498,10 @@ export function createUsageService(deps: {
         maxSessions: deps.config.sidebar.childrenMaxSessions,
         concurrency: deps.config.sidebar.childrenConcurrency,
       })
-    if (descendantIDs.length === 0) return usage
+    if (descendantIDs.length === 0) {
+      if (dirty) deps.persistence.scheduleSave()
+      return usage
+    }
 
     const merged = emptyUsageSummary()
     mergeUsage(merged, usage)
@@ -478,6 +528,7 @@ export function createUsageService(deps: {
           const child = await summarizeSessionUsageLocked(childID)
           if (child.persist) {
             persistSessionUsage(childID, toCachedSessionUsage(child.usage))
+            dirty = true
           }
           return child.usage
         },
@@ -488,6 +539,7 @@ export function createUsageService(deps: {
       }
     }
 
+    if (dirty) deps.persistence.scheduleSave()
     return merged
   }
 
@@ -495,15 +547,10 @@ export function createUsageService(deps: {
 
   const summarizeRangeUsage = async (period: 'day' | 'week' | 'month') => {
     const startAt = periodStart(period)
+    const endAt = Date.now()
     await deps.persistence.flushSave()
-    const sessions = await scanSessionsByCreatedRange(
-      deps.statePath,
-      startAt,
-      Date.now(),
-      deps.state,
-    )
+    const sessions = await scanAllSessions(deps.statePath, deps.state)
     const usage = emptyUsageSummary()
-    usage.sessionCount = sessions.length
     const modelCostMap = await getModelCostMap()
     const hasPricing = Object.keys(modelCostMap).length > 0
 
@@ -528,47 +575,59 @@ export function createUsageService(deps: {
       return true
     }
 
-    const needsFetch: typeof sessions = []
-    for (const session of sessions) {
-      if (session.state.usage) {
-        if (shouldRecomputeUsageCache(session.state.usage)) {
-          needsFetch.push(session)
-        } else {
-          mergeUsage(usage, fromCachedSessionUsage(session.state.usage, 0))
-        }
-      } else {
-        needsFetch.push(session)
-      }
-    }
-
-    if (needsFetch.length > 0) {
+    if (sessions.length > 0) {
       const fetched = await mapConcurrent(
-        needsFetch,
+        sessions,
         RANGE_USAGE_CONCURRENCY,
         async (session) => {
           const entries = await loadSessionEntries(session.sessionID)
           if (!entries) {
-            if (session.state.usage) {
-              return {
-                sessionID: session.sessionID,
-                dateKey: session.dateKey,
-                computed: fromCachedSessionUsage(session.state.usage, 1),
-                persist: false,
-                cursor: session.state.cursor,
-              }
-            }
-            const empty = emptyUsageSummary()
-            empty.sessionCount = 1
             return {
               sessionID: session.sessionID,
               dateKey: session.dateKey,
-              computed: empty,
+              createdAt: session.state.createdAt,
+              lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
+              computed: emptyUsageSummary(),
+              fullUsage: undefined,
+              loadFailed: true,
               persist: false,
               cursor: undefined,
             }
           }
 
-          const { usage: computed, cursor } = summarizeMessagesIncremental(
+          const computed = summarizeMessagesInCompletedRange(
+            entries,
+            startAt,
+            endAt,
+            0,
+            {
+              calcApiCost: (message) =>
+                calcEquivalentApiCost(message, modelCostMap),
+              classifyCacheMode: (message) =>
+                classifyCacheMode(message, modelCostMap),
+            },
+          )
+
+          const shouldPersistFullUsage =
+            !session.state.usage || shouldRecomputeUsageCache(session.state.usage)
+
+          if (!shouldPersistFullUsage) {
+            return {
+              sessionID: session.sessionID,
+              dateKey: session.dateKey,
+              createdAt: session.state.createdAt,
+              lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
+              computed,
+              fullUsage: undefined,
+              loadFailed: false,
+              persist: false,
+              cursor: session.state.cursor,
+            }
+          }
+
+          const { usage: fullUsage, cursor } = summarizeMessagesIncremental(
             entries,
             undefined,
             undefined,
@@ -583,12 +642,32 @@ export function createUsageService(deps: {
           return {
             sessionID: session.sessionID,
             dateKey: session.dateKey,
+            createdAt: session.state.createdAt,
+            lastMessageTime: cursor.lastMessageTime,
+            dirty: false,
             computed,
+            fullUsage,
+            loadFailed: false,
             persist: true,
             cursor,
           }
         },
       )
+
+      const failedLoads = fetched.filter((item) => {
+        if (!item.loadFailed) return false
+        if (item.dirty) return true
+        const lastMessageTime = item.lastMessageTime
+        if (typeof lastMessageTime === 'number' && lastMessageTime < startAt) {
+          return false
+        }
+        return true
+      })
+      if (failedLoads.length > 0) {
+        throw new Error(
+          `range usage unavailable: failed to load ${failedLoads.length} session(s)`,
+        )
+      }
 
       let dirty = false
       const diskOnlyUpdates: Array<{
@@ -598,32 +677,45 @@ export function createUsageService(deps: {
         cursor: IncrementalCursor | undefined
       }> = []
 
-      for (const { sessionID, dateKey, computed, persist, cursor } of fetched) {
-        mergeUsage(usage, { ...computed, sessionCount: 0 })
+      for (const { sessionID, dateKey, computed, fullUsage, persist, cursor } of fetched) {
+        if (computed.assistantMessages > 0) {
+          computed.sessionCount = 1
+          mergeUsage(usage, computed)
+        }
         const memoryState = deps.state.sessions[sessionID]
-        if (persist && memoryState) {
-          memoryState.usage = toCachedSessionUsage(computed)
+        if (persist && fullUsage && memoryState) {
+          memoryState.usage = toCachedSessionUsage(fullUsage)
           memoryState.cursor = cursor
           const resolvedDateKey =
             deps.state.sessionDateMap[sessionID] ||
             dateKeyFromTimestamp(memoryState.createdAt)
           deps.state.sessionDateMap[sessionID] = resolvedDateKey
           deps.persistence.markDirty(resolvedDateKey)
+          memoryState.dirty = false
           dirty = true
-        } else if (persist) {
+        } else if (persist && fullUsage) {
           diskOnlyUpdates.push({
             sessionID,
             dateKey,
-            usage: toCachedSessionUsage(computed),
+            usage: toCachedSessionUsage(fullUsage),
             cursor,
           })
         }
       }
 
       if (diskOnlyUpdates.length > 0) {
-        await updateSessionsInDayChunks(deps.statePath, diskOnlyUpdates).catch(
-          swallow('updateSessionsInDayChunks'),
-        )
+        const persisted = await updateSessionsInDayChunks(
+          deps.statePath,
+          diskOnlyUpdates,
+        ).catch((error) => {
+          swallow('updateSessionsInDayChunks')(error)
+          return false
+        })
+        if (!persisted) {
+          throw new Error(
+            `range usage unavailable: failed to persist ${diskOnlyUpdates.length} disk-only session(s)`,
+          )
+        }
       }
 
       if (dirty) deps.persistence.scheduleSave()
@@ -638,6 +730,16 @@ export function createUsageService(deps: {
     includeChildren: boolean,
   ) => {
     if (period === 'session') {
+      if (!includeChildren) {
+        const session = await summarizeSessionUsageLocked(sessionID, {
+          requireEntries: true,
+        })
+        if (session.persist) {
+          persistSessionUsage(sessionID, toCachedSessionUsage(session.usage))
+          deps.persistence.scheduleSave()
+        }
+        return session.usage
+      }
       return summarizeSessionUsageForDisplay(sessionID, includeChildren)
     }
     return summarizeRangeUsage(period)
@@ -645,6 +747,16 @@ export function createUsageService(deps: {
 
   const markSessionDirty = (sessionID: string) => {
     bumpDirty(sessionID)
+    const sessionState = deps.state.sessions[sessionID]
+    if (sessionState && !sessionState.dirty) {
+      sessionState.dirty = true
+      const dateKey =
+        deps.state.sessionDateMap[sessionID] ||
+        dateKeyFromTimestamp(sessionState.createdAt)
+      deps.state.sessionDateMap[sessionID] = dateKey
+      deps.persistence.markDirty(dateKey)
+      deps.persistence.scheduleSave()
+    }
   }
 
   const markForceRescan = (sessionID: string) => {

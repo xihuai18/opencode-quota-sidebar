@@ -36,9 +36,41 @@ export function createTitleRefreshScheduler(options: {
     refreshTimer.delete(sessionID)
   }
 
-  const dispose = () => {
+  const cancelAll = () => {
     for (const timer of refreshTimer.values()) clearTimeout(timer)
     refreshTimer.clear()
+  }
+
+  const flushScheduled = async () => {
+    const pending = Array.from(refreshTimer.keys())
+    cancelAll()
+    await Promise.allSettled(pending.map((sessionID) => applyLocked(sessionID)))
+  }
+
+  const waitForIdle = async (timeoutMs?: number) => {
+    const inflight = Array.from(applyLocks.values())
+    if (inflight.length === 0) return
+    if (timeoutMs === undefined) {
+      await Promise.allSettled(inflight)
+      return
+    }
+    await Promise.race([
+      Promise.allSettled(inflight),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ])
+  }
+
+  const waitForQuiescence = async (budgetMs = 10_000) => {
+    const deadline = Date.now() + budgetMs
+    while (Date.now() < deadline) {
+      await flushScheduled()
+      await waitForIdle(Math.max(0, deadline - Date.now()))
+      if (refreshTimer.size === 0 && applyLocks.size === 0) return
+    }
+  }
+
+  const dispose = () => {
+    cancelAll()
     applyLocks.clear()
   }
 
@@ -46,6 +78,10 @@ export function createTitleRefreshScheduler(options: {
     schedule,
     apply: applyLocked,
     cancel,
+    cancelAll,
+    flushScheduled,
+    waitForIdle,
+    waitForQuiescence,
     dispose,
   }
 }
