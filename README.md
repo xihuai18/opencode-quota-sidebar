@@ -84,6 +84,14 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Incremental usage aggregation — only processes new messages since last cursor
 - Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
 
+### Kimi For Coding notes
+
+- OpenCode's built-in provider ID is `kimi-for-coding` and its runtime base URL is `https://api.kimi.com/coding/v1`.
+- The plugin treats Kimi as a subscription quota source, not a balance source.
+- Quota data is read from `GET https://api.kimi.com/coding/v1/usages`.
+- The current implementation maps the short rolling window in `limits[]` to `5h` and the top-level `usage` block to `Weekly`.
+- Rendering follows the same compact reset formatting as OpenAI: short windows show `Rst MM-DD HH:MM` when they cross days, and longer windows show `Rst MM-DD`.
+
 ## Storage layout
 
 The plugin stores lightweight global state and date-partitioned session chunks.
@@ -460,6 +468,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
 - If enabled, quota checks call external endpoints:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
+  - Kimi For Coding: `https://api.kimi.com/coding/v1/usages`
   - RightCode: `https://www.right.codes/account/summary`
   - Buzz: `https://buzzai.cc/v1/dashboard/billing/subscription` and `https://buzzai.cc/v1/dashboard/billing/usage`
   - Anthropic: `https://api.anthropic.com/api/oauth/usage`
@@ -474,6 +483,7 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
   tokens when expired.
 - Anthropic quota currently uses a beta/internal-style OAuth usage endpoint and
   request header; response fields may change without notice.
+- Kimi For Coding quota uses the current `/usages` response shape exposed by the Kimi coding service; if Kimi changes that payload, window parsing may need to be updated.
 - State/chunk file writes refuse to write through symlinked targets (best-effort defense-in-depth).
 - The `OPENCODE_QUOTA_DATA_HOME` env var overrides the OpenCode data directory
   path (for testing); do not set this in production.

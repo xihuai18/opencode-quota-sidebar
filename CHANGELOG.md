@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add built-in `kimi-for-coding` subscription quota support via `GET https://api.kimi.com/coding/v1/usages`.
+- Parse Kimi's `5h` and `Weekly` windows, including reset timestamps, and render them like other subscription providers.
+- Accept OpenCode provider discovery responses that expose Kimi API keys through provider `key` fields.
 - Add Buzz API balance support for OpenAI-compatible providers that use a Buzz `baseURL`.
 - Document Buzz configuration, rendering, and outbound billing endpoints.
 - Keep session measured cost aligned with OpenCode root-session `message.cost` while still including descendant subagent usage in API-equivalent cost.
