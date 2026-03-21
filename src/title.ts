@@ -30,6 +30,28 @@ function isCoreDecoratedDetail(line: string) {
   return false
 }
 
+function isQuotaDecoratedDetail(line: string) {
+  if (!line) return false
+  if (/^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)\s*$/.test(line)) {
+    return true
+  }
+  if (
+    /^(?:(?:Daily\s+\$[\d.,]+\/\$[\d.,]+|\$[\d.,]+\/\$[\d.,]+)(?:\s+(?:Rst|Exp\+?)\s+[-:\d]+)?|(?:\d+[hdw]|Weekly|Monthly)\s+\d{1,3}%(?:\s+Rst\s+[-:\d]+)?|Balance\s+\$[\d.,]+|Remaining\s+\?|(?:error|unsupported|unavailable))$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:(?:Daily\s+\$[\d.,]+\/\$[\d.,]+|\$[\d.,]+\/\$[\d.,]+)(?:\s+(?:Rst|Exp\+?)\s+[-:\d]+)?|(?:\d+[hdw]|Weekly|Monthly)\s+\d{1,3}%(?:\s+Rst\s+[-:\d]+)?|(?:error|unsupported|unavailable)))$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
 function isSingleLineDecoratedPrefix(line: string) {
   if (!line) return false
   if (/^Input\s+\$?[\d.,]+[kKmM]?~?$/.test(line)) return true
@@ -47,7 +69,11 @@ function isSingleLineDecoratedPrefix(line: string) {
 }
 
 function isSingleLineDetailPrefix(line: string) {
-  return isCoreDecoratedDetail(line) || isSingleLineDecoratedPrefix(line)
+  return (
+    isCoreDecoratedDetail(line) ||
+    isSingleLineDecoratedPrefix(line) ||
+    isQuotaDecoratedDetail(line)
+  )
 }
 
 function decoratedSingleLineBase(line: string) {
@@ -74,7 +100,7 @@ export function normalizeBaseTitle(title: string) {
   const lines = stripAnsi(safeTitle).split(/\r?\n/)
   if (lines.length > 1) {
     const detail = lines.slice(1).map((line) => sanitizeTitleFragment(line).trim())
-    if (detail.some((line) => isCoreDecoratedDetail(line))) {
+    if (detail.some((line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line))) {
       return sanitizeTitleFragment(firstLine) || 'Session'
     }
   }
@@ -132,5 +158,5 @@ export function looksDecorated(title: string): boolean {
   const detail = lines
     .slice(1)
     .map((line) => sanitizeTitleFragment(line).trim())
-  return detail.some((line) => isCoreDecoratedDetail(line))
+  return detail.some((line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line))
 }

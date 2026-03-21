@@ -33,7 +33,9 @@ describe('title', () => {
     assert.equal(looksDecorated('Session\nCache Coverage 60%'), true)
     assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
-    assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), false)
+    assert.equal(looksDecorated('Session\nXYAI Daily $58.3/$90 Rst 22:18'), true)
+    assert.equal(looksDecorated('Session\nKimi\n  5h 100% Rst 23:44'), true)
+    assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), true)
     assert.equal(looksDecorated('Project rollout\nOpenAI 50% complete'), false)
     assert.equal(looksDecorated('Ops\nRC Balance $50'), false)
     assert.equal(looksDecorated('Budget\n$100 as API cost target'), false)
@@ -65,6 +67,14 @@ describe('title', () => {
     assert.equal(
       normalizeBaseTitle('Project notes\nCache Coverage plan'),
       'Project notes\nCache Coverage plan',
+    )
+    assert.equal(
+      normalizeBaseTitle('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
+      'Session',
+    )
+    assert.equal(
+      normalizeBaseTitle('Project notes\nOpenAI 50% complete'),
+      'Project notes\nOpenAI 50% complete',
     )
   })
 })

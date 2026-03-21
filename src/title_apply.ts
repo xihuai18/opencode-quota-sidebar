@@ -97,6 +97,13 @@ export function createTitleApplicator(deps: {
       canonicalizeTitle(sessionState.lastAppliedTitle || '')
     ) {
       if (looksDecorated(currentTitle)) {
+        if (/\r?\n/.test(currentTitle)) {
+          const normalizedBase = normalizeBaseTitle(currentTitle)
+          if (sessionState.baseTitle !== normalizedBase) {
+            sessionState.baseTitle = normalizedBase
+            stateMutated = true
+          }
+        }
         // Ignore decorated echoes as base-title source.
         // If we previously applied a decorated title, treat this as an
         // equivalent echo (OpenCode may normalize whitespace) and keep

@@ -3,6 +3,112 @@ import { describe, it } from 'node:test'
 
 import { createQuotaSidebarTools } from '../tools.js'
 
+function emptyUsage() {
+  return {
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+    cost: 0,
+    apiCost: 0,
+    assistantMessages: 0,
+    sessionCount: 0,
+    providers: {},
+  }
+}
+
+describe('quota_summary tool', () => {
+  it('supports week period with toast enabled', async () => {
+    const calls: Array<{ type: string; period?: string; includeChildren?: boolean }> = []
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
+      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      showToast: async (period) => {
+        calls.push({ type: 'toast', period })
+      },
+      summarizeForTool: async (period, _sessionID, includeChildren) => {
+        calls.push({ type: 'summary', period, includeChildren })
+        return emptyUsage()
+      },
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: (period) => `markdown:${period}`,
+      renderToastMessage: (period) => `toast:${period}`,
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    const result = await toolset.quota_summary.execute(
+      { period: 'week', toast: true },
+      { sessionID: 's1' } as never,
+    )
+
+    assert.equal(result, 'markdown:week')
+    assert.deepEqual(calls, [
+      { type: 'summary', period: 'week', includeChildren: false },
+      { type: 'toast', period: 'week' },
+    ])
+  })
+
+  it('supports month period with toast enabled', async () => {
+    const calls: Array<{ type: string; period?: string; includeChildren?: boolean }> = []
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
+      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      showToast: async (period) => {
+        calls.push({ type: 'toast', period })
+      },
+      summarizeForTool: async (period, _sessionID, includeChildren) => {
+        calls.push({ type: 'summary', period, includeChildren })
+        return emptyUsage()
+      },
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: (period) => `markdown:${period}`,
+      renderToastMessage: (period) => `toast:${period}`,
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    const result = await toolset.quota_summary.execute(
+      { period: 'month', toast: true },
+      { sessionID: 's1' } as never,
+    )
+
+    assert.equal(result, 'markdown:month')
+    assert.deepEqual(calls, [
+      { type: 'summary', period: 'month', includeChildren: false },
+      { type: 'toast', period: 'month' },
+    ])
+  })
+})
+
 describe('quota_show tool', () => {
   it('redecorates visible titles when OFF rollback keeps display enabled', async () => {
     let titleEnabled = true

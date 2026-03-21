@@ -374,6 +374,162 @@ describe('plugin integration', () => {
     }
   })
 
+  it('self-heals a persisted polluted baseTitle before rendering the next decorated title', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: {
+            multilineTitle: true,
+            showCost: true,
+            showQuota: true,
+          },
+          quota: {
+            providers: {
+              'xyai-vibe': { enabled: true },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    try {
+      let title = [
+        '交叉验证Phase 1完成度与文档更新需求',
+        'Session',
+        'XYAI Daily $58.3/$90 Rst 22:18',
+      ].join('\n')
+      const updates: string[] = []
+      const createdAt = Date.now() - 10_000
+      const msg = {
+        id: 'm-heal',
+        role: 'assistant',
+        providerID: 'xyai-vibe',
+        modelID: 'gpt-5',
+        sessionID: 's-heal',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 1_400,
+          output: 144_800,
+          reasoning: 0,
+          cache: { read: 35_800_000, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'xyai-vibe',
+            name: 'XYAI Vibe',
+            env: [],
+            options: { baseURL: 'https://new.xychatai.com/frontend-api' },
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['xyai-vibe'],
+      }
+
+      const originalFetch = globalThis.fetch
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (input) => {
+        const url = String(input)
+        if (url.includes('/vibe-code/quota')) {
+          return new Response(
+            JSON.stringify({
+              remaining_balance: 58.3,
+              total_balance: 90,
+              reset_at: '22:18',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        return new Response('{}', { status: 404 })
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's-heal', title, time: { created: createdAt } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's-heal' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      try {
+        await hooks.event!({
+          event: {
+            type: 'session.updated',
+            properties: {
+              info: {
+                id: 's-heal',
+                title,
+                time: { created: createdAt },
+              },
+            },
+          },
+        } as never)
+
+        await hooks.event!({
+          event: { type: 'message.updated', properties: { info: msg } },
+        } as never)
+
+        await waitFor(() => updates.length > 0)
+
+        const latest = updates.at(-1) || ''
+        assert.equal(latest.split(/\r?\n/)[0], '交叉验证Phase 1完成度与文档更新需求')
+        assert.equal((latest.match(/^Session$/gm) || []).length, 0)
+        assert.equal((latest.match(/交叉验证Phase 1完成度与文档更新需求/g) || []).length, 1)
+      } finally {
+        ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
+      }
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('auto-shows expiry toast at most once per session', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
