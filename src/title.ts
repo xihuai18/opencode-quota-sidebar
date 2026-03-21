@@ -10,6 +10,9 @@ function isCoreDecoratedDetail(line: string) {
     return true
   }
   if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  if (/^Cache(?:\s+Read)?\s+Coverage\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
+    return true
+  }
   if (/^\$\S+\s+as API cost$/.test(line)) return true
 
   // Single-line compact mode compatibility.
@@ -21,6 +24,9 @@ function isCoreDecoratedDetail(line: string) {
     return true
   if (/^C(?:ache\s*)?R(?:ead)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
   if (/^C(?:ache\s*)?W(?:rite)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  if (/^C(?:ache(?:\s*R(?:ead)?)?)?\s*Coverage\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
+    return true
+  }
   return false
 }
 

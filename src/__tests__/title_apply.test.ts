@@ -247,6 +247,74 @@ describe('title apply', () => {
     assert.equal(refreshSessionID, sessionID)
   })
 
+  it('ignores untracked decorated cache coverage echoes instead of promoting them to baseTitle', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+    const incomingTitle = 'Session\nInput 10  Output 20\nCache Coverage 60%'
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let refreshCalled = false
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: incomingTitle,
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => {
+            throw new Error('unexpected session.update')
+          },
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {
+        throw new Error('unexpected markDirty')
+      },
+      scheduleSave: () => {
+        throw new Error('unexpected scheduleSave')
+      },
+      renderSidebarTitle: () => incomingTitle,
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.handleSessionUpdatedTitle({
+      sessionID,
+      incomingTitle,
+      sessionState: state.sessions[sessionID],
+      scheduleRefresh: () => {
+        refreshCalled = true
+      },
+    })
+
+    assert.equal(state.sessions[sessionID].baseTitle, 'Session')
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
+    assert.equal(refreshCalled, false)
+  })
+
   it('accepts user titles that contain quota-like plain text', async () => {
     const config = makeConfig()
     const state = defaultState()
@@ -494,7 +562,7 @@ describe('title apply', () => {
     )
   })
 
-  it('accepts a manual decorated-looking rename even when lastAppliedTitle exists', async () => {
+  it('accepts a manual cost-related rename even when lastAppliedTitle exists', async () => {
     const config = makeConfig()
     const state = defaultState()
     state.titleEnabled = true
@@ -502,7 +570,7 @@ describe('title apply', () => {
     const createdAt = Date.now()
     const sessionID = 's1'
     const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Budget\n$1.23 as API cost'
+    const incomingTitle = 'Budget\n$1.23 as API cost target'
 
     state.sessions[sessionID] = {
       createdAt,

@@ -241,6 +241,139 @@ describe('plugin integration', () => {
     }
   })
 
+  it('does not re-promote an untracked partial decorated echo into a duplicated title block', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: {
+            multilineTitle: true,
+            showCost: false,
+            showQuota: false,
+          },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    try {
+      let title = 'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm-echo',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's-echo',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 420,
+          output: 84,
+          reasoning: 0,
+          cache: { read: 21, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's-echo', title, time: { created: Date.now() - 10_000 } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's-echo' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: {
+          type: 'session.updated',
+          properties: {
+            info: {
+              id: 's-echo',
+              title,
+              time: { created: Date.now() - 10_000 },
+            },
+          },
+        },
+      } as never)
+
+      await delay(350)
+      assert.equal(updates.length, 0)
+      assert.equal(title, 'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable')
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+
+      const latest = updates.at(-1) || ''
+      assert.match(latest, /^Echoed Session\n\nInput 420  Output 84/m)
+      assert.match(latest, /Cache Read 21/)
+      assert.match(latest, /Cache Read Coverage 5%/)
+      assert.equal((latest.match(/Echoed Session/g) || []).length, 1)
+      assert.equal((latest.match(/Cache Read Coverage 5%/g) || []).length, 1)
+      assert.doesNotMatch(latest, /OpenAI unavailable/)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('auto-shows expiry toast at most once per session', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()

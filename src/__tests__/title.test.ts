@@ -30,8 +30,8 @@ describe('title', () => {
     assert.equal(looksDecorated('Session'), false)
     assert.equal(looksDecorated('Session\nInput 1k  Output 2k'), true)
     assert.equal(looksDecorated('Session\nCache Read 10'), true)
-    assert.equal(looksDecorated('Session\nCache Coverage 60%'), false)
-    assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), false)
+    assert.equal(looksDecorated('Session\nCache Coverage 60%'), true)
+    assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
     assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), false)
     assert.equal(looksDecorated('Project rollout\nOpenAI 50% complete'), false)
@@ -54,5 +54,17 @@ describe('title', () => {
     assert.equal(looksDecorated('Notes | OpenAI migration plan'), false)
     assert.equal(looksDecorated('Budget | $100 as API cost target'), false)
     assert.equal(looksDecorated('Input 1k  Output 2k | OpenAI 80%'), false)
+  })
+
+  it('treats multiline cache coverage echoes as decorated while preserving plain text titles', () => {
+    assert.equal(normalizeBaseTitle('Session\nCache Coverage 60%'), 'Session')
+    assert.equal(
+      normalizeBaseTitle('Session\nCache Read Coverage 75%'),
+      'Session',
+    )
+    assert.equal(
+      normalizeBaseTitle('Project notes\nCache Coverage plan'),
+      'Project notes\nCache Coverage plan',
+    )
   })
 })

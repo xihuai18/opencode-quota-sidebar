@@ -4,6 +4,7 @@ import {
   canonicalizeTitle,
   canonicalizeTitleForCompare,
   looksDecorated,
+  normalizeBaseTitle,
 } from './title.js'
 import type {
   QuotaSidebarConfig,
@@ -116,7 +117,7 @@ export function createTitleApplicator(deps: {
           }
         }
       } else {
-        const nextBase = canonicalizeTitle(currentTitle) || 'Session'
+        const nextBase = normalizeBaseTitle(currentTitle)
         if (sessionState.baseTitle !== nextBase) {
           sessionState.baseTitle = nextBase
           stateMutated = true
@@ -264,7 +265,7 @@ export function createTitleApplicator(deps: {
       }
     }
 
-    args.sessionState.baseTitle = canonicalizeTitle(args.incomingTitle) || 'Session'
+    args.sessionState.baseTitle = normalizeBaseTitle(args.incomingTitle)
     args.sessionState.lastAppliedTitle = undefined
     deps.markDirty(deps.state.sessionDateMap[args.sessionID])
     deps.scheduleSave()
