@@ -142,6 +142,87 @@ describe('loadConfig', () => {
     assert.equal(config.quota.providers?.rightcode?.enabled, true)
   })
 
+  it('preserves provider-specific login config fields', async () => {
+    const dir = await makeTempDir()
+    const filePath = path.join(dir, 'quota-sidebar.config.json')
+
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        quota: {
+          providers: {
+            'xyai-vibe': {
+              enabled: true,
+              baseURL: 'https://new.xychatai.com',
+              serviceType: 'codex',
+              login: {
+                username: 'user@example.com',
+                password: 'secret',
+              },
+            },
+          },
+        },
+      }),
+    )
+
+    const config = await loadConfig([filePath])
+    assert.equal(config.quota.providers?.['xyai-vibe']?.enabled, true)
+    assert.equal(
+      config.quota.providers?.['xyai-vibe']?.baseURL,
+      'https://new.xychatai.com',
+    )
+    assert.equal(config.quota.providers?.['xyai-vibe']?.serviceType, 'codex')
+    assert.deepEqual(config.quota.providers?.['xyai-vibe']?.login, {
+      username: 'user@example.com',
+      password: 'secret',
+    })
+  })
+
+  it('deep-merges nested provider login config across layers', async () => {
+    const dir = await makeTempDir()
+    const globalPath = path.join(dir, 'global.json')
+    const projectPath = path.join(dir, 'project.json')
+
+    await fs.writeFile(
+      globalPath,
+      JSON.stringify({
+        quota: {
+          providers: {
+            'xyai-vibe': {
+              enabled: true,
+              login: {
+                username: 'user@example.com',
+                password: 'secret',
+              },
+            },
+          },
+        },
+      }),
+    )
+
+    await fs.writeFile(
+      projectPath,
+      JSON.stringify({
+        quota: {
+          providers: {
+            'xyai-vibe': {
+              login: {
+                username: 'project@example.com',
+              },
+            },
+          },
+        },
+      }),
+    )
+
+    const config = await loadConfig([globalPath, projectPath])
+    assert.equal(config.quota.providers?.['xyai-vibe']?.enabled, true)
+    assert.deepEqual(config.quota.providers?.['xyai-vibe']?.login, {
+      username: 'project@example.com',
+      password: 'secret',
+    })
+  })
+
   it('deduplicates repeated config paths', async () => {
     const dir = await makeTempDir()
     const filePath = path.join(dir, 'quota-sidebar.config.json')

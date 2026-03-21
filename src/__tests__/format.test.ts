@@ -572,6 +572,43 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /RC Balance \$258\.3/)
   })
 
+  it('renders XYAI reset time without compact expiry noise in sidebar', () => {
+    const now = new Date()
+    const sameDayReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      22,
+      18,
+      0,
+      0,
+    ).toISOString()
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'xyai-vibe',
+        adapterID: 'xyai-vibe',
+        label: 'XYAI Vibe',
+        shortLabel: 'XYAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        note: 'exp 04-15',
+        windows: [
+          {
+            label: 'Daily $70.2/$90',
+            showPercent: false,
+            resetAt: sameDayReset,
+            resetLabel: 'Rst',
+          },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle('Session', makeUsage(), quotas, makeConfig(60))
+
+    assert.match(title, /XYAI Daily \$70\.2\/\$90 Rst \d{2}:\d{2}/)
+    assert.doesNotMatch(title, /exp 04-15/i)
+  })
+
   it('renders Buzz balance neatly in multiline sidebar', () => {
     const quotas: QuotaSnapshot[] = [
       {
@@ -1239,6 +1276,48 @@ describe('renderMarkdownReport', () => {
     )
   })
 
+  it('includes XYAI expiry as secondary note in markdown report', () => {
+    const now = new Date()
+    const sameDayReset = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      22,
+      18,
+      0,
+      0,
+    ).toISOString()
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'xyai-vibe',
+          adapterID: 'xyai-vibe',
+          label: 'XYAI Vibe',
+          shortLabel: 'XYAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          note: 'exp 04-15',
+          windows: [
+            {
+              label: 'Daily $70.2/$90',
+              showPercent: false,
+              resetAt: sameDayReset,
+              resetLabel: 'Rst',
+            },
+          ],
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- XYAI \(Daily \$70\.2\/\$90\): ok \\\| reset \d{2}:\d{2} \\\| exp 04-15/,
+    )
+  })
+
   it('renders non-ok quota snapshots as plain status lines in markdown', () => {
     const report = renderMarkdownReport(
       'session',
@@ -1411,16 +1490,15 @@ describe('renderToastMessage', () => {
             label: 'Daily $83.4/$60',
             showPercent: false,
             remainingPercent: 138.95,
-            resetAt: '2026-02-27T02:50:08Z',
-            resetLabel: 'Exp',
           },
         ],
       },
     ])
 
-    assert.match(toast, /RC\s+Daily \$83\.4\/\$60 Exp 02-27/)
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/)
     assert.match(toast, /\s+Balance \$248\.4/)
     assert.doesNotMatch(toast, /Daily \$83\.4\/\$60\s+138\.9%/)
+    assert.doesNotMatch(toast, /Exp 02-27/)
   })
 
   it('renders Buzz balance clearly in toast', () => {
@@ -1440,6 +1518,77 @@ describe('renderToastMessage', () => {
     ])
 
     assert.match(toast, /Buzz\s+Balance ￥10\.2/)
+  })
+
+  it('shows unified expiry reminders in toast for applicable providers within 3 days', () => {
+    const now = new Date()
+    const soon = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000 + 90 * 60 * 1000)
+    const soonIso = soon.toISOString()
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'rightcode-openai',
+        adapterID: 'rightcode',
+        label: 'RightCode',
+        shortLabel: 'RC-openai',
+        status: 'ok',
+        checkedAt: Date.now(),
+        expiresAt: soonIso,
+        windows: [
+          {
+            label: 'Daily $55.6/$60',
+            showPercent: false,
+          },
+        ],
+      },
+      {
+        providerID: 'xyai-vibe',
+        adapterID: 'xyai-vibe',
+        label: 'XYAI Vibe',
+        shortLabel: 'XYAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        expiresAt: soonIso,
+        note: 'exp 04-15',
+        windows: [
+          {
+            label: 'Daily $70.2/$90',
+            showPercent: false,
+            resetAt: soonIso,
+            resetLabel: 'Rst',
+          },
+        ],
+      },
+    ])
+
+    assert.match(toast, /Expiry Soon/)
+    assert.match(toast, /RC-openai\s+Exp \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(toast, /XYAI\s+Exp \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.doesNotMatch(toast, /Buzz\s+Exp \d{2}-\d{2} \d{2}:\d{2}/)
+  })
+
+  it('does not show expiry reminders in toast when expiry is beyond 3 days', () => {
+    const laterIso = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'xyai-vibe',
+        adapterID: 'xyai-vibe',
+        label: 'XYAI Vibe',
+        shortLabel: 'XYAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        expiresAt: laterIso,
+        windows: [
+          {
+            label: 'Daily $70.2/$90',
+            showPercent: false,
+            resetAt: laterIso,
+            resetLabel: 'Rst',
+          },
+        ],
+      },
+    ])
+
+    assert.doesNotMatch(toast, /Expiry Soon/)
   })
 
   it('does not duplicate API cost inside token usage section', () => {
@@ -1544,7 +1693,7 @@ describe('renderToastMessage', () => {
     assert.match(toast, /mixed\s+Cov 50%\s+Read 50%/i)
   })
 
-  it('renders Exp+ for RightCode in toast when multiple expiries exist', () => {
+  it('does not render RightCode expiry labels inline in toast when multiple expiries exist', () => {
     const toast = renderToastMessage('session', makeUsage(), [
       {
         providerID: 'openai',
@@ -1557,14 +1706,13 @@ describe('renderToastMessage', () => {
           {
             label: 'Daily $83.4/$60',
             showPercent: false,
-            resetAt: '2026-02-27T02:50:08Z',
-            resetLabel: 'Exp+',
           },
         ],
       },
     ])
 
-    assert.match(toast, /RC\s+Daily \$83\.4\/\$60 Exp\+ 02-27/)
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/)
+    assert.doesNotMatch(toast, /Exp\+/)
   })
 
   it('renders per-provider Cost as API section in toast', () => {

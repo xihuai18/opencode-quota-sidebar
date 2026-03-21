@@ -32,6 +32,7 @@ import { createPersistenceScheduler } from './persistence.js'
 import { createQuotaService } from './quota_service.js'
 import { createUsageService } from './usage_service.js'
 import { createTitleApplicator } from './title_apply.js'
+import type { SessionState } from './types.js'
 
 const SHUTDOWN_HOOK_KEY = Symbol.for('opencode-quota-sidebar.shutdown-hook')
 const SHUTDOWN_CALLBACKS_KEY = Symbol.for('opencode-quota-sidebar.shutdown-callbacks')
@@ -114,11 +115,12 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       return existing
     }
     const normalizedCreatedAt = normalizeTimestampMs(createdAt)
-    const created = {
+    const created: SessionState = {
       createdAt: normalizedCreatedAt,
       baseTitle: normalizeBaseTitle(title),
       lastAppliedTitle: undefined as string | undefined,
       parentID: parentID ?? undefined,
+      expiryToastShown: false,
       usage: undefined,
       cursor: undefined,
     }
@@ -316,6 +318,68 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       .catch(swallow('showToast'))
   }
 
+  const expiryAlertText = (iso: string | undefined, nowMs = Date.now()) => {
+    if (!iso) return undefined
+    const timestamp = Date.parse(iso)
+    if (Number.isNaN(timestamp) || timestamp <= nowMs) return undefined
+    const remainingMs = timestamp - nowMs
+    const thresholdMs = 3 * 24 * 60 * 60 * 1000
+    if (remainingMs > thresholdMs) return undefined
+    const value = new Date(timestamp)
+    const now = new Date(nowMs)
+    const two = (num: number) => `${num}`.padStart(2, '0')
+    const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
+    const sameDay =
+      value.getFullYear() === now.getFullYear() &&
+      value.getMonth() === now.getMonth() &&
+      value.getDate() === now.getDate()
+    return sameDay
+      ? `Exp today ${hhmm}`
+      : `Exp ${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
+  }
+
+  const expiryToastInflight = new Set<string>()
+  const maybeShowExpiryToast = async (sessionID: string) => {
+    const sessionState = state.sessions[sessionID]
+    if (!sessionState) return
+    if (sessionState.expiryToastShown || expiryToastInflight.has(sessionID)) {
+      return
+    }
+    expiryToastInflight.add(sessionID)
+    try {
+      const quotas = await getQuotaSnapshots([], { allowDefault: true })
+      const nowMs = Date.now()
+      const expiryLines = quotas
+        .filter((item) => item.status === 'ok')
+        .map((item) => ({
+          label: item.shortLabel || item.label,
+          value: expiryAlertText(item.expiresAt, nowMs),
+        }))
+        .filter(
+          (item): item is { label: string; value: string } => Boolean(item.value),
+        )
+
+      if (expiryLines.length === 0) return
+
+      sessionState.expiryToastShown = true
+      const dateKey =
+        state.sessionDateMap[sessionID] || dateKeyFromTimestamp(sessionState.createdAt)
+      state.sessionDateMap[sessionID] = dateKey
+      markDirty(dateKey)
+      scheduleSave()
+
+      const body = [
+        'Expiry Soon',
+        ...expiryLines.map((item) => `${item.label} ${item.value}`),
+      ].join('\n')
+      await showToast('session', body)
+    } catch (error) {
+      debug(`expiry toast check failed: ${String(error)}`)
+    } finally {
+      expiryToastInflight.delete(sessionID)
+    }
+  }
+
   const dispatchEvent = createEventDispatcher({
     onSessionCreated: async (session) => {
       ensureSessionState(
@@ -406,6 +470,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     onAssistantMessageCompleted: async (message) => {
       usageService.markSessionDirty(message.sessionID)
       titleRefresh.schedule(message.sessionID)
+      void maybeShowExpiryToast(message.sessionID)
     },
   })
 

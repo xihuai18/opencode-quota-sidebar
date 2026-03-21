@@ -41,14 +41,15 @@ On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/in
 
 ## Supported quota providers
 
-| Provider       | Endpoint                               | Auth            | Status                                  |
-| -------------- | -------------------------------------- | --------------- | --------------------------------------- |
-| OpenAI Codex   | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT) | Multi-window (short-term + weekly)      |
-| GitHub Copilot | `api.github.com/copilot_internal/user` | OAuth           | Monthly quota                           |
-| Kimi For Coding | `api.kimi.com/coding/v1/usages`       | API key         | Multi-window subscription (5h + weekly) |
-| RightCode      | `www.right.codes/account/summary`      | API key         | Subscription or balance (by prefix)     |
-| Buzz           | `buzzai.cc/v1/dashboard/billing/*`     | API key         | Balance only (computed from total-used) |
-| Anthropic      | `api.anthropic.com/api/oauth/usage`    | OAuth           | Multi-window (5h + weekly / plan-based) |
+| Provider        | Endpoint                               | Auth                  | Status                                  |
+| --------------- | -------------------------------------- | --------------------- | --------------------------------------- |
+| OpenAI Codex    | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT)       | Multi-window (short-term + weekly)      |
+| GitHub Copilot  | `api.github.com/copilot_internal/user` | OAuth                 | Monthly quota                           |
+| Kimi For Coding | `api.kimi.com/coding/v1/usages`        | API key               | Multi-window subscription (5h + weekly) |
+| RightCode       | `www.right.codes/account/summary`      | API key               | Subscription or balance (by prefix)     |
+| Buzz            | `buzzai.cc/v1/dashboard/billing/*`     | API key               | Balance only (computed from total-used) |
+| Anthropic       | `api.anthropic.com/api/oauth/usage`    | OAuth                 | Multi-window (5h + weekly / plan-based) |
+| XYAI Vibe       | `new.xychatai.com/frontend-api/*`      | Login -> session auth | Daily balance quota with reset time     |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -63,9 +64,11 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - next lines: `Cache Coverage` (read/write cache models) and `Cache Read Coverage` (read-only cache models) when enough cache telemetry is available; mixed sessions can show both
   - next line: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
-  - RightCode daily quota shows `$remaining/$dailyTotal` + expiry (e.g. `RC Daily $105/$60 Exp 02-27`, without trailing percent) and also shows balance on the next indented line when available; `Exp` remains date-only
+  - RightCode daily quota shows `$remaining/$dailyTotal` without trailing percent, and shows balance on the next indented line when available
+  - XYAI daily quota follows the same balance-style layout and prefers the real reset time (for example `XYAI Daily $70.2/$90 Rst 22:18`)
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
+- Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
 - `quota_summary` markdown / toast also include `Cache Coverage` and `Cache Read Coverage` summary lines when available
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
@@ -79,6 +82,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - RightCode API key (`/account/summary`)
   - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
+  - XYAI Vibe account login (`/frontend-api/login` -> cached `share-session` -> `/frontend-api/vibe-code/quota`)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
 - API key providers still show usage aggregation (quota only applies to subscription providers)
 - Incremental usage aggregation — only processes new messages since last cursor
@@ -92,6 +96,14 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - The current implementation maps the short rolling window in `limits[]` to `5h` and the top-level `usage` block to `Weekly`.
 - Rendering follows the same compact reset formatting as OpenAI: short windows show `Rst MM-DD HH:MM` when they cross days, and longer windows show `Rst MM-DD`.
 
+### XYAI Vibe notes
+
+- Enable it explicitly under `quota.providers.xyai-vibe.enabled`; it is not enabled by default.
+- Configure login credentials in `quota-sidebar.config.json`, not in source code.
+- The adapter logs in via `POST https://new.xychatai.com/frontend-api/login`, caches the returned `share-session`, and retries quota fetches with that session.
+- Quota data is read from `GET https://new.xychatai.com/frontend-api/vibe-code/quota`.
+- Compact displays show the daily balance and the true reset time when present; expiry stays as secondary report/toast metadata.
+
 ## Storage layout
 
 The plugin stores lightweight global state and date-partitioned session chunks.
@@ -104,6 +116,7 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - per-session title state (`baseTitle`, `lastAppliedTitle`)
   - `createdAt`
   - `parentID` (when the session is a subagent child session)
+  - `expiryToastShown` (session-level dedupe for automatic expiry reminders)
   - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cache coverage reporting
   - incremental aggregation cursor
 
@@ -248,7 +261,7 @@ Quota defaults:
 - `quota.includeOpenAI`: `true`
 - `quota.includeCopilot`: `true`
 - `quota.includeAnthropic`: `true`
-- `quota.providers`: `{}` (per-adapter switches, for example `rightcode.enabled` or `buzz.enabled`)
+- `quota.providers`: `{}` (per-adapter switches and adapter-specific config, for example `rightcode.enabled` or `xyai-vibe.login.username/password`)
 - `quota.refreshAccessToken`: `false`
 - `quota.requestTimeoutMs`: `8000` (clamped to `>=1000`)
 

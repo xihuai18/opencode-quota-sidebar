@@ -544,6 +544,39 @@ function dateLine(iso: string | undefined) {
   return new Date(time).toLocaleString()
 }
 
+function expiryAlertLine(iso: string | undefined, nowMs = Date.now()) {
+  if (!iso) return undefined
+  const timestamp = Date.parse(iso)
+  if (Number.isNaN(timestamp) || timestamp <= nowMs) return undefined
+  const remainingMs = timestamp - nowMs
+  const thresholdMs = 3 * 24 * 60 * 60 * 1000
+  if (remainingMs > thresholdMs) return undefined
+
+  const value = new Date(timestamp)
+  const now = new Date(nowMs)
+  const sameDay =
+    value.getFullYear() === now.getFullYear() &&
+    value.getMonth() === now.getMonth() &&
+    value.getDate() === now.getDate()
+
+  const two = (num: number) => `${num}`.padStart(2, '0')
+  const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
+  if (sameDay) return `Exp today ${hhmm}`
+  return `Exp ${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
+}
+
+function quotaExpiryPairs(quotas: QuotaSnapshot[], nowMs = Date.now()) {
+  return collapseQuotaSnapshots(quotas)
+    .filter((item) => item.status === 'ok')
+    .map((item) => ({
+      label: quotaDisplayLabel(item),
+      value: expiryAlertLine(item.expiresAt, nowMs),
+    }))
+    .filter(
+      (item): item is { label: string; value: string } => Boolean(item.value),
+    )
+}
+
 function reportResetLine(
   iso: string | undefined,
   resetLabel?: string,
@@ -727,17 +760,19 @@ export function renderMarkdownReport(
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
       const windowLines = quota.windows.map((win) => {
+        const extraNote =
+          win === quota.windows?.[0] && quota.note ? ` | ${quota.note}` : ''
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
-            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}`,
           )
         }
         const remaining =
           formatQuotaPercent(win.remainingPercent)
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
-          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}`,
+          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}`,
         )
       })
       if (quota.balance) {
@@ -972,6 +1007,13 @@ export function renderToastMessage(
     lines.push('')
     lines.push(fitLine('Quota', width))
     lines.push(...alignPairs(quotaPairs).map((line) => fitLine(line, width)))
+  }
+
+  const expiryPairs = quotaExpiryPairs(quotas)
+  if (expiryPairs.length > 0) {
+    lines.push('')
+    lines.push(fitLine('Expiry Soon', width))
+    lines.push(...alignPairs(expiryPairs).map((line) => fitLine(line, width)))
   }
 
   return lines.join('\n')

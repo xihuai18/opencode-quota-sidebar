@@ -249,8 +249,6 @@ async function fetchRightCodeQuota(ctx: {
         label: `Daily $${formatQuotaValue(dailyRemaining)}/$${formatQuotaValue(dailyTotal)}`,
         showPercent: false,
         remainingPercent: dailyPercent,
-        resetAt: expiry,
-        resetLabel: hasMultipleExpiries ? 'Exp+' : 'Exp',
       },
     ]
 
@@ -260,6 +258,7 @@ async function fetchRightCodeQuota(ctx: {
       status: dailyPercent === undefined ? 'error' : 'ok',
       checkedAt,
       remainingPercent: dailyPercent,
+      expiresAt: expiry,
       balance:
         balance === undefined
           ? undefined
@@ -271,7 +270,7 @@ async function fetchRightCodeQuota(ctx: {
       note:
         dailyPercent === undefined
           ? 'matched subscription has no daily quota fields'
-          : `subscription daily quota: ${names}`,
+          : `subscription daily quota: ${names}${expiry ? ` | exp ${expiry.slice(5, 10)}` : ''}${hasMultipleExpiries ? '+' : ''}`,
     }
   }
 

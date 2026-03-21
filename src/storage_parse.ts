@@ -132,6 +132,7 @@ export function parseSessionState(value: unknown): SessionState | undefined {
     ...title,
     createdAt,
     parentID: typeof value.parentID === 'string' ? value.parentID : undefined,
+    expiryToastShown: value.expiryToastShown === true,
     usage: parseCachedUsage(value.usage),
     dirty: value.dirty === true,
     cursor: parseCursor(value.cursor),
@@ -217,6 +218,8 @@ export function parseQuotaCache(value: unknown) {
         usedPercent:
           typeof item.usedPercent === 'number' ? item.usedPercent : undefined,
         resetAt: typeof item.resetAt === 'string' ? item.resetAt : undefined,
+        expiresAt:
+          typeof item.expiresAt === 'string' ? item.expiresAt : undefined,
         balance,
         note: typeof item.note === 'string' ? item.note : undefined,
         windows,

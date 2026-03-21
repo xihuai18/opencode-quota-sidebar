@@ -19,6 +19,15 @@
     "providers": {
       "rightcode": {
         "enabled": true
+      },
+      "xyai-vibe": {
+        "enabled": false,
+        "baseURL": "https://new.xychatai.com",
+        "serviceType": "codex",
+        "login": {
+          "username": "your-account@example.com",
+          "password": "your-password"
+        }
       }
     },
     "refreshAccessToken": false,

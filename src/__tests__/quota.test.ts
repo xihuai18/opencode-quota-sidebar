@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
 import { createQuotaRuntime } from '../quota.js'
+import { toIso } from '../providers/common.js'
 import type { QuotaSidebarConfig } from '../types.js'
 
 const quota = createQuotaRuntime()
@@ -249,6 +250,172 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.adapterID, 'kimi-for-coding')
     assert.equal(snapshot!.status, 'unavailable')
     assert.equal(snapshot!.note, 'missing api key')
+  })
+
+  it('uses xyai-vibe login config to fetch and persist share-session', async () => {
+    const seenBodies: string[] = []
+    let updateAuthCalls = 0
+    setFetch(async (input, init) => {
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        seenBodies.push(String(init?.body || ''))
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=session-123; Path=/; HttpOnly',
+          },
+        })
+      }
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
+        const headers = new Headers(init?.headers)
+        assert.equal(headers.get('cookie'), 'share-session=session-123')
+        return jsonResponse({
+          code: 1,
+          data: {
+            codex: {
+              currentUsage: {
+                totalCost: 12.34,
+              },
+              subscriptions: {
+                amountLimit: 90,
+                remainingAmount: 70.2,
+                usedAmount: 19.8,
+                periodResetTime: '2026-03-21 22:18:43',
+                expireTime: '2026-04-15T15:40:43.636+08:00',
+                subTypeName: 'codex+gpt 重度型',
+              },
+            },
+          },
+        })
+      }
+      throw new Error(`unexpected url: ${url}`)
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'xyai-vibe',
+      {},
+      makeConfig({
+        providers: {
+          'xyai-vibe': {
+            enabled: true,
+            baseURL: 'https://new.xychatai.com',
+            serviceType: 'codex',
+            login: {
+              username: 'user@example.com',
+              password: 'secret',
+            },
+          },
+        },
+      }),
+      async (_providerID, auth) => {
+        updateAuthCalls += 1
+        assert.deepEqual(auth, { type: 'wellknown', token: 'session-123' })
+      },
+    )
+
+    assert.deepEqual(seenBodies, [
+      JSON.stringify({
+        userToken: 'user@example.com',
+        password: 'secret',
+        token: '',
+      }),
+    ])
+    assert.equal(updateAuthCalls, 1)
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai-vibe')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 78)
+    assert.equal(snapshot!.windows?.[0].label, 'Daily $70.2/$90')
+    assert.equal(snapshot!.resetAt, toIso('2026-03-21 22:18:43'))
+    assert.equal(snapshot!.note, 'exp 04-15')
+  })
+
+  it('retries xyai-vibe quota after auth failure with configured login', async () => {
+    let quotaCalls = 0
+    setFetch(async (input, init) => {
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
+        quotaCalls += 1
+        const headers = new Headers(init?.headers)
+        const cookie = headers.get('cookie')
+        if (quotaCalls === 1) {
+          assert.equal(cookie, 'share-session=expired-session')
+          return jsonResponse({ code: -1, msg: '认证失败，请重新登录' })
+        }
+        assert.equal(cookie, 'share-session=fresh-session')
+        return jsonResponse({
+          code: 1,
+          data: {
+            codex: {
+              subscriptions: {
+                amountLimit: 100,
+                remainingAmount: 88,
+                periodResetTime: '2026-03-21 23:00:00',
+              },
+            },
+          },
+        })
+      }
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=fresh-session; Path=/; HttpOnly',
+          },
+        })
+      }
+      throw new Error(`unexpected url: ${url}`)
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'xyai-openai',
+      {
+        'xyai-openai': { type: 'wellknown', token: 'expired-session' },
+      },
+      makeConfig({
+        providers: {
+          'xyai-vibe': {
+            enabled: true,
+            login: {
+              username: 'user@example.com',
+              password: 'secret',
+            },
+          },
+        },
+      }),
+      async () => {},
+      { baseURL: 'https://new.xychatai.com/v1' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai-vibe')
+    assert.equal(snapshot!.providerID, 'xyai-openai')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 88)
+    assert.equal(quotaCalls, 2)
+  })
+
+  it('does not treat api-key auth as xyai share-session cookie', async () => {
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'xyai-vibe',
+      {
+        'xyai-vibe': { type: 'api', key: 'not-a-cookie' },
+      },
+      makeConfig({
+        providers: {
+          'xyai-vibe': {
+            enabled: true,
+          },
+        },
+      }),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai-vibe')
+    assert.equal(snapshot!.status, 'unavailable')
+    assert.equal(snapshot!.note, 'missing share-session or login credentials')
   })
 
   it('preserves Copilot enterprise provider identity in snapshots', async () => {
@@ -505,13 +672,14 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows!.length, 1)
     assert.equal(snapshot!.windows![0].label, 'Daily $105/$60')
     assert.equal(snapshot!.windows![0].showPercent, false)
-    assert.equal(snapshot!.windows![0].resetLabel, 'Exp')
-    assert.equal(snapshot!.windows![0].resetAt, '2026-02-27T02:50:08.000Z')
+    assert.equal(snapshot!.windows![0].resetLabel, undefined)
+    assert.equal(snapshot!.windows![0].resetAt, undefined)
     assert.equal(snapshot!.windows![0].remainingPercent, 175)
     assert.equal(snapshot!.balance?.amount, 258.31)
+    assert.equal(snapshot!.expiresAt, '2026-02-27T02:50:08.000Z')
   })
 
-  it('uses Exp+ when multiple matched subscriptions have different expiries', async () => {
+  it('stores earliest expiry separately when multiple RightCode subscriptions differ', async () => {
     setFetch(async () =>
       jsonResponse({
         balance: 10,
@@ -551,8 +719,10 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.status, 'ok')
     assert.ok(snapshot!.windows)
     assert.equal(snapshot!.windows!.length, 1)
-    assert.equal(snapshot!.windows![0].resetLabel, 'Exp+')
-    assert.equal(snapshot!.windows![0].resetAt, '2026-02-27T02:50:08.000Z')
+    assert.equal(snapshot!.windows![0].resetLabel, undefined)
+    assert.equal(snapshot!.windows![0].resetAt, undefined)
+    assert.equal(snapshot!.expiresAt, '2026-02-27T02:50:08.000Z')
+    assert.match(snapshot!.note || '', /exp 02-27\+/)
   })
 
   it('falls back to balance for RightCode when subscription prefix does not match', async () => {

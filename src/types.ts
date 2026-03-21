@@ -25,6 +25,7 @@ export type QuotaSnapshot = {
   remainingPercent?: number
   usedPercent?: number
   resetAt?: string
+  expiresAt?: string
   /** Balance-style quota (for providers that expose balance instead of percent). */
   balance?: {
     amount: number
@@ -33,6 +34,11 @@ export type QuotaSnapshot = {
   note?: string
   /** Multi-window quota (e.g. OpenAI short-term + weekly). */
   windows?: QuotaWindow[]
+}
+
+export type QuotaProviderConfig = {
+  enabled?: boolean
+  [key: string]: unknown
 }
 
 export type SessionTitleState = {
@@ -122,6 +128,8 @@ export type SessionState = SessionTitleState & {
   createdAt: number
   /** Parent session ID for subagent child sessions. */
   parentID?: string
+  /** Whether this session has already shown an auto expiry toast. */
+  expiryToastShown?: boolean
   usage?: CachedSessionUsage
   /** Persisted dirtiness flag so descendant aggregation survives restart. */
   dirty?: boolean
@@ -175,7 +183,7 @@ export type QuotaSidebarConfig = {
     includeCopilot: boolean
     includeAnthropic: boolean
     /** Generic per-adapter switches (e.g. rightcode). */
-    providers?: Record<string, { enabled?: boolean }>
+    providers?: Record<string, QuotaProviderConfig>
     /** When true, refreshes OpenAI OAuth access token using refresh token */
     refreshAccessToken: boolean
     /** Timeout for external quota fetches */

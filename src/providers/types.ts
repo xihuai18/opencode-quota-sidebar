@@ -33,7 +33,7 @@ export type RefreshedOAuthAuth = {
 
 export type AuthUpdate = (
   providerID: string,
-  auth: RefreshedOAuthAuth,
+  auth: AuthValue,
 ) => Promise<void>
 
 export type ProviderResolveContext = {

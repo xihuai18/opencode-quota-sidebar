@@ -103,11 +103,29 @@ export async function loadConfig(paths: string[]) {
     const mergedProviders = {
       ...base.quota.providers,
       ...Object.entries(providers).reduce<
-        Record<string, { enabled?: boolean }>
+        Record<string, { enabled?: boolean; [key: string]: unknown }>
       >((acc, [id, value]) => {
         if (!isRecord(value)) return acc
-        if (typeof value.enabled === 'boolean') {
-          acc[id] = { enabled: value.enabled }
+        const baseProvider = isRecord(base.quota.providers?.[id])
+          ? (base.quota.providers?.[id] as Record<string, unknown>)
+          : {}
+        const baseLogin = isRecord(baseProvider.login)
+          ? (baseProvider.login as Record<string, unknown>)
+          : undefined
+        const nextLogin = isRecord(value.login)
+          ? (value.login as Record<string, unknown>)
+          : undefined
+        acc[id] = {
+          ...baseProvider,
+          ...value,
+          ...(baseLogin || nextLogin
+            ? {
+                login: {
+                  ...(baseLogin || {}),
+                  ...(nextLogin || {}),
+                },
+              }
+            : {}),
         }
         return acc
       }, {}),

@@ -32,7 +32,14 @@ afterEach(async () => {
   await Promise.all(
     tmpDirs
       .splice(0, tmpDirs.length)
-      .map((dir) => fs.rm(dir, { recursive: true, force: true })),
+      .map((dir) =>
+        fs.rm(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 50,
+        }),
+      ),
   )
 })
 
@@ -231,6 +238,159 @@ describe('plugin integration', () => {
       assert.doesNotMatch(title, /\u001b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('auto-shows expiry toast at most once per session', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    const originalFetch = globalThis.fetch
+
+    await fs.writeFile(
+      path.join(dataHome, 'auth.json'),
+      JSON.stringify(
+        {
+          'rightcode-openai': { type: 'api', key: 'rc-key' },
+        },
+        null,
+        2,
+      ),
+    )
+
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (input) => {
+      const url = String(input)
+      if (url.includes('www.right.codes/account/summary')) {
+        return new Response(
+          JSON.stringify({
+            balance: 248.4,
+            subscriptions: [
+              {
+                name: 'Codex Plan',
+                total_quota: 60,
+                remaining_quota: 45,
+                reset_today: true,
+                expired_at: new Date(
+                  Date.now() + 2 * 24 * 60 * 60 * 1000,
+                ).toISOString(),
+                available_prefixes: ['/codex'],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('{}', { status: 404 })
+    }
+
+    try {
+      let title = 'Expiry Reminder Session'
+      const toasts: string[] = []
+      const session = {
+        id: 's-expiry',
+        title,
+        time: { created: Date.now() - 10_000 },
+      }
+      const msg = {
+        id: 'm-expiry',
+        role: 'assistant',
+        providerID: 'rightcode-openai',
+        modelID: 'gpt-5',
+        sessionID: 's-expiry',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 100,
+          output: 20,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'rightcode-openai',
+            name: 'RightCode OpenAI',
+            env: [],
+            npm: [],
+            options: { baseURL: 'https://www.right.codes/codex/v1' },
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['rightcode-openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({ data: session }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: session.id }] }),
+          },
+          tui: {
+            showToast: async (args: { body: { message: string } }) => {
+              toasts.push(args.body.message)
+              return { data: { ok: true } }
+            },
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'session.created', properties: { info: session } },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => toasts.some((item) => item.includes('Expiry Soon')))
+      assert.equal(toasts.filter((item) => item.includes('Expiry Soon')).length, 1)
+      assert.match(toasts[0] || '', /RC-openai Exp \d{2}-\d{2} \d{2}:\d{2}/)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      assert.equal(toasts.filter((item) => item.includes('Expiry Soon')).length, 1)
+      void title
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
     }
   })
 

@@ -87,7 +87,7 @@ export function asRecord(value: unknown) {
 }
 
 export function configuredProviderEnabled(
-  config: { providers?: Record<string, { enabled?: boolean }> },
+  config: { providers?: Record<string, { enabled?: boolean; [key: string]: unknown }> },
   adapterID: string,
   fallback = true,
 ) {
