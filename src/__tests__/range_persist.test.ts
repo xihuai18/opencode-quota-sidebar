@@ -222,7 +222,10 @@ describe('range usage persistence', () => {
       )
 
       assert.match(report, /- Sessions: 1/)
-      assert.match(report, /input 100, output 20, cache_read 20, cache_write 0, total 140/)
+      assert.match(
+        report,
+        /input 100, output 20, cache_read 20, cache_write 0, total 140/,
+      )
       assert.match(report, /- Cache Read Coverage: 16\.7%/)
       assert.doesNotMatch(report, /999/)
     } finally {
@@ -587,7 +590,9 @@ describe('range usage persistence', () => {
             },
           },
           provider: {
-            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
           },
         },
       } as never)
@@ -598,6 +603,138 @@ describe('range usage persistence', () => {
         } as never),
         /range usage unavailable: failed to load 1 session\(s\)/,
       )
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('prunes missing sessions from persisted range data and continues the summary', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+
+    try {
+      const dataDir = resolveOpencodeDataDir()
+      await fs.mkdir(dataDir, { recursive: true })
+      const statePath = stateFilePath(dataDir)
+
+      const createdAt = Date.now() - 10_000
+      const dateKey = dateKeyFromTimestamp(createdAt)
+      const [year, month, day] = dateKey.split('-')
+      const chunkRoot = path.join(dataDir, 'quota-sidebar-sessions')
+      const chunkPath = path.join(chunkRoot, year, month, `${day}.json`)
+      await fs.mkdir(path.dirname(chunkPath), { recursive: true })
+
+      await fs.writeFile(
+        statePath,
+        `${JSON.stringify(
+          {
+            version: 2,
+            titleEnabled: true,
+            sessionDateMap: { stale: dateKey, live: dateKey },
+            deletedSessionDateMap: {},
+            quotaCache: {},
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      await fs.writeFile(
+        chunkPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            dateKey,
+            sessions: {
+              stale: {
+                createdAt,
+                baseTitle: 'Stale Session',
+                cursor: {
+                  lastMessageId: 'stale-last',
+                  lastMessageTime: createdAt + 2_000,
+                  lastMessageIdsAtTime: ['stale-last'],
+                },
+              },
+              live: {
+                createdAt,
+                baseTitle: 'Live Session',
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      )
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            messages: async (args: { path: { id: string } }) => {
+              if (args.path.id === 'stale') {
+                throw Object.assign(new Error('session not found'), {
+                  status: 404,
+                })
+              }
+
+              return {
+                data: [
+                  {
+                    info: {
+                      id: 'm-live',
+                      role: 'assistant',
+                      providerID: 'openai',
+                      modelID: 'gpt-5',
+                      sessionID: 'live',
+                      time: {
+                        created: createdAt + 3_000,
+                        completed: createdAt + 3_500,
+                      },
+                      tokens: {
+                        input: 10,
+                        output: 5,
+                        reasoning: 0,
+                        cache: { read: 0, write: 0 },
+                      },
+                      cost: 0,
+                    },
+                  },
+                ],
+              }
+            },
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      const markdown = await hooks.tool!.quota_summary.execute(
+        { period: 'day', toast: false },
+        { sessionID: 'live' } as never,
+      )
+
+      assert.match(markdown, /- Sessions: 1/)
+
+      await delay(600)
+
+      const updatedState = JSON.parse(
+        await fs.readFile(statePath, 'utf8'),
+      ) as any
+      const updatedChunk = JSON.parse(
+        await fs.readFile(chunkPath, 'utf8'),
+      ) as any
+      assert.equal(updatedState.sessionDateMap?.stale, undefined)
+      assert.equal(updatedState.deletedSessionDateMap?.stale, undefined)
+      assert.equal(updatedChunk.sessions?.stale, undefined)
+      assert.ok(updatedChunk.sessions?.live)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -674,13 +811,17 @@ describe('range usage persistence', () => {
             },
           },
           provider: {
-            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
           },
         },
       } as never)
 
       await assert.rejects(
-        hooks.tool!.quota_summary.execute({ period: 'day', toast: false }, { sessionID: 's1' } as never),
+        hooks.tool!.quota_summary.execute({ period: 'day', toast: false }, {
+          sessionID: 's1',
+        } as never),
         /range usage unavailable: failed to load 1 session\(s\)/,
       )
     } finally {
@@ -760,7 +901,9 @@ describe('range usage persistence', () => {
             }),
           },
           provider: {
-            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
           },
         },
       } as never)
@@ -771,7 +914,10 @@ describe('range usage persistence', () => {
       )
 
       assert.match(report, /- Sessions: 0/)
-      assert.match(report, /input 0, output 0, cache_read 0, cache_write 0, total 0/)
+      assert.match(
+        report,
+        /input 0, output 0, cache_read 0, cache_write 0, total 0/,
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

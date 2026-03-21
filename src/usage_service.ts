@@ -12,12 +12,19 @@ import {
   type ModelCostRates,
 } from './cost.js'
 import {
+  deleteSessionFromDayChunk,
   dateKeyFromTimestamp,
   scanAllSessions,
   updateSessionsInDayChunks,
 } from './storage.js'
 import { periodStart } from './period.js'
-import { debug, isRecord, mapConcurrent, swallow } from './helpers.js'
+import {
+  debug,
+  debugError,
+  isRecord,
+  mapConcurrent,
+  swallow,
+} from './helpers.js'
 import {
   emptyUsageSummary,
   fromCachedSessionUsage,
@@ -231,6 +238,10 @@ export function createUsageService(deps: {
   }
 
   type MessageEntry = { info: Message }
+  type LoadSessionEntriesResult =
+    | { status: 'ok'; entries: MessageEntry[] }
+    | { status: 'missing' }
+    | { status: 'error' }
 
   const isFiniteNumber = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value)
@@ -327,17 +338,94 @@ export function createUsageService(deps: {
     return decoded
   }
 
-  const loadSessionEntries = async (sessionID: string) => {
-    const response = await deps.client.session
-      .messages({
+  const errorStatusCode = (
+    value: unknown,
+    seen = new Set<unknown>(),
+  ): number | undefined => {
+    if (!isRecord(value) || seen.has(value)) return undefined
+    seen.add(value)
+
+    const status = value.status
+    if (typeof status === 'number' && Number.isFinite(status)) return status
+
+    const statusCode = value.statusCode
+    if (typeof statusCode === 'number' && Number.isFinite(statusCode)) {
+      return statusCode
+    }
+
+    return (
+      errorStatusCode(value.response, seen) ||
+      errorStatusCode(value.cause, seen) ||
+      errorStatusCode(value.error, seen)
+    )
+  }
+
+  const errorText = (value: unknown, seen = new Set<unknown>()): string => {
+    if (!value || seen.has(value)) return ''
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'boolean')
+      return `${value}`
+    if (value instanceof Error) {
+      seen.add(value)
+      return [
+        value.message,
+        errorText((value as Error & { cause?: unknown }).cause, seen),
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+    if (!isRecord(value)) return ''
+
+    seen.add(value)
+    return [
+      typeof value.message === 'string' ? value.message : '',
+      typeof value.error === 'string' ? value.error : '',
+      typeof value.detail === 'string' ? value.detail : '',
+      typeof value.title === 'string' ? value.title : '',
+      errorText(value.response, seen),
+      errorText(value.data, seen),
+      errorText(value.cause, seen),
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  const isMissingSessionError = (error: unknown) => {
+    const status = errorStatusCode(error)
+    if (status === 404 || status === 410) return true
+
+    const text = errorText(error).toLowerCase()
+    if (!text) return false
+
+    return (
+      /\b(session|conversation)\b.*\b(not found|missing|deleted|does not exist)\b/.test(
+        text,
+      ) ||
+      /\b(not found|missing|deleted|does not exist)\b.*\b(session|conversation)\b/.test(
+        text,
+      )
+    )
+  }
+
+  const loadSessionEntries = async (
+    sessionID: string,
+  ): Promise<LoadSessionEntriesResult> => {
+    try {
+      const response = await deps.client.session.messages({
         path: { id: sessionID },
         query: { directory: deps.directory },
         throwOnError: true,
       })
-      .catch(swallow('loadSessionEntries'))
-    if (!response) return undefined
-    const data = (response as { data?: unknown }).data
-    return decodeMessageEntries(data)
+      const data = (response as { data?: unknown }).data
+      const entries = decodeMessageEntries(data)
+      if (!entries) return { status: 'error' } as const
+      return { status: 'ok', entries } as const
+    } catch (error) {
+      debugError(`loadSessionEntries ${sessionID}`, error)
+      return {
+        status: isMissingSessionError(error) ? 'missing' : 'error',
+      } as const
+    }
   }
 
   const persistSessionUsage = (
@@ -368,10 +456,12 @@ export function createUsageService(deps: {
     return Object.entries(cached.providers).some(([providerID, provider]) => {
       if (provider.apiCost > 0) return false
       const canonicalProviderID = canonicalApiCostProviderID(providerID)
-      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(canonicalProviderID)) return false
-      return Object.keys(modelCostMap).some((key) =>
-        key.startsWith(`${providerID}:`) ||
-        key.startsWith(`${canonicalProviderID}:`),
+      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(canonicalProviderID))
+        return false
+      return Object.keys(modelCostMap).some(
+        (key) =>
+          key.startsWith(`${providerID}:`) ||
+          key.startsWith(`${canonicalProviderID}:`),
       )
     })
   }
@@ -383,7 +473,8 @@ export function createUsageService(deps: {
     generationAtStart: number,
     options?: { requireEntries?: boolean },
   ): Promise<SessionUsageResult> => {
-    const entries = await loadSessionEntries(sessionID)
+    const load = await loadSessionEntries(sessionID)
+    const entries = load.status === 'ok' ? load.entries : undefined
     const sessionState = deps.state.sessions[sessionID]
 
     // If we can't load messages (transient API failure), fall back to cached
@@ -396,7 +487,9 @@ export function createUsageService(deps: {
         }
       }
       if (options?.requireEntries) {
-        throw new Error(`session usage unavailable: failed to load messages for ${sessionID}`)
+        throw new Error(
+          `session usage unavailable: failed to load messages for ${sessionID}`,
+        )
       }
       const empty = emptyUsageSummary()
       empty.sessionCount = 1
@@ -457,7 +550,11 @@ export function createUsageService(deps: {
         return result
       }
 
-      const promise = summarizeSessionUsage(sessionID, generationAtStart, options)
+      const promise = summarizeSessionUsage(
+        sessionID,
+        generationAtStart,
+        options,
+      )
       const entry = { generation: generationAtStart, promise }
       void promise
         .finally(() => {
@@ -580,8 +677,8 @@ export function createUsageService(deps: {
         sessions,
         RANGE_USAGE_CONCURRENCY,
         async (session) => {
-          const entries = await loadSessionEntries(session.sessionID)
-          if (!entries) {
+          const load = await loadSessionEntries(session.sessionID)
+          if (load.status !== 'ok') {
             return {
               sessionID: session.sessionID,
               dateKey: session.dateKey,
@@ -590,11 +687,14 @@ export function createUsageService(deps: {
               dirty: session.state.dirty === true,
               computed: emptyUsageSummary(),
               fullUsage: undefined,
-              loadFailed: true,
+              loadFailed: load.status === 'error',
+              missing: load.status === 'missing',
               persist: false,
               cursor: undefined,
             }
           }
+
+          const entries = load.entries
 
           const computed = summarizeMessagesInCompletedRange(
             entries,
@@ -610,7 +710,8 @@ export function createUsageService(deps: {
           )
 
           const shouldPersistFullUsage =
-            !session.state.usage || shouldRecomputeUsageCache(session.state.usage)
+            !session.state.usage ||
+            shouldRecomputeUsageCache(session.state.usage)
 
           if (!shouldPersistFullUsage) {
             return {
@@ -622,6 +723,7 @@ export function createUsageService(deps: {
               computed,
               fullUsage: undefined,
               loadFailed: false,
+              missing: false,
               persist: false,
               cursor: session.state.cursor,
             }
@@ -648,11 +750,44 @@ export function createUsageService(deps: {
             computed,
             fullUsage,
             loadFailed: false,
+            missing: false,
             persist: true,
             cursor,
           }
         },
       )
+
+      const missingSessions = fetched.filter((item) => item.missing)
+      if (missingSessions.length > 0) {
+        let stateChanged = false
+
+        for (const missing of missingSessions) {
+          deps.state.deletedSessionDateMap[missing.sessionID] = missing.dateKey
+          delete deps.state.sessions[missing.sessionID]
+          delete deps.state.sessionDateMap[missing.sessionID]
+          deps.persistence.markDirty(missing.dateKey)
+          forgetSession(missing.sessionID)
+          stateChanged = true
+        }
+
+        await Promise.all(
+          missingSessions.map(async (missing) => {
+            const deletedFromChunk = await deleteSessionFromDayChunk(
+              deps.statePath,
+              missing.sessionID,
+              missing.dateKey,
+            ).catch((error) => {
+              swallow('deleteSessionFromDayChunk')(error)
+              return false
+            })
+            if (!deletedFromChunk) return
+            delete deps.state.deletedSessionDateMap[missing.sessionID]
+            stateChanged = true
+          }),
+        )
+
+        if (stateChanged) deps.persistence.scheduleSave()
+      }
 
       const failedLoads = fetched.filter((item) => {
         if (!item.loadFailed) return false
@@ -677,7 +812,14 @@ export function createUsageService(deps: {
         cursor: IncrementalCursor | undefined
       }> = []
 
-      for (const { sessionID, dateKey, computed, fullUsage, persist, cursor } of fetched) {
+      for (const {
+        sessionID,
+        dateKey,
+        computed,
+        fullUsage,
+        persist,
+        cursor,
+      } of fetched) {
         if (computed.assistantMessages > 0) {
           computed.sessionCount = 1
           mergeUsage(usage, computed)
