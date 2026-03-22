@@ -84,7 +84,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
   - XYAI Vibe account login (`/frontend-api/login` -> cached `share-session` -> `/frontend-api/vibe-code/quota`)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
-- API key providers still show usage aggregation (quota only applies to subscription providers)
+- Generic API key providers without quota endpoints still show usage aggregation only; built-in adapters such as Kimi For Coding, RightCode, Buzz, and XYAI Vibe also show quota or balance details.
 - Incremental usage aggregation — only processes new messages since last cursor
 - Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
 

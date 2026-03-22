@@ -6,6 +6,7 @@
 - Sidebar title 是纯文本字符串：全局粗体/同色，不能注入 JSX/HTML，默认禁止 ANSI 转义码。
 - 所有 title 行必须走 `fitLine()` 截断到 `sidebar.width`，避免 resize 场景的渲染污染/抖动。
 - 新增 quota provider：看 `5.8`-`5.10`，核心是实现 `QuotaProviderAdapter` 并注册到 `QuotaProviderRegistry`。
+- 遇到重复性的跨文件维护任务，优先使用 `.opencode/skills/`：目前已有 `quota-provider-adapter`、`sidebar-title-formatting`、`session-usage-aggregation`。
 
 ## 1. 项目目的
 
@@ -14,7 +15,7 @@ OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session t
 目标：
 
 1. 实时显示当前 session 的 token 消耗（Input/Output〔含 Reasoning〕/Cache）
-2. 显示订阅制 provider 的额度余量（OpenAI Codex、GitHub Copilot）
+2. 显示支持的订阅制 / 余额制 provider 额度余量（OpenAI Codex、GitHub Copilot、Anthropic、Kimi For Coding、RightCode、Buzz、XYAI Vibe）
 3. 提供 `quota_summary` / `quota_show` 工具，支持 session/day/week/month 维度的用量报告
 4. 准备开源发布到 npm
 
@@ -39,8 +40,10 @@ OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session t
 - 配置采用“全局默认 + 项目覆盖”分层：
   1. 全局：`~/.config/opencode/quota-sidebar.config.json`
   2. 项目：`<worktree>/quota-sidebar.config.json`
-  3. 项目局部：`<worktree>/.opencode/quota-sidebar.config.json`
-  4. 显式覆盖：`OPENCODE_QUOTA_CONFIG=/absolute/path/config.json`
+  3. 目录：`<directory>/quota-sidebar.config.json`（当 `directory !== worktree` 时）
+  4. 项目局部：`<worktree>/.opencode/quota-sidebar.config.json`
+  5. 目录局部：`<directory>/.opencode/quota-sidebar.config.json`（当 `directory !== worktree` 时）
+  6. 显式覆盖：`OPENCODE_QUOTA_CONFIG=/absolute/path/config.json`
 - 加载语义是“层叠合并”，后层覆盖前层同名字段，不再是 first-hit wins。
 - 数据只放在 `<opencode-data>`（`quota-sidebar.state.json` + `quota-sidebar-sessions/`），不把状态写入项目目录。
 - 全局配置目录可通过 `OPENCODE_QUOTA_CONFIG_HOME` 覆盖，全局数据目录可通过 `OPENCODE_QUOTA_DATA_HOME` 覆盖。
@@ -187,7 +190,11 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 | RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
 | Buzz                   | `buzzai.cc/v1/dashboard/billing/*`     | 支持，余额        |
 | Anthropic              | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |
-| API Key providers      | 无 quota 概念                          | 仅显示 token 用量 |
+| XYAI Vibe              | `new.xychatai.com/frontend-api/*`      | 支持，日额度/余额 |
+| 其他通用 API Key providers | 通常无 quota 端点                  | 仅显示 token 用量 |
+
+- 注意：Kimi / RightCode / Buzz 虽然使用 API Key，但仍有 quota / balance 展示。
+- XYAI Vibe 使用登录态 session auth，而不是 OpenCode 的 OAuth provider 类型。
 
 ### 5.6 RightCode 日额度规则（关键）
 
@@ -287,12 +294,19 @@ Copilot-Integration-Id: vscode-chat
 - 仅处理新消息，不重复扫描
 - `message.removed` 事件触发全量重扫
 
-### 6.2 Session 保留策略
+### 6.2 Usage cache 的 billingVersion
+
+- `src/usage.ts` 中的 `USAGE_BILLING_CACHE_VERSION` 用于控制 `CachedSessionUsage` 的缓存失效，而不是 state/chunk 文件格式版本。
+- 当 usage 聚合语义、`cost/apiCost`、`cacheBuckets` 或其他持久化 usage 字段发生“必须重算”的变化时，需要 bump 这个版本。
+- bump 后，旧 session 的 persisted usage 会在下一次读取时触发全量重算；相关逻辑在 `src/usage_service.ts`。
+- 修改 `billingVersion` 相关逻辑时，至少联动检查 `src/types.ts`、`src/storage_parse.ts`、`src/__tests__/usage_service.test.ts`、`src/__tests__/range_persist.test.ts`。
+
+### 6.3 Session 保留策略
 
 - 默认 2 年（730 天）
 - 超龄 session 从内存驱逐，chunk 文件保留在磁盘
 
-### 6.3 存储布局（v2）
+### 6.4 存储布局（v2）
 
 ```
 ~/.local/share/opencode/
@@ -301,11 +315,17 @@ Copilot-Integration-Id: vscode-chat
     2026/02/23.json
 ```
 
-### 6.4 并发控制
+### 6.5 并发控制
 
 - title 刷新调度器有 per-session 锁（`src/title_refresh.ts`），防止并发写入
 - `persistState` 有 dirty key 捕获机制，写入期间新增的 dirty key 不会丢失
 - 范围查询（day/week/month）使用 `mapConcurrent` 限制并发为 5
+
+### 6.6 Descendants / subagent 聚合规则
+
+- session scope 可按 `sidebar.includeChildren` 把 descendant subagent sessions 一起聚合；day/week/month range scope 不合并 descendants。
+- descendant 遍历由 `childrenMaxDepth`、`childrenMaxSessions`、`childrenConcurrency` 限制；超限时按当前实现截断并记录 debug 日志。
+- child session 的 usage / title 变化可能触发 parent session 的 title refresh；相关联动在 `src/index.ts`、`src/descendants.ts`、`src/usage_service.ts`。
 
 ---
 
@@ -328,7 +348,11 @@ Copilot-Integration-Id: vscode-chat
 | `src/persistence.ts`    | 脏日期键追踪与持久化调度（markDirty/scheduleSave/flushSave）    |
 | `src/cache.ts`          | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）       |
 | `src/quota_render.ts`   | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）   |
-| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/RightCode/Buzz）    |
+| `src/providers/index.ts` | 默认 provider registry 组装与内置 adapter 注册                |
+| `src/providers/registry.ts` | Provider adapter 解析（`matchScore` + `sortOrder`）       |
+| `src/providers/types.ts` | Provider adapter / auth / fetch context 契约                  |
+| `src/providers/common.ts` | Provider 共享抓取/时间窗口/响应解析辅助                      |
+| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/Kimi/RightCode/Buzz/XYAI Vibe） |
 | `src/usage.ts`          | Token 聚合，增量 cursor，UsageSummary 类型                      |
 | `src/usage_service.ts`  | session/range 用量聚合服务（session+subagent merge 与范围统计） |
 | `src/storage.ts`        | v2 存储门面：config/state/save/load/scan/evict 编排             |
@@ -340,17 +364,26 @@ Copilot-Integration-Id: vscode-chat
 | `src/helpers.ts`        | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
 | `src/__tests__/`        | 单元测试（node --test）                                         |
 
+### 7.1 项目内 skills
+
+- `.opencode/skills/quota-provider-adapter/`：新增/修改 quota provider adapter 的详细工作流。
+- `.opencode/skills/sidebar-title-formatting/`：sidebar title 渲染、装饰检测、宽度安全工作流。
+- `.opencode/skills/session-usage-aggregation/`：usage 聚合、descendants 汇总、billingVersion 失效规则。
+
 ---
 
 ## 8. 开发注意事项
 
-### 8.1 修改闭环
+### 8.1 修改闭环 / 维护耦合清单
 
 改动任一文件时，检查以下是否需要同步：
 
-- `format.ts` ↔ `types.ts`（QuotaSnapshot/QuotaWindow 字段变化）
-- `usage.ts` ↔ `index.ts`（函数签名变化）
-- `quota.ts` ↔ `types.ts`（QuotaSnapshot 字段变化）
+- `format.ts` ↔ `types.ts` ↔ `title.ts`（QuotaSnapshot/QuotaWindow 字段、渲染文本、装饰检测规则变化）
+- `usage.ts` ↔ `usage_service.ts` ↔ `descendants.ts` ↔ `index.ts`（聚合语义、includeChildren、cursor/dirty 联动变化）
+- `quota.ts` ↔ `quota_service.ts` ↔ `quota_render.ts` ↔ `types.ts`（QuotaSnapshot 字段、缓存、展示标签变化）
+- `src/providers/*` ↔ `src/providers/index.ts` ↔ `src/quota.ts` ↔ `src/quota_service.ts`（adapter 注册、auth 选择、cache scope、默认 provider 列表变化）
+- `storage.ts` ↔ `storage_parse.ts` ↔ `storage_chunks.ts` ↔ `storage_paths.ts` ↔ `persistence.ts`（配置/状态/落盘格式变化）
+- 若 `CachedSessionUsage` 的持久化字段或重算语义变化，需要 bump `src/usage.ts` 中的 `USAGE_BILLING_CACHE_VERSION`，并同步更新 parser/tests/docs。
 
 ### 8.2 ANSI 码安全
 
