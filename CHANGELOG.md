@@ -11,6 +11,9 @@
 - Support OpenCode long-context pricing tiers via `context_over_200k` when estimating API-equivalent cost.
 - Bump the usage billing cache version so `/qday`, `/qweek`, and `/qmonth` recompute historical API cost with the updated rules.
 - Document API-cost estimation, billing-cache behavior, and child-session aggregation semantics in the README.
+- Update `AGENTS.md` with current provider scope, config layering, descendant aggregation rules, and usage-cache maintenance guidance.
+- Add project-local `.opencode/skills` workflows for quota provider adapters, sidebar title formatting, and session usage aggregation.
+- Clarify README wording for generic API-key providers versus built-in quota/balance adapters.
 
 ## 1.13.2
 
