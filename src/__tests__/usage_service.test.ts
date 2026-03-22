@@ -410,7 +410,7 @@ describe('usage service', () => {
     assert.equal(metrics.cacheReadCoverage, 50 / 150)
   })
 
-  it('recomputes current-version cached usage when apiCost was previously zero', async () => {
+  it('recomputes stale-version cached usage when apiCost was previously zero', async () => {
     const state = makeState()
     const config = makeConfig()
     const sessionID = 's1'
@@ -422,7 +422,7 @@ describe('usage service', () => {
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
-        billingVersion: USAGE_BILLING_CACHE_VERSION,
+        billingVersion: USAGE_BILLING_CACHE_VERSION - 1,
         input: 100,
         output: 20,
         reasoning: 0,
@@ -525,6 +525,213 @@ describe('usage service', () => {
     assert.equal(messageCalls, 1)
     assert.ok(usage.apiCost > 0)
     assert.ok(state.sessions[sessionID].usage?.apiCost)
+  })
+
+  it('maps kimi-for-coding k2p5 usage to moonshotai-cn kimi-k2.5 pricing', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-session'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Kimi Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-kimi',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'kimi-for-coding',
+                  modelID: 'k2p5',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 0 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'moonshotai-cn',
+                  models: {
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
+                      cost: {
+                        input: 0.6,
+                        output: 3,
+                        cache_read: 0.1,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const kimiUsage = usage.providers['kimi-for-coding']
+
+    assert.ok(kimiUsage)
+    assert.equal(usage.cost, 0)
+    assert.equal(kimiUsage.cost, 0)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
+    assert.ok(Math.abs(kimiUsage.apiCost - 0.14) < 1e-9)
+
+    const metrics = getCacheCoverageMetrics(usage)
+    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cacheReadCoverage, 1 / 3)
+  })
+
+  it('recomputes stale kimi-for-coding usage when pricing is available via alias', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-stale'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Kimi stale',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: USAGE_BILLING_CACHE_VERSION - 1,
+        input: 100_000,
+        output: 25_000,
+        reasoning: 0,
+        cacheRead: 50_000,
+        cacheWrite: 0,
+        total: 175_000,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {
+          'kimi-for-coding': {
+            input: 100_000,
+            output: 25_000,
+            reasoning: 0,
+            cacheRead: 50_000,
+            cacheWrite: 0,
+            total: 175_000,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'old-kimi',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['old-kimi'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let messageCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            messageCalls++
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'old-kimi',
+                    sessionID,
+                    role: 'assistant',
+                    providerID: 'kimi-for-coding',
+                    modelID: 'k2p5',
+                    time: { created: completedAt - 10, completed: completedAt },
+                    tokens: {
+                      input: 100_000,
+                      output: 20_000,
+                      reasoning: 5_000,
+                      cache: { read: 50_000, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'moonshotai-cn',
+                  models: {
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
+                      cost: {
+                        input: 0.6,
+                        output: 3,
+                        cache_read: 0.1,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
+    assert.ok(Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9)
   })
 
   it('fails session-only tool summary when messages cannot load and no cache exists', async () => {

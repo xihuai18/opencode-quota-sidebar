@@ -1276,6 +1276,37 @@ describe('renderMarkdownReport', () => {
     )
   })
 
+  it('renders Kimi API cost in markdown provider table', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage({
+        apiCost: 0.14,
+        providers: {
+          'kimi-for-coding': {
+            providerID: 'kimi-for-coding',
+            input: 100_000,
+            output: 25_000,
+            reasoning: 0,
+            cacheRead: 50_000,
+            cacheWrite: 0,
+            total: 175_000,
+            cost: 0,
+            apiCost: 0.14,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /\| kimi-for-coding \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| - \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
+    )
+    assert.match(report, /- API cost: \$0\.14/)
+  })
+
   it('includes XYAI expiry as secondary note in markdown report', () => {
     const now = new Date()
     const sameDayReset = new Date(
@@ -1960,5 +1991,33 @@ describe('renderToastMessage', () => {
       /Kimi\s+5h 84\.0% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
     )
     assert.match(toast, /Weekly 72\.0% Rst \d{2}-\d{2}/)
+  })
+
+  it('renders Kimi in the Cost as API toast section when apiCost is available', () => {
+    const toast = renderToastMessage(
+      'week',
+      makeUsage({
+        apiCost: 0.14,
+        providers: {
+          'kimi-for-coding': {
+            providerID: 'kimi-for-coding',
+            input: 100_000,
+            output: 25_000,
+            reasoning: 0,
+            cacheRead: 50_000,
+            cacheWrite: 0,
+            total: 175_000,
+            cost: 0,
+            apiCost: 0.14,
+            assistantMessages: 1,
+          },
+        },
+      }),
+      [],
+    )
+
+    assert.match(toast, /Cost as API/)
+    assert.match(toast, /Kimi\s+\$0\.14/)
+    assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
   })
 })

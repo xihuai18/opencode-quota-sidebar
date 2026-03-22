@@ -3,12 +3,13 @@ import type { PluginInput } from '@opencode-ai/plugin'
 
 import { TtlValueCache } from './cache.js'
 import {
+  API_COST_ENABLED_PROVIDERS,
   cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
+  modelCostLookupKeys,
   modelCostKey,
   parseModelCostRates,
-  SUBSCRIPTION_API_COST_PROVIDERS,
   type ModelCostRates,
 } from './cost.js'
 import {
@@ -178,11 +179,11 @@ export function createUsageService(deps: {
     modelCostMap: Record<string, ModelCostRates>,
   ) => {
     const providerID = canonicalApiCostProviderID(message.providerID)
-    if (!SUBSCRIPTION_API_COST_PROVIDERS.has(providerID)) return 0
+    if (!API_COST_ENABLED_PROVIDERS.has(providerID)) return 0
 
-    const rates =
-      modelCostMap[modelCostKey(message.providerID, message.modelID)] ||
-      modelCostMap[modelCostKey(providerID, message.modelID)]
+    const rates = modelCostLookupKeys(message.providerID, message.modelID)
+      .map((key) => modelCostMap[key])
+      .find(Boolean)
     if (!rates) {
       const key = modelCostKey(providerID, message.modelID)
       if (!missingApiCostRateKeys.has(key)) {
@@ -200,9 +201,9 @@ export function createUsageService(deps: {
     modelCostMap: Record<string, ModelCostRates>,
   ) => {
     const canonicalProviderID = canonicalApiCostProviderID(message.providerID)
-    const baseRates =
-      modelCostMap[modelCostKey(message.providerID, message.modelID)] ||
-      modelCostMap[modelCostKey(canonicalProviderID, message.modelID)]
+    const baseRates = modelCostLookupKeys(message.providerID, message.modelID)
+      .map((key) => modelCostMap[key])
+      .find(Boolean)
     const effectiveRates =
       baseRates &&
       message.tokens.input + message.tokens.cache.read > 200_000 &&
@@ -447,25 +448,6 @@ export function createUsageService(deps: {
     return cached.billingVersion === USAGE_BILLING_CACHE_VERSION
   }
 
-  const hasStaleZeroApiCost = (
-    cached: CachedSessionUsage | undefined,
-    modelCostMap: Record<string, ModelCostRates>,
-  ) => {
-    if (!cached) return false
-    if (cached.apiCost > 0) return false
-    return Object.entries(cached.providers).some(([providerID, provider]) => {
-      if (provider.apiCost > 0) return false
-      const canonicalProviderID = canonicalApiCostProviderID(providerID)
-      if (!SUBSCRIPTION_API_COST_PROVIDERS.has(canonicalProviderID))
-        return false
-      return Object.keys(modelCostMap).some(
-        (key) =>
-          key.startsWith(`${providerID}:`) ||
-          key.startsWith(`${canonicalProviderID}:`),
-      )
-    })
-  }
-
   type SessionUsageResult = { usage: UsageSummary; persist: boolean }
 
   const summarizeSessionUsage = async (
@@ -499,9 +481,7 @@ export function createUsageService(deps: {
     const modelCostMap = await getModelCostMap()
 
     const staleBillingCache =
-      Boolean(sessionState?.usage) &&
-      (!isUsageBillingCurrent(sessionState?.usage) ||
-        hasStaleZeroApiCost(sessionState?.usage, modelCostMap))
+      Boolean(sessionState?.usage) && !isUsageBillingCurrent(sessionState?.usage)
     const forceRescan = forceRescanSessions.has(sessionID) || staleBillingCache
     if (forceRescan) forceRescanSessions.delete(sessionID)
 
@@ -658,7 +638,7 @@ export function createUsageService(deps: {
       if (providerIDs.length === 0) return true
       return providerIDs.some((providerID) => {
         const canonical = canonicalApiCostProviderID(providerID)
-        return SUBSCRIPTION_API_COST_PROVIDERS.has(canonical)
+        return API_COST_ENABLED_PROVIDERS.has(canonical)
       })
     }
 

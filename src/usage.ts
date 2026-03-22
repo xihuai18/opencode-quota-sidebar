@@ -16,7 +16,7 @@ import type {
  * fields).  This is distinct from the plugin *state* version managed by the
  * persistence layer; billing version only governs usage-cache staleness.
  */
-export const USAGE_BILLING_CACHE_VERSION = 4
+export const USAGE_BILLING_CACHE_VERSION = 5
 
 export type ProviderUsage = {
   providerID: string

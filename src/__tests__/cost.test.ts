@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  API_COST_ENABLED_PROVIDERS,
   cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
+  modelCostLookupKeys,
   parseModelCostRates,
 } from '../cost.js'
 
@@ -163,6 +165,22 @@ describe('cost', () => {
       'github-copilot',
     )
     assert.equal(canonicalApiCostProviderID('claude'), 'anthropic')
+    assert.equal(canonicalApiCostProviderID('kimi-for-coding'), 'kimi-for-coding')
+  })
+
+  it('maps kimi-for-coding k2p5 to moonshot pricing keys', () => {
+    assert.deepEqual(modelCostLookupKeys('kimi-for-coding', 'k2p5'), [
+      'kimi-for-coding:k2p5',
+      'moonshotai-cn:kimi-k2.5',
+    ])
+    assert.deepEqual(
+      modelCostLookupKeys('kimi-for-coding', 'kimi-k2-thinking'),
+      ['kimi-for-coding:kimi-k2-thinking', 'moonshotai-cn:kimi-k2-thinking'],
+    )
+  })
+
+  it('treats kimi-for-coding as API-cost-enabled', () => {
+    assert.equal(API_COST_ENABLED_PROVIDERS.has('kimi-for-coding'), true)
   })
 
   it('classifies cache coverage mode from pricing rates', () => {

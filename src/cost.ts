@@ -3,7 +3,16 @@ import type { AssistantMessage } from '@opencode-ai/sdk'
 import { asNumber, isRecord } from './helpers.js'
 import type { CacheCoverageMode } from './types.js'
 
-export const SUBSCRIPTION_API_COST_PROVIDERS = new Set(['openai', 'anthropic'])
+export const API_COST_ENABLED_PROVIDERS = new Set([
+  'openai',
+  'anthropic',
+  'kimi-for-coding',
+])
+
+const MODEL_COST_RATE_ALIASES: Record<string, string[]> = {
+  'kimi-for-coding:k2p5': ['moonshotai-cn:kimi-k2.5'],
+  'kimi-for-coding:kimi-k2-thinking': ['moonshotai-cn:kimi-k2-thinking'],
+}
 
 function normalizeKnownProviderID(providerID: string) {
   if (providerID.startsWith('github-copilot')) return 'github-copilot'
@@ -12,7 +21,7 @@ function normalizeKnownProviderID(providerID: string) {
 
 export function canonicalApiCostProviderID(providerID: string) {
   const normalized = normalizeKnownProviderID(providerID)
-  if (SUBSCRIPTION_API_COST_PROVIDERS.has(normalized)) return normalized
+  if (API_COST_ENABLED_PROVIDERS.has(normalized)) return normalized
 
   const lowered = providerID.toLowerCase()
   if (lowered.includes('copilot')) return 'github-copilot'
@@ -38,6 +47,28 @@ export type ModelCostRates = {
 
 export function modelCostKey(providerID: string, modelID: string) {
   return `${providerID}:${modelID}`
+}
+
+export function modelCostLookupKeys(providerID: string, modelID: string) {
+  const keys: string[] = []
+  const canonicalProviderID = canonicalApiCostProviderID(providerID)
+
+  const push = (key: string) => {
+    if (!keys.includes(key)) keys.push(key)
+  }
+
+  push(modelCostKey(providerID, modelID))
+  if (canonicalProviderID !== providerID) {
+    push(modelCostKey(canonicalProviderID, modelID))
+  }
+
+  for (const key of [...keys]) {
+    for (const alias of MODEL_COST_RATE_ALIASES[key] || []) {
+      push(alias)
+    }
+  }
+
+  return keys
 }
 
 export function parseModelCostRates(
