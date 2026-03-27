@@ -67,7 +67,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
   - RightCode daily quota shows `$remaining/$dailyTotal` without trailing percent, and shows balance on the next indented line when available
   - XYAI daily quota follows the same balance-style layout and prefers the real reset time (for example `XYAI Daily $70.2/$90 Rst 22:18`)
-- Desktop automatically switches to a compact single-line title. It keeps `Requests/Input/Output` plus recently used providers from the last `50` requests or last `60` minutes, and expands all windows/balance for those selected providers in short form such as `OAI 5h80 W70` or `RC D88.9/60 B260`
+- Desktop automatically switches to a compact single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes ahead of `Requests/Input/Output`, and expands all windows/balance for those selected providers in short form such as `OAI 5h80 W70` or `RC D88.9/60 B260`
 - TUI is always rendered as multiline; Desktop is always rendered as compact single-line. This behavior no longer depends on `sidebar.multilineTitle`
 - Web UI currently cannot be reliably detected by the plugin, so it follows the non-desktop multiline path
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
@@ -472,10 +472,10 @@ Mixed with Buzz balance:
 
 ### Desktop compact mode
 
-Desktop always uses a compact single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand:
+Desktop always uses a compact single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand. To survive upstream Desktop truncation better, quota segments are emitted before usage stats:
 
 ```text
-<base> | R12 I18.9k O53 | OAI 5h80 W70 | Cop M78 | RC D88.9/60 B260 | Buzz B￥10.2
+<base> | OAI 5h80 W70 | Cop M78 | RC D88.9/60 B260 | Buzz B￥10.2 | R12 I18.9k O53
 ```
 
 Shorthand rules:
@@ -486,6 +486,7 @@ Shorthand rules:
 - `W70` / `M78` / `D46` = weekly / monthly / daily window remaining percent
 - `D88.9/60` = daily remaining / daily total
 - `B260` / `B￥10.2` = balance
+- Order is `base | quota... | usage`, while TUI keeps its multiline usage-first layout.
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 

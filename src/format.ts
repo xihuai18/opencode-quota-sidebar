@@ -331,8 +331,8 @@ function renderDesktopCompactTitle(
     .filter(Boolean)
 
   const segments = [
-    `R${shortNumber(usage.assistantMessages, 1)} I${sidebarNumber(usage.input)} O${sidebarNumber(usage.output)}`,
     ...quotaSegments,
+    `R${shortNumber(usage.assistantMessages, 1)} I${sidebarNumber(usage.input)} O${sidebarNumber(usage.output)}`,
   ]
   const detail = segments.join(' | ')
   const safeBase = sanitizeLine(baseTitle) || 'Session'

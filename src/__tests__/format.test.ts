@@ -131,10 +131,10 @@ describe('renderSidebarTitle', () => {
       )
 
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /R3 I1\.5k O1\.2m/)
-      assert.match(title, /OAI 5h80 W70/)
-      assert.match(title, /RC D88\.9\/60 B260/)
-      assert.match(title, /Buzz B￥10\.2/)
+      assert.match(
+        title,
+        /Greeting and quick check-in \| OAI 5h80 W70 \| RC D88\.9\/60 B260 \| Buzz B￥10\.2 \| R3 I1\.5k O1\.2m/,
+      )
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
     }
