@@ -10,9 +10,18 @@ import {
 describe('title', () => {
   it('normalizes base title to first line', () => {
     assert.equal(normalizeBaseTitle('Hello\nInput 1 Output 2'), 'Hello')
-    assert.equal(normalizeBaseTitle('\u001b[2mHello\u001b[0m\nWorld'), 'Hello\nWorld')
+    assert.equal(
+      normalizeBaseTitle('\u001b[2mHello\u001b[0m\nWorld'),
+      'Hello\nWorld',
+    )
     assert.equal(
       normalizeBaseTitle('Hello | Input 1  Output 2 | OpenAI 80%'),
+      'Hello',
+    )
+    assert.equal(
+      normalizeBaseTitle(
+        'Hello | R12 I18.9k O53 | OAI 5h80 W70 | RC D88.9/60 B260',
+      ),
       'Hello',
     )
     assert.equal(
@@ -33,7 +42,10 @@ describe('title', () => {
     assert.equal(looksDecorated('Session\nCache Coverage 60%'), true)
     assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
-    assert.equal(looksDecorated('Session\nXYAI Daily $58.3/$90 Rst 22:18'), true)
+    assert.equal(
+      looksDecorated('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
+      true,
+    )
     assert.equal(looksDecorated('Session\nKimi\n  5h 100% Rst 23:44'), true)
     assert.equal(looksDecorated('Session\nOpenAI 5h 80%'), true)
     assert.equal(looksDecorated('Project rollout\nOpenAI 50% complete'), false)
@@ -46,6 +58,12 @@ describe('title', () => {
     assert.equal(looksDecorated('Session | I see OpenAI'), false)
     assert.equal(
       looksDecorated('Session | Input 1k  Output 2k | OpenAI 80%'),
+      true,
+    )
+    assert.equal(
+      looksDecorated(
+        'Session | R12 I18.9k O53 | OAI 5h80 W70 | RC D88.9/60 B260',
+      ),
       true,
     )
     assert.equal(looksDecorated('Session|Input 1k  Output 2k|OpenAI 80%'), true)

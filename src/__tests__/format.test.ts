@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import {
   renderMarkdownReport,
@@ -8,6 +8,16 @@ import {
 } from '../format.js'
 import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
 import type { UsageSummary } from '../usage.js'
+
+const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT
+
+beforeEach(() => {
+  process.env.OPENCODE_CLIENT = 'cli'
+})
+
+afterEach(() => {
+  process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
+})
 
 function makeConfig(width = 36): QuotaSidebarConfig {
   return {
@@ -22,6 +32,10 @@ function makeConfig(width = 36): QuotaSidebarConfig {
       childrenMaxDepth: 6,
       childrenMaxSessions: 128,
       childrenConcurrency: 5,
+      desktopCompact: {
+        recentRequests: 50,
+        recentMinutes: 60,
+      },
     },
     quota: {
       refreshMs: 300_000,
@@ -65,6 +79,120 @@ describe('renderSidebarTitle', () => {
     )
     assert.equal(title.includes('\n'), false)
     assert.match(title, /Input 1\.5k  Output 1\.2m/)
+    assert.match(title, /Req 3/)
+  })
+
+  it('renders compact desktop titles with all recent provider windows and balances', () => {
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_CLIENT = 'desktop'
+    try {
+      const title = renderSidebarTitle(
+        'Greeting and quick check-in',
+        makeUsage({
+          recentProviders: [
+            { providerID: 'openai', completedAt: Date.now() - 1_000 },
+            { providerID: 'rightcode-openai', completedAt: Date.now() - 2_000 },
+            { providerID: 'buzz-openai', completedAt: Date.now() - 3_000 },
+          ],
+        }),
+        [
+          {
+            providerID: 'openai',
+            adapterID: 'openai',
+            label: 'OpenAI',
+            shortLabel: 'OpenAI',
+            status: 'ok',
+            checkedAt: Date.now(),
+            windows: [
+              { label: '5h', remainingPercent: 80 },
+              { label: 'Weekly', remainingPercent: 70 },
+            ],
+          },
+          {
+            providerID: 'rightcode-openai',
+            adapterID: 'rightcode',
+            label: 'RightCode',
+            shortLabel: 'RC-openai',
+            status: 'ok',
+            checkedAt: Date.now(),
+            windows: [{ label: 'Daily $88.9/$60', showPercent: false }],
+            balance: { amount: 260, currency: '$' },
+          },
+          {
+            providerID: 'buzz-openai',
+            adapterID: 'buzz',
+            label: 'Buzz',
+            shortLabel: 'Buzz',
+            status: 'ok',
+            checkedAt: Date.now(),
+            balance: { amount: 10.2, currency: '￥' },
+          },
+        ],
+        makeConfig(200),
+      )
+
+      assert.equal(title.includes('\n'), false)
+      assert.match(title, /R3 I1\.5k O1\.2m/)
+      assert.match(title, /OAI 5h80 W70/)
+      assert.match(title, /RC D88\.9\/60 B260/)
+      assert.match(title, /Buzz B￥10\.2/)
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
+    }
+  })
+
+  it('filters desktop compact providers by recent requests and time window', () => {
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_CLIENT = 'desktop'
+    try {
+      const now = Date.now()
+      const config = makeConfig(200)
+      config.sidebar.desktopCompact = { recentRequests: 2, recentMinutes: 60 }
+
+      const title = renderSidebarTitle(
+        'Greeting and quick check-in',
+        makeUsage({
+          recentProviders: [
+            { providerID: 'openai', completedAt: now - 1_000 },
+            { providerID: 'github-copilot', completedAt: now - 2_000 },
+            { providerID: 'anthropic', completedAt: now - 3_700_000 },
+          ],
+        }),
+        [
+          {
+            providerID: 'openai',
+            adapterID: 'openai',
+            label: 'OpenAI',
+            status: 'ok',
+            checkedAt: now,
+            windows: [{ label: '5h', remainingPercent: 80 }],
+          },
+          {
+            providerID: 'github-copilot',
+            adapterID: 'github-copilot',
+            label: 'Copilot',
+            status: 'ok',
+            checkedAt: now,
+            windows: [{ label: 'Monthly', remainingPercent: 60 }],
+          },
+          {
+            providerID: 'anthropic',
+            adapterID: 'anthropic',
+            label: 'Anthropic',
+            status: 'ok',
+            checkedAt: now,
+            windows: [{ label: 'Weekly', remainingPercent: 55 }],
+          },
+        ],
+        config,
+      )
+
+      assert.match(title, /OAI 5h80/)
+      assert.match(title, /Cop M60/)
+      assert.doesNotMatch(title, /Ant W55/)
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
+    }
   })
 
   it('renders Buzz balance consistently in single-line titles', () => {
@@ -93,7 +221,7 @@ describe('renderSidebarTitle', () => {
   })
 
   it('shows non-ok quota status in single-line titles', () => {
-    const config = makeConfig(120)
+    const config = makeConfig(160)
     config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -111,11 +239,11 @@ describe('renderSidebarTitle', () => {
       config,
     )
 
-    assert.match(title, /OpenAI una~/)
+    assert.match(title, /OpenAI unavailable/)
   })
 
   it('sanitizes invalid quota percentages in single-line titles', () => {
-    const config = makeConfig(120)
+    const config = makeConfig(160)
     config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -145,7 +273,11 @@ describe('renderSidebarTitle', () => {
       [],
       makeConfig(60),
     )
+    const lines = title.split('\n')
+    assert.equal(lines[2], 'Requests 3')
+    assert.equal(lines[3], 'Input 1.5k  Output 1.2m')
     assert.match(title, /Input 1\.5k  Output 1\.2m/)
+    assert.match(title, /Requests 3/)
     assert.match(title, /\$2\.34 as API cost/)
     assert.match(title, /Cache Read 2\.5k/)
   })
@@ -603,7 +735,12 @@ describe('renderSidebarTitle', () => {
       },
     ]
 
-    const title = renderSidebarTitle('Session', makeUsage(), quotas, makeConfig(60))
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
 
     assert.match(title, /XYAI Daily \$70\.2\/\$90 Rst \d{2}:\d{2}/)
     assert.doesNotMatch(title, /exp 04-15/i)
@@ -926,17 +1063,18 @@ describe('renderMarkdownReport', () => {
     )
     assert.match(report, /API cost: \$2\.34/)
     assert.match(report, /Measured cost: -/)
+    assert.match(report, /Requests: 3/)
     assert.match(
       report,
-      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$0\.35 \|/,
+      /\| openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$0\.35 \|/,
     )
     assert.match(
       report,
-      /\| github-copilot \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
+      /\| github-copilot \| 1 \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
     )
   })
 
@@ -1005,7 +1143,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$4\.57 \|/,
+      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$4\.57 \|/,
     )
   })
 
@@ -1046,7 +1184,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$9\.88 \| \$4\.57 \|/,
+      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$9\.88 \| \$4\.57 \|/,
     )
   })
 
@@ -1139,15 +1277,15 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /Best Cache Read Coverage: OpenAI \(75%\)/)
     assert.match(
       report,
-      /\| Provider \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 300 \| 400 \| 900 \| 1\.6k \| - \| 75% \| - \| \$8\.30 \|/,
+      /\| openai \| 2 \| 300 \| 400 \| 900 \| 1\.6k \| - \| 75% \| - \| \$8\.30 \|/,
     )
     assert.match(
       report,
-      /\| anthropic \| 400 \| 480 \| 600 \| 1\.5k \| 60% \| - \| - \| \$6\.52 \|/,
+      /\| anthropic \| 2 \| 400 \| 480 \| 600 \| 1\.5k \| 60% \| - \| - \| \$6\.52 \|/,
     )
   })
 
@@ -1302,7 +1440,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| kimi-for-coding \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| - \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
+      /\| kimi-for-coding \| 1 \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| - \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
     )
     assert.match(report, /- API cost: \$0\.14/)
   })
@@ -1470,6 +1608,7 @@ describe('renderToastMessage', () => {
     const lines = toast.split('\n')
     assert.equal(lines[1], '')
     assert.equal(lines[2], 'Token Usage')
+    assert.ok(lines.some((line) => /Requests\s+3$/.test(line)))
     assert.ok(!lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
     const quotaHeaderIndex = lines.findIndex((line) => line === 'Quota')
     assert.ok(quotaHeaderIndex > 0)
@@ -1553,7 +1692,9 @@ describe('renderToastMessage', () => {
 
   it('shows unified expiry reminders in toast for applicable providers within 3 days', () => {
     const now = new Date()
-    const soon = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000 + 90 * 60 * 1000)
+    const soon = new Date(
+      now.getTime() + 2 * 24 * 60 * 60 * 1000 + 90 * 60 * 1000,
+    )
     const soonIso = soon.toISOString()
     const toast = renderToastMessage('session', makeUsage(), [
       {
@@ -1598,7 +1739,9 @@ describe('renderToastMessage', () => {
   })
 
   it('does not show expiry reminders in toast when expiry is beyond 3 days', () => {
-    const laterIso = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString()
+    const laterIso = new Date(
+      Date.now() + 5 * 24 * 60 * 60 * 1000,
+    ).toISOString()
     const toast = renderToastMessage('session', makeUsage(), [
       {
         providerID: 'xyai-vibe',
@@ -1623,7 +1766,11 @@ describe('renderToastMessage', () => {
   })
 
   it('does not duplicate API cost inside token usage section', () => {
-    const toast = renderToastMessage('session', makeUsage({ apiCost: 2.34 }), [])
+    const toast = renderToastMessage(
+      'session',
+      makeUsage({ apiCost: 2.34 }),
+      [],
+    )
 
     const apiCostMatches = toast.match(/API Cost/g) || []
     assert.equal(apiCostMatches.length, 0)

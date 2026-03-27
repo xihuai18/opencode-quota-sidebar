@@ -6,7 +6,12 @@ function sanitizeTitleFragment(value: string) {
 
 function isCoreDecoratedDetail(line: string) {
   if (!line) return false
-  if (/^Input\s+\$?[\d.,]+[kKmM]?(?:\s+Output(?:\s+\$?[\d.,]+[kKmM]?)?)?~?$/.test(line)) {
+  if (/^Requests\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
+  if (
+    /^Input\s+\$?[\d.,]+[kKmM]?(?:\s+Output(?:\s+\$?[\d.,]+[kKmM]?)?)?~?$/.test(
+      line,
+    )
+  ) {
     return true
   }
   if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
@@ -22,9 +27,18 @@ function isCoreDecoratedDetail(line: string) {
     )
   )
     return true
+  if (
+    /^R(?:eq(?:uests)?)?\s*\$?\d[\d.,]*[kKmM]?(?:\s+I\$?\d[\d.,]*[kKmM]?\s+O\$?\d[\d.,]*[kKmM]?)?$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
   if (/^C(?:ache\s*)?R(?:ead)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
   if (/^C(?:ache\s*)?W(?:rite)?\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
-  if (/^C(?:ache(?:\s*R(?:ead)?)?)?\s*Coverage\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
+  if (
+    /^C(?:ache(?:\s*R(?:ead)?)?)?\s*Coverage\s+\d[\d.,]*(?:%|~)?$/.test(line)
+  ) {
     return true
   }
   return false
@@ -32,7 +46,16 @@ function isCoreDecoratedDetail(line: string) {
 
 function isQuotaDecoratedDetail(line: string) {
   if (!line) return false
-  if (/^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)\s*$/.test(line)) {
+  if (
+    /^(OAI|Cop|Ant|Kimi|XY|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)\s*$/.test(line)
+  ) {
     return true
   }
   if (
@@ -54,8 +77,18 @@ function isQuotaDecoratedDetail(line: string) {
 
 function isSingleLineDecoratedPrefix(line: string) {
   if (!line) return false
+  if (/^Req(?:uests)?\s+\$?[\d.,]+[kKmM]?~?$/.test(line)) return true
+  if (
+    /^R\$?[\d.,]+[kKmM]?\s+I\$?[\d.,]+[kKmM]?\s+O\$?[\d.,]+[kKmM]?(?:~|$)/.test(
+      line,
+    )
+  ) {
+    return true
+  }
   if (/^Input\s+\$?[\d.,]+[kKmM]?~?$/.test(line)) return true
-  if (/^Input\s+\$?[\d.,]+[kKmM]?\s+Output(?:\s+\$?[\d.,]+[kKmM]?~?)?$/.test(line)) {
+  if (
+    /^Input\s+\$?[\d.,]+[kKmM]?\s+Output(?:\s+\$?[\d.,]+[kKmM]?~?)?$/.test(line)
+  ) {
     return true
   }
   if (/^Cache\s+(Read|Write)\s+\$?\d[\d.,]*[kKmM]?(?:~|$)/.test(line)) {
@@ -83,9 +116,7 @@ function decoratedSingleLineBase(line: string) {
   if (parts.length < 2) return undefined
   if (isSingleLineDetailPrefix(parts[0] || '')) return undefined
   const details = parts.slice(1)
-  if (
-    !details.some((detail) => isSingleLineDetailPrefix(detail))
-  ) {
+  if (!details.some((detail) => isSingleLineDetailPrefix(detail))) {
     return undefined
   }
   return parts[0] || 'Session'
@@ -99,8 +130,14 @@ export function normalizeBaseTitle(title: string) {
 
   const lines = stripAnsi(safeTitle).split(/\r?\n/)
   if (lines.length > 1) {
-    const detail = lines.slice(1).map((line) => sanitizeTitleFragment(line).trim())
-    if (detail.some((line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line))) {
+    const detail = lines
+      .slice(1)
+      .map((line) => sanitizeTitleFragment(line).trim())
+    if (
+      detail.some(
+        (line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line),
+      )
+    ) {
       return sanitizeTitleFragment(firstLine) || 'Session'
     }
   }
@@ -158,5 +195,7 @@ export function looksDecorated(title: string): boolean {
   const detail = lines
     .slice(1)
     .map((line) => sanitizeTitleFragment(line).trim())
-  return detail.some((line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line))
+  return detail.some(
+    (line) => isCoreDecoratedDetail(line) || isQuotaDecoratedDetail(line),
+  )
 }

@@ -9,7 +9,11 @@
     "includeChildren": true,
     "childrenMaxDepth": 6,
     "childrenMaxSessions": 128,
-    "childrenConcurrency": 5
+    "childrenConcurrency": 5,
+    "desktopCompact": {
+      "recentRequests": 50,
+      "recentMinutes": 60
+    }
   },
   "quota": {
     "refreshMs": 300000,

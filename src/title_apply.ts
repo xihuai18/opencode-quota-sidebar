@@ -14,6 +14,7 @@ import type {
 } from './types.js'
 import type { UsageSummary } from './usage.js'
 import { swallow, debug, mapConcurrent } from './helpers.js'
+import { isDesktopClient, selectDesktopCompactProviderIDs } from './format.js'
 
 export function createTitleApplicator(deps: {
   state: QuotaSidebarState
@@ -140,7 +141,13 @@ export function createTitleApplicator(deps: {
       sessionID,
       deps.config.sidebar.includeChildren,
     )
-    const quotaProviders = Array.from(new Set(Object.keys(usage.providers)))
+    const quotaProviders = Array.from(
+      new Set(
+        isDesktopClient()
+          ? selectDesktopCompactProviderIDs(usage, deps.config)
+          : Object.keys(usage.providers),
+      ),
+    )
 
     const quotas =
       deps.config.sidebar.showQuota && quotaProviders.length > 0
@@ -242,7 +249,10 @@ export function createTitleApplicator(deps: {
       return
     }
 
-    if (looksDecorated(args.incomingTitle) && args.sessionState.lastAppliedTitle) {
+    if (
+      looksDecorated(args.incomingTitle) &&
+      args.sessionState.lastAppliedTitle
+    ) {
       if (
         canonicalizeTitleForCompare(args.incomingTitle) ===
         canonicalizeTitleForCompare(args.sessionState.lastAppliedTitle)
@@ -252,7 +262,10 @@ export function createTitleApplicator(deps: {
       }
     }
 
-    if (looksDecorated(args.incomingTitle) && !args.sessionState.lastAppliedTitle) {
+    if (
+      looksDecorated(args.incomingTitle) &&
+      !args.sessionState.lastAppliedTitle
+    ) {
       debug(`ignoring untracked decorated title for session ${args.sessionID}`)
       return
     }
@@ -267,7 +280,9 @@ export function createTitleApplicator(deps: {
           canonicalizeTitleForCompare(args.incomingTitle) ===
             canonicalizeTitleForCompare(restored.decoratedTitle))
       ) {
-        debug(`ignoring decorated echo after restore for session ${args.sessionID}`)
+        debug(
+          `ignoring decorated echo after restore for session ${args.sessionID}`,
+        )
         return
       }
     }
@@ -298,7 +313,9 @@ export function createTitleApplicator(deps: {
       !session.data.time ||
       typeof session.data.time.created !== 'number'
     ) {
-      debug(`restoreSessionTitle skipped malformed session payload for ${sessionID}`)
+      debug(
+        `restoreSessionTitle skipped malformed session payload for ${sessionID}`,
+      )
       return false
     }
 
@@ -343,7 +360,9 @@ export function createTitleApplicator(deps: {
     return true
   }
 
-  const restoreAllVisibleTitles = async (options?: { abortIfEnabled?: boolean }) => {
+  const restoreAllVisibleTitles = async (options?: {
+    abortIfEnabled?: boolean
+  }) => {
     const touched = Object.entries(deps.state.sessions)
       .filter(([, sessionState]) => Boolean(sessionState.lastAppliedTitle))
       .map(([sessionID]) => sessionID)
@@ -385,8 +404,8 @@ export function createTitleApplicator(deps: {
     if (!list?.data || !Array.isArray(list.data)) {
       return { attempted: 0, refreshed: 0, listFailed: true }
     }
-    const sessions = list.data.filter(
-      (session) => Boolean(session && typeof (session as { id?: unknown }).id === 'string'),
+    const sessions = list.data.filter((session) =>
+      Boolean(session && typeof (session as { id?: unknown }).id === 'string'),
     )
 
     const results = await mapConcurrent(

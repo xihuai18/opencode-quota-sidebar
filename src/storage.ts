@@ -61,6 +61,10 @@ export const defaultConfig: QuotaSidebarConfig = {
     childrenMaxDepth: 6,
     childrenMaxSessions: 128,
     childrenConcurrency: 5,
+    desktopCompact: {
+      recentRequests: 50,
+      recentMinutes: 60,
+    },
   },
   quota: {
     refreshMs: 5 * 60 * 1000,
@@ -185,6 +189,36 @@ export async function loadConfig(paths: string[]) {
             ),
           ),
         ),
+        desktopCompact: {
+          recentRequests: Math.max(
+            1,
+            Math.min(
+              100,
+              Math.floor(
+                asNumber(
+                  isRecord(sidebar.desktopCompact)
+                    ? sidebar.desktopCompact.recentRequests
+                    : undefined,
+                  base.sidebar.desktopCompact?.recentRequests ?? 50,
+                ),
+              ),
+            ),
+          ),
+          recentMinutes: Math.max(
+            1,
+            Math.min(
+              24 * 60,
+              Math.floor(
+                asNumber(
+                  isRecord(sidebar.desktopCompact)
+                    ? sidebar.desktopCompact.recentMinutes
+                    : undefined,
+                  base.sidebar.desktopCompact?.recentMinutes ?? 60,
+                ),
+              ),
+            ),
+          ),
+        },
       },
       quota: {
         refreshMs: Math.max(
@@ -473,13 +507,13 @@ export async function saveState(
   await safeWriteFile(
     statePath,
     `${JSON.stringify(
-        {
-          version: 2,
-          titleEnabled: state.titleEnabled,
-          sessionDateMap: state.sessionDateMap,
-          deletedSessionDateMap: state.deletedSessionDateMap,
-          quotaCache: state.quotaCache,
-        },
+      {
+        version: 2,
+        titleEnabled: state.titleEnabled,
+        sessionDateMap: state.sessionDateMap,
+        deletedSessionDateMap: state.deletedSessionDateMap,
+        quotaCache: state.quotaCache,
+      },
       null,
       2,
     )}\n`,
@@ -616,7 +650,9 @@ export async function scanAllSessions(
   const seenSessionIDs = new Set<string>()
 
   if (memoryState) {
-    for (const [sessionID, sessionState] of Object.entries(memoryState.sessions)) {
+    for (const [sessionID, sessionState] of Object.entries(
+      memoryState.sessions,
+    )) {
       if (deletedSessionIDs.has(sessionID)) continue
       const dateKey =
         memoryState.sessionDateMap[sessionID] ||

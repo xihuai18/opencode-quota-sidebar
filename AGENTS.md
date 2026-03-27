@@ -114,7 +114,10 @@ MCP 条目通过 JSX 结构实现两种字体：
 ### 4.1 Sidebar 中的 token 统计
 
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
-- 示例：`Input 18.9k  Output 53` 或 `Input 1.2m  Output 54.8k`
+- Sidebar 中 Requests 行默认放在 Input/Output 之前
+- 示例：`Requests 12`、`Input 18.9k  Output 53` 或 `Input 1.2m  Output 54.8k`
+- Desktop 自动走 compact 单行 title：`<base> | R12 I18.9k O53 | OAI 5h80 W70 | RC D88.9/60 B260`
+- Desktop compact 仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
 - toast 和 markdown report 同样使用 `shortNumber()`
 
 ### 4.2 Cache 显示
@@ -182,16 +185,16 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 
 ### 5.5 Provider 支持状态
 
-| Provider               | Quota 端点                             | 状态              |
-| ---------------------- | -------------------------------------- | ----------------- |
-| OpenAI Codex (OAuth)   | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
-| GitHub Copilot (OAuth) | `api.github.com/copilot_internal/user` | 支持，月度        |
-| Kimi For Coding       | `api.kimi.com/coding/v1/usages`        | 支持，5h+周窗口   |
-| RightCode              | `www.right.codes/account/summary`      | 支持，日额度/余额 |
-| Buzz                   | `buzzai.cc/v1/dashboard/billing/*`     | 支持，余额        |
-| Anthropic              | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |
-| XYAI Vibe              | `new.xychatai.com/frontend-api/*`      | 支持，日额度/余额 |
-| 其他通用 API Key providers | 通常无 quota 端点                  | 仅显示 token 用量 |
+| Provider                   | Quota 端点                             | 状态              |
+| -------------------------- | -------------------------------------- | ----------------- |
+| OpenAI Codex (OAuth)       | `chatgpt.com/backend-api/wham/usage`   | 支持，多窗口      |
+| GitHub Copilot (OAuth)     | `api.github.com/copilot_internal/user` | 支持，月度        |
+| Kimi For Coding            | `api.kimi.com/coding/v1/usages`        | 支持，5h+周窗口   |
+| RightCode                  | `www.right.codes/account/summary`      | 支持，日额度/余额 |
+| Buzz                       | `buzzai.cc/v1/dashboard/billing/*`     | 支持，余额        |
+| Anthropic                  | `api.anthropic.com/api/oauth/usage`    | 支持，多窗口      |
+| XYAI Vibe                  | `new.xychatai.com/frontend-api/*`      | 支持，日额度/余额 |
+| 其他通用 API Key providers | 通常无 quota 端点                      | 仅显示 token 用量 |
 
 - 注意：Kimi / RightCode / Buzz 虽然使用 API Key，但仍有 quota / balance 展示。
 - XYAI Vibe 使用登录态 session auth，而不是 OpenCode 的 OAuth provider 类型。
@@ -331,38 +334,38 @@ Copilot-Integration-Id: vscode-chat
 
 ## 7. 文件清单
 
-| 文件                    | 职责                                                            |
-| ----------------------- | --------------------------------------------------------------- |
-| `src/index.ts`          | 插件入口，事件处理，工具注册，并发锁，增量聚合编排              |
-| `src/descendants.ts`    | 子 session（subagent）树遍历、缓存与失效策略                    |
-| `src/format.ts`         | Sidebar title 渲染，markdown report，toast 格式化               |
-| `src/quota.ts`          | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发 |
-| `src/quota_service.ts`  | Quota snapshot 拉取与缓存（sidebar/toast/report 复用）          |
-| `src/cost.ts`           | API 等价成本计算（pricing 解析、provider 归一、计费单位启发式） |
-| `src/title.ts`          | Session title 规范化与装饰检测（去 ANSI、去抖动）               |
-| `src/title_apply.ts`    | session title 应用与还原（含 echo 防护与父 session 刷新传播）   |
-| `src/title_refresh.ts`  | title 刷新调度（debounce + per-session 锁）                     |
-| `src/period.ts`         | day/week/month 的时间范围起点计算                               |
-| `src/tools.ts`          | quota_summary / quota_show 工具定义                             |
-| `src/events.ts`         | OpenCode event 路由与过滤（session/message 事件）               |
-| `src/persistence.ts`    | 脏日期键追踪与持久化调度（markDirty/scheduleSave/flushSave）    |
-| `src/cache.ts`          | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）       |
-| `src/quota_render.ts`   | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）   |
-| `src/providers/index.ts` | 默认 provider registry 组装与内置 adapter 注册                |
-| `src/providers/registry.ts` | Provider adapter 解析（`matchScore` + `sortOrder`）       |
-| `src/providers/types.ts` | Provider adapter / auth / fetch context 契约                  |
-| `src/providers/common.ts` | Provider 共享抓取/时间窗口/响应解析辅助                      |
-| `src/providers/`        | Provider adapters（OpenAI/Copilot/Anthropic/Kimi/RightCode/Buzz/XYAI Vibe） |
-| `src/usage.ts`          | Token 聚合，增量 cursor，UsageSummary 类型                      |
-| `src/usage_service.ts`  | session/range 用量聚合服务（session+subagent merge 与范围统计） |
-| `src/storage.ts`        | v2 存储门面：config/state/save/load/scan/evict 编排             |
-| `src/storage_dates.ts`  | 时间戳与日期 key 工具（normalize/date range）                   |
-| `src/storage_paths.ts`  | OpenCode 数据路径与 chunk 路径解析                              |
-| `src/storage_parse.ts`  | state/chunk 中 session/quota 字段解析与兼容处理                 |
-| `src/storage_chunks.ts` | chunk 读写、LRU 缓存、原子写入与 symlink 防护                   |
-| `src/types.ts`          | 共享类型定义                                                    |
-| `src/helpers.ts`        | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）   |
-| `src/__tests__/`        | 单元测试（node --test）                                         |
+| 文件                        | 职责                                                                        |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `src/index.ts`              | 插件入口，事件处理，工具注册，并发锁，增量聚合编排                          |
+| `src/descendants.ts`        | 子 session（subagent）树遍历、缓存与失效策略                                |
+| `src/format.ts`             | Sidebar title 渲染，markdown report，toast 格式化                           |
+| `src/quota.ts`              | Quota adapter 注册表桥接、auth 选择、cache key 与 snapshot 分发             |
+| `src/quota_service.ts`      | Quota snapshot 拉取与缓存（sidebar/toast/report 复用）                      |
+| `src/cost.ts`               | API 等价成本计算（pricing 解析、provider 归一、计费单位启发式）             |
+| `src/title.ts`              | Session title 规范化与装饰检测（去 ANSI、去抖动）                           |
+| `src/title_apply.ts`        | session title 应用与还原（含 echo 防护与父 session 刷新传播）               |
+| `src/title_refresh.ts`      | title 刷新调度（debounce + per-session 锁）                                 |
+| `src/period.ts`             | day/week/month 的时间范围起点计算                                           |
+| `src/tools.ts`              | quota_summary / quota_show 工具定义                                         |
+| `src/events.ts`             | OpenCode event 路由与过滤（session/message 事件）                           |
+| `src/persistence.ts`        | 脏日期键追踪与持久化调度（markDirty/scheduleSave/flushSave）                |
+| `src/cache.ts`              | TTL 值缓存工具（auth/providerOptions/modelCost 缓存复用）                   |
+| `src/quota_render.ts`       | Quota 展示标签与快照折叠去重策略（sidebar/toast/report 复用）               |
+| `src/providers/index.ts`    | 默认 provider registry 组装与内置 adapter 注册                              |
+| `src/providers/registry.ts` | Provider adapter 解析（`matchScore` + `sortOrder`）                         |
+| `src/providers/types.ts`    | Provider adapter / auth / fetch context 契约                                |
+| `src/providers/common.ts`   | Provider 共享抓取/时间窗口/响应解析辅助                                     |
+| `src/providers/`            | Provider adapters（OpenAI/Copilot/Anthropic/Kimi/RightCode/Buzz/XYAI Vibe） |
+| `src/usage.ts`              | Token 聚合，增量 cursor，UsageSummary 类型                                  |
+| `src/usage_service.ts`      | session/range 用量聚合服务（session+subagent merge 与范围统计）             |
+| `src/storage.ts`            | v2 存储门面：config/state/save/load/scan/evict 编排                         |
+| `src/storage_dates.ts`      | 时间戳与日期 key 工具（normalize/date range）                               |
+| `src/storage_paths.ts`      | OpenCode 数据路径与 chunk 路径解析                                          |
+| `src/storage_parse.ts`      | state/chunk 中 session/quota 字段解析与兼容处理                             |
+| `src/storage_chunks.ts`     | chunk 读写、LRU 缓存、原子写入与 symlink 防护                               |
+| `src/types.ts`              | 共享类型定义                                                                |
+| `src/helpers.ts`            | 工具函数（isRecord, asNumber, debug, swallow, mapConcurrent）               |
+| `src/__tests__/`            | 单元测试（node --test）                                                     |
 
 ### 7.1 项目内 skills
 

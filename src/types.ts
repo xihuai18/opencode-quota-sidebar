@@ -75,6 +75,11 @@ export type CacheCoverageMetrics = {
   cacheReadCoverage: number | undefined
 }
 
+export type RecentProviderEvent = {
+  providerID: string
+  completedAt: number
+}
+
 export type CachedProviderUsage = {
   input: number
   output: number
@@ -111,6 +116,8 @@ export type CachedSessionUsage = {
    * approximate buckets from top-level `cacheRead`/`cacheWrite` when missing.
    */
   cacheBuckets?: CacheUsageBuckets
+  /** Recent assistant-provider activity for compact desktop title selection. */
+  recentProviders?: RecentProviderEvent[]
   providers: Record<string, CachedProviderUsage>
 }
 
@@ -176,6 +183,11 @@ export type QuotaSidebarConfig = {
     childrenMaxSessions: number
     /** Concurrency for fetching descendant session messages (bounded). */
     childrenConcurrency: number
+    /** Desktop-only compact title selection window by request count/time. */
+    desktopCompact?: {
+      recentRequests?: number
+      recentMinutes?: number
+    }
   }
   quota: {
     refreshMs: number

@@ -7,6 +7,7 @@ import type {
   CachedSessionUsage,
   IncrementalCursor,
   QuotaSidebarState,
+  RecentProviderEvent,
   SessionState,
   SessionTitleState,
 } from './types.js'
@@ -73,6 +74,28 @@ function parseCacheUsageBuckets(value: unknown): CacheUsageBuckets | undefined {
   }
 }
 
+function parseRecentProviders(
+  value: unknown,
+): RecentProviderEvent[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const parsed = value
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item) => ({
+      providerID:
+        typeof item.providerID === 'string' && item.providerID
+          ? item.providerID
+          : undefined,
+      completedAt: asNumber(item.completedAt),
+    }))
+    .filter(
+      (item): item is RecentProviderEvent =>
+        typeof item.providerID === 'string' &&
+        typeof item.completedAt === 'number' &&
+        Number.isFinite(item.completedAt),
+    )
+  return parsed.length > 0 ? parsed : undefined
+}
+
 function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
   if (!isRecord(value)) return undefined
   const providersRaw = isRecord(value.providers) ? value.providers : {}
@@ -97,6 +120,7 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
     apiCost: asNumber(value.apiCost, 0),
     assistantMessages: asNumber(value.assistantMessages, 0),
     cacheBuckets: parseCacheUsageBuckets(value.cacheBuckets),
+    recentProviders: parseRecentProviders(value.recentProviders),
     providers,
   }
 }

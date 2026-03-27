@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import { QuotaSidebarPlugin } from '../index.js'
 
 const tmpDirs: string[] = []
+const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT
 
 async function makeTempDir() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-plugin-test-'))
@@ -28,11 +29,16 @@ async function waitFor(check: () => boolean, timeoutMs = 6000) {
 }
 
 afterEach(async () => {
+  process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
   await Promise.all(
     tmpDirs
       .splice(0, tmpDirs.length)
       .map((dir) => fs.rm(dir, { recursive: true, force: true })),
   )
+})
+
+beforeEach(() => {
+  process.env.OPENCODE_CLIENT = 'cli'
 })
 
 describe('subagent aggregation integration', () => {
@@ -357,6 +363,7 @@ describe('subagent aggregation integration', () => {
         { sessionID: 'p1' },
       )
       assert.match(mdNoChildren, /- Sessions: 1/)
+      assert.match(mdNoChildren, /- Requests: 1/)
       assert.match(mdNoChildren, /Tokens: input 100, output 20/)
 
       const mdWithChildren = await tool.execute(
@@ -364,6 +371,7 @@ describe('subagent aggregation integration', () => {
         { sessionID: 'p1' },
       )
       assert.match(mdWithChildren, /- Sessions: 2/)
+      assert.match(mdWithChildren, /- Requests: 2/)
       assert.match(mdWithChildren, /Tokens: input 300, output 50/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -380,7 +388,11 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
+          sidebar: {
+            includeChildren: true,
+            showQuota: false,
+            wrapQuotaLines: true,
+          },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,
@@ -565,7 +577,11 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
+          sidebar: {
+            includeChildren: true,
+            showQuota: false,
+            wrapQuotaLines: true,
+          },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,
@@ -787,7 +803,11 @@ describe('subagent aggregation integration', () => {
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
-          sidebar: { includeChildren: true, showQuota: false, wrapQuotaLines: true },
+          sidebar: {
+            includeChildren: true,
+            showQuota: false,
+            wrapQuotaLines: true,
+          },
           quota: {
             includeOpenAI: false,
             includeCopilot: false,

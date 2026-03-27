@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import { QuotaSidebarPlugin } from '../index.js'
 import { dateKeyFromTimestamp } from '../storage.js'
 
 const tmpDirs: string[] = []
+const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT
 
 async function makeTempDir() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-plugin-test-'))
@@ -29,18 +30,21 @@ async function waitFor(check: () => boolean, timeoutMs = 5000) {
 }
 
 afterEach(async () => {
+  process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
   await Promise.all(
-    tmpDirs
-      .splice(0, tmpDirs.length)
-      .map((dir) =>
-        fs.rm(dir, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 50,
-        }),
-      ),
+    tmpDirs.splice(0, tmpDirs.length).map((dir) =>
+      fs.rm(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 50,
+      }),
+    ),
   )
+})
+
+beforeEach(() => {
+  process.env.OPENCODE_CLIENT = 'cli'
 })
 
 describe('plugin integration', () => {
@@ -88,7 +92,8 @@ describe('plugin integration', () => {
               s1: {
                 createdAt,
                 baseTitle: 'Greeting and quick check-in',
-                lastAppliedTitle: 'Greeting and quick check-in\n\nInput 18.9k  Output 53',
+                lastAppliedTitle:
+                  'Greeting and quick check-in\n\nInput 18.9k  Output 53',
               },
             },
           },
@@ -124,7 +129,9 @@ describe('plugin integration', () => {
             set: async () => ({ data: { ok: true } }),
           },
           provider: {
-            list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
           },
         },
       } as never)
@@ -241,6 +248,88 @@ describe('plugin integration', () => {
     }
   })
 
+  it('renders compact single-line titles automatically on desktop', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: { multilineTitle: true, showCost: false, showQuota: false },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    process.env.OPENCODE_CLIENT = 'desktop'
+    try {
+      let title = 'Greeting and quick check-in'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm1',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 18_900,
+          output: 53,
+          reasoning: 0,
+          cache: { read: 1500, write: 0 },
+        },
+        cost: 0.02,
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's1', title, time: { created: Date.now() - 10_000 } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+
+      assert.equal(title.includes('\n'), false)
+      assert.match(title, /R1 I18\.9k O53/)
+      assert.doesNotMatch(title, /Requests 1|Cache Read 1\.5k/)
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('does not re-promote an untracked partial decorated echo into a duplicated title block', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
@@ -317,7 +406,11 @@ describe('plugin integration', () => {
         client: {
           session: {
             get: async () => ({
-              data: { id: 's-echo', title, time: { created: Date.now() - 10_000 } },
+              data: {
+                id: 's-echo',
+                title,
+                time: { created: Date.now() - 10_000 },
+              },
             }),
             update: async (args: { body: { title: string } }) => {
               title = args.body.title
@@ -354,7 +447,10 @@ describe('plugin integration', () => {
 
       await delay(350)
       assert.equal(updates.length, 0)
-      assert.equal(title, 'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable')
+      assert.equal(
+        title,
+        'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable',
+      )
 
       await hooks.event!({
         event: { type: 'message.updated', properties: { info: msg } },
@@ -363,7 +459,10 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       const latest = updates.at(-1) || ''
-      assert.match(latest, /^Echoed Session\n\nInput 420  Output 84/m)
+      assert.match(
+        latest,
+        /^Echoed Session\n\nRequests 1\nInput 420  Output 84/m,
+      )
       assert.match(latest, /Cache Read 21/)
       assert.match(latest, /Cache Read Coverage 5%/)
       assert.equal((latest.match(/Echoed Session/g) || []).length, 1)
@@ -455,7 +554,9 @@ describe('plugin integration', () => {
       }
 
       const originalFetch = globalThis.fetch
-      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (input) => {
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (
+        input,
+      ) => {
         const url = String(input)
         if (url.includes('/vibe-code/quota')) {
           return new Response(
@@ -519,11 +620,18 @@ describe('plugin integration', () => {
         await waitFor(() => updates.length > 0)
 
         const latest = updates.at(-1) || ''
-        assert.equal(latest.split(/\r?\n/)[0], '交叉验证Phase 1完成度与文档更新需求')
+        assert.equal(
+          latest.split(/\r?\n/)[0],
+          '交叉验证Phase 1完成度与文档更新需求',
+        )
         assert.equal((latest.match(/^Session$/gm) || []).length, 0)
-        assert.equal((latest.match(/交叉验证Phase 1完成度与文档更新需求/g) || []).length, 1)
+        assert.equal(
+          (latest.match(/交叉验证Phase 1完成度与文档更新需求/g) || []).length,
+          1,
+        )
       } finally {
-        ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
+        ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
+          originalFetch
       }
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -547,8 +655,9 @@ describe('plugin integration', () => {
         2,
       ),
     )
-
-    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (input) => {
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (
+      input,
+    ) => {
       const url = String(input)
       if (url.includes('www.right.codes/account/summary')) {
         return new Response(
@@ -667,7 +776,10 @@ describe('plugin integration', () => {
       } as never)
 
       await waitFor(() => toasts.some((item) => item.includes('Expiry Soon')))
-      assert.equal(toasts.filter((item) => item.includes('Expiry Soon')).length, 1)
+      assert.equal(
+        toasts.filter((item) => item.includes('Expiry Soon')).length,
+        1,
+      )
       assert.match(toasts[0] || '', /RC-openai Exp \d{2}-\d{2} \d{2}:\d{2}/)
 
       await hooks.event!({
@@ -675,7 +787,10 @@ describe('plugin integration', () => {
       } as never)
 
       await new Promise((resolve) => setTimeout(resolve, 50))
-      assert.equal(toasts.filter((item) => item.includes('Expiry Soon')).length, 1)
+      assert.equal(
+        toasts.filter((item) => item.includes('Expiry Soon')).length,
+        1,
+      )
       void title
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -1160,5 +1275,4 @@ describe('plugin integration', () => {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
-
 })

@@ -23,6 +23,7 @@ describe('mergeUsage', () => {
       total: 150,
       cost: 0.01,
       apiCost: 0.5,
+      recentProviders: [{ providerID: 'openai', completedAt: 200 }],
     })
     const b = makeSummary({
       input: 200,
@@ -30,6 +31,7 @@ describe('mergeUsage', () => {
       total: 300,
       cost: 0.02,
       apiCost: 0.8,
+      recentProviders: [{ providerID: 'anthropic', completedAt: 300 }],
     })
     const result = mergeUsage(a, b)
     assert.equal(result.input, 300)
@@ -37,6 +39,10 @@ describe('mergeUsage', () => {
     assert.equal(result.total, 450)
     assert.equal(result.cost, 0.03)
     assert.equal(result.apiCost, 1.3)
+    assert.deepEqual(result.recentProviders, [
+      { providerID: 'anthropic', completedAt: 300 },
+      { providerID: 'openai', completedAt: 200 },
+    ])
   })
 
   it('does not double-count reasoning when output is already merged', () => {
@@ -186,6 +192,10 @@ describe('toCachedSessionUsage / fromCachedSessionUsage', () => {
       cost: 0.01,
       apiCost: 0.45,
       assistantMessages: 2,
+      recentProviders: [
+        { providerID: 'openai', completedAt: 200 },
+        { providerID: 'openai', completedAt: 100 },
+      ],
       sessionCount: 1,
       providers: {
         openai: {
@@ -213,6 +223,7 @@ describe('toCachedSessionUsage / fromCachedSessionUsage', () => {
     assert.equal(restored.cost, summary.cost)
     assert.equal(restored.apiCost, summary.apiCost)
     assert.equal(restored.sessionCount, 1)
+    assert.deepEqual(restored.recentProviders, summary.recentProviders)
     assert.equal(restored.providers.openai.input, 100)
     assert.equal(restored.providers.openai.output, 60)
     assert.equal(restored.providers.openai.reasoning, 0)
@@ -293,8 +304,18 @@ describe('getCacheCoverageMetrics', () => {
         cacheWrite: 0,
         assistantMessages: 2,
         cacheBuckets: {
-          readOnly: { input: 0, cacheRead: 0, cacheWrite: 0, assistantMessages: 0 },
-          readWrite: { input: 0, cacheRead: 0, cacheWrite: 0, assistantMessages: 0 },
+          readOnly: {
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 0,
+          },
+          readWrite: {
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 0,
+          },
         },
       }),
     )
@@ -403,8 +424,18 @@ describe('toCachedSessionUsage / fromCachedSessionUsage round-trip with cacheBuc
       total: 2400,
       assistantMessages: 4,
       cacheBuckets: {
-        readOnly: { input: 300, cacheRead: 900, cacheWrite: 0, assistantMessages: 2 },
-        readWrite: { input: 400, cacheRead: 300, cacheWrite: 300, assistantMessages: 2 },
+        readOnly: {
+          input: 300,
+          cacheRead: 900,
+          cacheWrite: 0,
+          assistantMessages: 2,
+        },
+        readWrite: {
+          input: 400,
+          cacheRead: 300,
+          cacheWrite: 300,
+          assistantMessages: 2,
+        },
       },
     })
 

@@ -62,6 +62,10 @@ describe('loadConfig', () => {
           childrenMaxDepth: 0,
           childrenMaxSessions: -1,
           childrenConcurrency: 999,
+          desktopCompact: {
+            recentRequests: 0,
+            recentMinutes: 5000,
+          },
         },
         quota: {
           refreshMs: 100,
@@ -89,6 +93,8 @@ describe('loadConfig', () => {
     assert.equal(config.sidebar.childrenMaxDepth, 1)
     assert.equal(config.sidebar.childrenMaxSessions, 0)
     assert.equal(config.sidebar.childrenConcurrency, 10)
+    assert.equal(config.sidebar.desktopCompact?.recentRequests, 1)
+    assert.equal(config.sidebar.desktopCompact?.recentMinutes, 24 * 60)
     assert.equal(config.quota.refreshMs, 30_000)
     assert.equal(config.quota.requestTimeoutMs, 1_000)
     assert.equal(config.quota.includeOpenAI, false)

@@ -8,6 +8,7 @@ import type {
   CachedProviderUsage,
   CachedSessionUsage,
   IncrementalCursor,
+  RecentProviderEvent,
 } from './types.js'
 
 /**
@@ -16,7 +17,9 @@ import type {
  * fields).  This is distinct from the plugin *state* version managed by the
  * persistence layer; billing version only governs usage-cache staleness.
  */
-export const USAGE_BILLING_CACHE_VERSION = 5
+export const USAGE_BILLING_CACHE_VERSION = 6
+
+const MAX_RECENT_PROVIDER_EVENTS = 100
 
 export type ProviderUsage = {
   providerID: string
@@ -46,6 +49,7 @@ export type UsageSummary = {
   assistantMessages: number
   sessionCount: number
   cacheBuckets?: CacheUsageBuckets
+  recentProviders?: RecentProviderEvent[]
   providers: Record<string, ProviderUsage>
 }
 
@@ -91,7 +95,10 @@ function cloneCacheUsageBuckets(
   }
 }
 
-function mergeCacheUsageBucket(target: CacheUsageBucket, source?: CacheUsageBucket) {
+function mergeCacheUsageBucket(
+  target: CacheUsageBucket,
+  source?: CacheUsageBucket,
+) {
   if (!source) return target
   target.input += source.input
   target.cacheRead += source.cacheRead
@@ -100,7 +107,10 @@ function mergeCacheUsageBucket(target: CacheUsageBucket, source?: CacheUsageBuck
   return target
 }
 
-function addMessageCacheUsage(target: CacheUsageBucket, message: AssistantMessage) {
+function addMessageCacheUsage(
+  target: CacheUsageBucket,
+  message: AssistantMessage,
+) {
   target.input += message.tokens.input
   target.cacheRead += message.tokens.cache.read
   target.cacheWrite += message.tokens.cache.write
@@ -156,7 +166,10 @@ function resolvedCacheUsageBuckets(
 ): CacheUsageBuckets {
   const explicit = cloneCacheUsageBuckets(usage.cacheBuckets)
   if (!explicit) {
-    return cloneCacheUsageBuckets(fallbackCacheUsageBuckets(usage)) || emptyCacheUsageBuckets()
+    return (
+      cloneCacheUsageBuckets(fallbackCacheUsageBuckets(usage)) ||
+      emptyCacheUsageBuckets()
+    )
   }
 
   const accountedInput = explicit.readOnly.input + explicit.readWrite.input
@@ -233,6 +246,7 @@ export function emptyUsageSummary(): UsageSummary {
     apiCost: 0,
     assistantMessages: 0,
     sessionCount: 0,
+    recentProviders: undefined,
     providers: {},
   }
 }
@@ -272,6 +286,25 @@ function mergedOutput(message: AssistantMessage) {
   return message.tokens.output + message.tokens.reasoning
 }
 
+function mergeRecentProviderEvents(
+  target?: RecentProviderEvent[],
+  source?: RecentProviderEvent[],
+) {
+  const merged = [...(target || []), ...(source || [])]
+    .filter(
+      (item): item is RecentProviderEvent =>
+        !!item &&
+        typeof item.providerID === 'string' &&
+        typeof item.completedAt === 'number' &&
+        Number.isFinite(item.completedAt),
+    )
+    .sort((left, right) => right.completedAt - left.completedAt)
+
+  return merged.length > MAX_RECENT_PROVIDER_EVENTS
+    ? merged.slice(0, MAX_RECENT_PROVIDER_EVENTS)
+    : merged
+}
+
 function addMessageUsage(
   target: UsageSummary,
   message: AssistantMessage,
@@ -293,6 +326,12 @@ function addMessageUsage(
   target.assistantMessages += 1
   target.cost += cost
   target.apiCost += apiCost
+  target.recentProviders = mergeRecentProviderEvents(target.recentProviders, [
+    {
+      providerID: message.providerID,
+      completedAt: completedTimeOf(message) || message.time.created,
+    },
+  ])
 
   const provider =
     target.providers[message.providerID] ||
@@ -589,6 +628,10 @@ export function mergeUsage(
   target.apiCost += source.apiCost
   target.assistantMessages += source.assistantMessages
   target.sessionCount += source.sessionCount
+  target.recentProviders = mergeRecentProviderEvents(
+    target.recentProviders,
+    source.recentProviders,
+  )
 
   const sourceBuckets = source.cacheBuckets
   if (sourceBuckets) {
@@ -613,9 +656,16 @@ export function mergeUsage(
     existing.apiCost += provider.apiCost
     existing.assistantMessages += provider.assistantMessages
     if (provider.cacheBuckets) {
-      const providerBuckets = (existing.cacheBuckets ||= emptyCacheUsageBuckets())
-      mergeCacheUsageBucket(providerBuckets.readOnly, provider.cacheBuckets.readOnly)
-      mergeCacheUsageBucket(providerBuckets.readWrite, provider.cacheBuckets.readWrite)
+      const providerBuckets = (existing.cacheBuckets ||=
+        emptyCacheUsageBuckets())
+      mergeCacheUsageBucket(
+        providerBuckets.readOnly,
+        provider.cacheBuckets.readOnly,
+      )
+      mergeCacheUsageBucket(
+        providerBuckets.readWrite,
+        provider.cacheBuckets.readWrite,
+      )
     }
     target.providers[provider.providerID] = existing
   }
@@ -658,6 +708,10 @@ export function toCachedSessionUsage(
     apiCost: summary.apiCost,
     assistantMessages: summary.assistantMessages,
     cacheBuckets: cloneCacheUsageBuckets(summary.cacheBuckets),
+    recentProviders: summary.recentProviders?.slice(
+      0,
+      MAX_RECENT_PROVIDER_EVENTS,
+    ),
     providers,
   }
 }
@@ -681,6 +735,10 @@ export function fromCachedSessionUsage(
     assistantMessages: cached.assistantMessages,
     sessionCount,
     cacheBuckets,
+    recentProviders: cached.recentProviders?.slice(
+      0,
+      MAX_RECENT_PROVIDER_EVENTS,
+    ),
     providers: Object.entries(cached.providers).reduce<
       Record<string, ProviderUsage>
     >((acc, [providerID, provider]) => {

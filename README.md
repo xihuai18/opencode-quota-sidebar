@@ -55,17 +55,20 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 ## Features
 
-- Session title becomes multiline in sidebar:
+- TUI session title becomes multiline in sidebar:
   - line 1: original session title
   - line 2: blank separator
-  - line 3: Input/Output tokens
-  - line 4: Cache Read tokens (only if non-zero)
-  - line 5: Cache Write tokens (only if non-zero)
+  - line 3: Requests
+  - line 4: Input/Output tokens
+  - line 5: Cache Read tokens (only if non-zero)
+  - line 6: Cache Write tokens (only if non-zero)
   - next lines: `Cache Coverage` (read/write cache models) and `Cache Read Coverage` (read-only cache models) when enough cache telemetry is available; mixed sessions can show both
   - next line: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
   - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
   - RightCode daily quota shows `$remaining/$dailyTotal` without trailing percent, and shows balance on the next indented line when available
   - XYAI daily quota follows the same balance-style layout and prefers the real reset time (for example `XYAI Daily $70.2/$90 Rst 22:18`)
+- Desktop automatically switches to a compact single-line title. It keeps `Requests/Input/Output` plus recently used providers from the last `50` requests or last `60` minutes, and expands all windows/balance for those selected providers in short form such as `OAI 5h80 W70` or `RC D88.9/60 B260`
+- Web UI currently does not have reliable client detection, so it does not auto-switch to desktop compact mode. If you want GUI-friendly single-line titles there, set `sidebar.multilineTitle=false` manually or use `quota_summary` for details
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
@@ -254,6 +257,8 @@ Sidebar defaults:
 - `sidebar.childrenMaxDepth`: `6` (clamped to `1`-`32`)
 - `sidebar.childrenMaxSessions`: `128` (clamped to `0`-`2000`)
 - `sidebar.childrenConcurrency`: `5` (clamped to `1`-`10`)
+- `sidebar.desktopCompact.recentRequests`: `50` (desktop compact only)
+- `sidebar.desktopCompact.recentMinutes`: `60` (desktop compact only)
 
 Quota defaults:
 
@@ -284,7 +289,11 @@ Other defaults:
     "includeChildren": true,
     "childrenMaxDepth": 6,
     "childrenMaxSessions": 128,
-    "childrenConcurrency": 5
+    "childrenConcurrency": 5,
+    "desktopCompact": {
+      "recentRequests": 50,
+      "recentMinutes": 60
+    }
   },
   "quota": {
     "refreshMs": 300000,
@@ -315,11 +324,13 @@ Other defaults:
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
 - `sidebar.multilineTitle` controls multi-line sidebar layout (default: `true`). Set `false` for compact single-line title.
+- Desktop ignores that visual preference and always uses the plugin's compact single-line title mode. TUI still follows `sidebar.multilineTitle`.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
 - `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
+- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` control which recently used providers remain visible in desktop compact titles.
 - `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - API cost is computed from OpenCode model pricing metadata, not from `message.cost`. This keeps subscription-backed providers such as OpenAI OAuth usable for API-equivalent cost estimation even when OpenCode's measured cost is `0`.
@@ -357,6 +368,8 @@ Buzz Balance ￥10.17
 These examples show the quota block portion of the sidebar title.
 
 ### `sidebar.multilineTitle=true`
+
+This section describes the TUI layout. Desktop uses its own compact single-line format regardless of this setting.
 
 0 providers (no quota data):
 
@@ -448,14 +461,31 @@ OpenAI Remaining ?
 Quota is rendered inline as part of a single-line title:
 
 ```text
-<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...
+<base> | Req ... | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...
 ```
 
 Mixed with Buzz balance:
 
 ```text
-<base> | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance ￥10.2
+<base> | Req ... | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance ￥10.2
 ```
+
+### Desktop compact mode
+
+Desktop always uses a compact single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand:
+
+```text
+<base> | R12 I18.9k O53 | OAI 5h80 W70 | Cop M78 | RC D88.9/60 B260 | Buzz B￥10.2
+```
+
+Shorthand rules:
+
+- `R12` = 12 requests
+- `I18.9k` / `O53` = input / output tokens
+- `5h80` = `5h 80%`
+- `W70` / `M78` / `D46` = weekly / monthly / daily window remaining percent
+- `D88.9/60` = daily remaining / daily total
+- `B260` / `B￥10.2` = balance
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 
