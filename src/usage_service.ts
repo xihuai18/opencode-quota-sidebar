@@ -7,6 +7,7 @@ import {
   cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
+  getBundledModelCostMap,
   modelCostLookupKeys,
   modelCostKey,
   parseModelCostRates,
@@ -106,6 +107,8 @@ export function createUsageService(deps: {
     const cached = modelCostCache.get()
     if (cached) return cached
 
+    const fallbackMap = getBundledModelCostMap()
+
     const providerClient = deps.client as unknown as {
       provider?: {
         list?: (args: {
@@ -116,7 +119,7 @@ export function createUsageService(deps: {
     }
 
     if (!providerClient.provider?.list) {
-      return modelCostCache.set({}, 30_000)
+      return modelCostCache.set(fallbackMap, 30_000)
     }
 
     const response = await providerClient.provider
@@ -168,7 +171,7 @@ export function createUsageService(deps: {
       }
 
       return acc
-    }, {})
+    }, fallbackMap)
 
     return modelCostCache.set(
       map,

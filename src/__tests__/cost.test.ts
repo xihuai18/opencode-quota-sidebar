@@ -6,6 +6,7 @@ import {
   cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
+  getBundledModelCostMap,
   modelCostLookupKeys,
   parseModelCostRates,
 } from '../cost.js'
@@ -231,6 +232,25 @@ describe('cost', () => {
     assert.ok(thirdParty.includes('anthropic:claude-sonnet-4-5'))
     assert.ok(thirdParty.includes('buzz-anthropic:claude-sonnet-4.5'))
     assert.ok(thirdParty.includes('anthropic:claude-sonnet-4.5'))
+  })
+
+  it('ships bundled Anthropic fallback pricing for current Claude models', () => {
+    const map = getBundledModelCostMap()
+    const longContext = map['anthropic:claude-sonnet-4-5']?.contextOver200k
+
+    assert.deepEqual(map['anthropic:claude-opus-4-6'], {
+      input: 5,
+      output: 25,
+      cacheRead: 0.5,
+      cacheWrite: 6.25,
+      contextOver200k: undefined,
+    })
+    assert.equal(map['anthropic:claude-opus-4.6']?.output, 25)
+    assert.equal(map['anthropic:claude-haiku-4-5']?.input, 1)
+    assert.equal(longContext?.input, 6)
+    assert.equal(longContext?.output, 22.5)
+    assert.ok(Math.abs((longContext?.cacheRead || 0) - 0.6) < 1e-12)
+    assert.equal(longContext?.cacheWrite, 7.5)
   })
 
   it('treats kimi-for-coding as API-cost-enabled', () => {

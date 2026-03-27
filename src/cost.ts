@@ -109,6 +109,114 @@ export type ModelCostRates = {
   }
 }
 
+function anthropicPricing(
+  input: number,
+  output: number,
+  options?: {
+    longContextInput?: number
+    longContextOutput?: number
+  },
+): ModelCostRates {
+  // OpenCode currently reports zero Anthropic model prices in runtime metadata,
+  // so keep a bundled fallback sourced from Anthropic's pricing docs.
+  return {
+    input,
+    output,
+    cacheRead: input * 0.1,
+    // OpenCode only exposes aggregate cache.write tokens, so use Anthropic's
+    // default 5-minute prompt-caching write rate.
+    cacheWrite: input * 1.25,
+    contextOver200k:
+      options?.longContextInput !== undefined &&
+      options?.longContextOutput !== undefined
+        ? {
+            input: options.longContextInput,
+            output: options.longContextOutput,
+            cacheRead: options.longContextInput * 0.1,
+            cacheWrite: options.longContextInput * 1.25,
+          }
+        : undefined,
+  }
+}
+
+const BUNDLED_MODEL_COST_RATES: Array<{
+  providerID: string
+  modelID: string
+  rates: ModelCostRates
+}> = [
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-opus-4-6',
+    rates: anthropicPricing(5, 25),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-opus-4-5',
+    rates: anthropicPricing(5, 25),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-opus-4-1',
+    rates: anthropicPricing(15, 75),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-opus-4',
+    rates: anthropicPricing(15, 75),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-sonnet-4-6',
+    rates: anthropicPricing(3, 15),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-sonnet-4-5',
+    rates: anthropicPricing(3, 15, {
+      longContextInput: 6,
+      longContextOutput: 22.5,
+    }),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-sonnet-4',
+    rates: anthropicPricing(3, 15, {
+      longContextInput: 6,
+      longContextOutput: 22.5,
+    }),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-3-7-sonnet',
+    rates: anthropicPricing(3, 15),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-3-5-sonnet',
+    rates: anthropicPricing(3, 15),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-haiku-4-5',
+    rates: anthropicPricing(1, 5),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-3-5-haiku',
+    rates: anthropicPricing(0.8, 4),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-3-opus',
+    rates: anthropicPricing(15, 75),
+  },
+  {
+    providerID: 'anthropic',
+    modelID: 'claude-3-haiku',
+    rates: anthropicPricing(0.25, 1.25),
+  },
+]
+
 export function modelCostKey(providerID: string, modelID: string) {
   return `${providerID}:${modelID}`
 }
@@ -140,6 +248,24 @@ export function modelCostLookupKeys(providerID: string, modelID: string) {
   }
 
   return keys
+}
+
+function createBundledModelCostMap() {
+  const map: Record<string, ModelCostRates> = {}
+
+  for (const entry of BUNDLED_MODEL_COST_RATES) {
+    for (const key of modelCostLookupKeys(entry.providerID, entry.modelID)) {
+      map[key] = entry.rates
+    }
+  }
+
+  return map
+}
+
+const BUNDLED_MODEL_COST_MAP = createBundledModelCostMap()
+
+export function getBundledModelCostMap() {
+  return { ...BUNDLED_MODEL_COST_MAP }
 }
 
 export function parseModelCostRates(

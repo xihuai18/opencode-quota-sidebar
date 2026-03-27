@@ -824,6 +824,183 @@ describe('usage service', () => {
     )
   })
 
+  it('falls back to bundled Anthropic pricing when runtime metadata reports zero cost', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-zero-cost'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Anthropic Zero Cost',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-anthropic-zero',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-opus-4-6',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'anthropic',
+                  models: {
+                    'claude-opus-4-6': {
+                      id: 'claude-opus-4-6',
+                      cost: {
+                        input: 0,
+                        output: 0,
+                        cache: { read: 0, write: 0 },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 1.2125) < 1e-9)
+    assert.ok(
+      Math.abs((usage.providers.anthropic?.apiCost || 0) - 1.2125) < 1e-9,
+    )
+  })
+
+  it('reuses bundled Anthropic pricing for anthropic-compatible third-party providers', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'buzz-anthropic-fallback'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Buzz Anthropic Fallback',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-buzz-anthropic-zero',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'buzz-anthropic',
+                  modelID: 'claude-sonnet-4-6',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'anthropic',
+                  models: {
+                    'claude-sonnet-4-6': {
+                      id: 'claude-sonnet-4-6',
+                      cost: {
+                        input: 0,
+                        output: 0,
+                        cache: { read: 0, write: 0 },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    const buzzUsage = usage.providers['buzz-anthropic']
+    assert.ok(buzzUsage)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
+    assert.ok(Math.abs(buzzUsage.apiCost - 0.7275) < 1e-9)
+  })
+
   it('maps kimi-for-coding k2p5 usage to moonshotai-cn kimi-k2.5 pricing', async () => {
     const state = makeState()
     const config = makeConfig()
