@@ -196,10 +196,7 @@ describe('usage service', () => {
     assert.ok(Math.abs(usage.providers.openai.apiCost - 0.12875) < 1e-9)
 
     const metrics = getCacheCoverageMetrics(usage)
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.ok(
-      Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9,
-    )
+    assert.ok(Math.abs((metrics.cachedRatio || 0) - 0.3333333333333333) < 1e-9)
   })
 
   it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {
@@ -414,8 +411,7 @@ describe('usage service', () => {
     )
     const metrics = getCacheCoverageMetrics(usage)
 
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.equal(metrics.cacheReadCoverage, 50 / 150)
+    assert.equal(metrics.cachedRatio, 50 / 150)
   })
 
   it('recomputes stale-version cached usage when apiCost was previously zero', async () => {
@@ -918,8 +914,7 @@ describe('usage service', () => {
     assert.ok(Math.abs(kimiUsage.apiCost - 0.14) < 1e-9)
 
     const metrics = getCacheCoverageMetrics(usage)
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.equal(metrics.cacheReadCoverage, 1 / 3)
+    assert.equal(metrics.cachedRatio, 1 / 3)
   })
 
   it('recomputes stale kimi-for-coding usage when pricing is available via alias', async () => {

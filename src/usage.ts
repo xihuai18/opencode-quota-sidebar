@@ -204,23 +204,13 @@ export function getCacheCoverageMetrics(
     'input' | 'cacheRead' | 'cacheWrite' | 'assistantMessages' | 'cacheBuckets'
   >,
 ): CacheCoverageMetrics {
-  const buckets = resolvedCacheUsageBuckets(usage)
-  const readWritePromptSurface =
-    buckets.readWrite.input +
-    buckets.readWrite.cacheRead +
-    buckets.readWrite.cacheWrite
-  const readOnlyPromptSurface =
-    buckets.readOnly.input + buckets.readOnly.cacheRead
+  const hasCacheActivity = usage.cacheRead > 0 || usage.cacheWrite > 0
+  const cachedSurface = usage.input + usage.cacheRead
 
   return {
-    cacheCoverage:
-      readWritePromptSurface > 0
-        ? (buckets.readWrite.cacheRead + buckets.readWrite.cacheWrite) /
-          readWritePromptSurface
-        : undefined,
-    cacheReadCoverage:
-      readOnlyPromptSurface > 0
-        ? buckets.readOnly.cacheRead / readOnlyPromptSurface
+    cachedRatio:
+      hasCacheActivity && cachedSurface > 0
+        ? usage.cacheRead / cachedSurface
         : undefined,
   }
 }

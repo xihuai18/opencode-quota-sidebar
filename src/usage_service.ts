@@ -236,7 +236,7 @@ export function createUsageService(deps: {
     }
 
     // Last resort: if the message has cache.read tokens from an unknown provider,
-    // treat it as read-only (the safer default — avoids inflating Cache Coverage).
+    // treat it as read-only (the safer default — avoids overstating cached ratio).
     return 'read-only'
   }
 

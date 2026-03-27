@@ -78,7 +78,8 @@ describe('renderSidebarTitle', () => {
       config,
     )
     assert.equal(title.includes('\n'), false)
-    assert.match(title, /R3 I1\.5k O1\.2m/)
+    assert.match(title, /Est\$2\.34/)
+    assert.doesNotMatch(title, /R3 I1\.5k O1\.2m/)
   })
 
   it('renders compact desktop titles with all recent provider windows and balances', () => {
@@ -133,7 +134,7 @@ describe('renderSidebarTitle', () => {
       assert.equal(title.includes('\n'), false)
       assert.match(
         title,
-        /Greeting and quick check-in \| OAI 5h80 W70 \| RC D88\.9\/60 B260 \| Buzz B￥10\.2 \| R3 I1\.5k O1\.2m/,
+        /Greeting and quick check-in \| OAI 5h80 W70 \| RC D\$88\.9\/\$60 B260 \| Buzz B￥10\.2 \| Cd63% \| Est\$2\.34/,
       )
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
@@ -285,12 +286,12 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    assert.equal(lines[2], 'Requests 3')
-    assert.equal(lines[3], 'Input 1.5k  Output 1.2m')
-    assert.match(title, /Input 1\.5k  Output 1\.2m/)
-    assert.match(title, /Requests 3/)
-    assert.match(title, /\$2\.34 as API cost/)
-    assert.match(title, /Cache Read 2\.5k/)
+    assert.equal(lines[2], 'R3 I1.5k O1.2m')
+    assert.equal(lines[3], 'CR2.5k Cd63%')
+    assert.equal(lines[4], 'Est$2.34')
+    assert.match(title, /R3 I1\.5k O1\.2m/)
+    assert.match(title, /CR2\.5k Cd63%/)
+    assert.match(title, /Est\$2\.34/)
   })
 
   it('renders API cost as the last token detail line', () => {
@@ -318,31 +319,12 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    const cacheReadIndex = lines.findIndex((line) =>
-      line.startsWith('Cache Read'),
-    )
-    const cacheWriteIndex = lines.findIndex((line) =>
-      line.startsWith('Cache Write'),
-    )
-    const cacheCoverageIndex = lines.findIndex((line) =>
-      line.startsWith('Cache Coverage'),
-    )
-    const cacheReadCoverageIndex = lines.findIndex((line) =>
-      line.startsWith('Cache Read Coverage'),
-    )
-    const costIndex = lines.findIndex((line) => /as API cost$/.test(line))
-
-    assert.ok(cacheReadIndex >= 0)
-    assert.ok(cacheWriteIndex >= 0)
-    assert.ok(cacheCoverageIndex > cacheWriteIndex)
-    assert.ok(cacheReadCoverageIndex > cacheCoverageIndex)
-    assert.ok(costIndex > cacheReadIndex)
-    assert.ok(costIndex > cacheWriteIndex)
-    assert.ok(costIndex > cacheCoverageIndex)
-    assert.ok(costIndex > cacheReadCoverageIndex)
+    assert.equal(lines[2], 'R3 I1.5k O1.2m')
+    assert.equal(lines[3], 'CW300 CR2.5k Cd63%')
+    assert.equal(lines[4], 'Est$2.34')
   })
 
-  it('renders cache coverage lines for mixed cache model types', () => {
+  it('renders cached ratio line for mixed cache model types', () => {
     const title = renderSidebarTitle(
       'Session',
       makeUsage({
@@ -367,8 +349,63 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /Cache Coverage 60%/)
-    assert.match(title, /Cache Read Coverage 75%/)
+    assert.match(title, /Cd44%/)
+  })
+
+  it('uses shorter token detail labels instead of truncating on narrow widths', () => {
+    const title = renderSidebarTitle(
+      'Weekly quota summary with toast',
+      makeUsage({
+        input: 16_300,
+        output: 916,
+        cacheRead: 31_400,
+        cacheWrite: 0,
+        apiCost: 0.12,
+        cacheBuckets: {
+          readOnly: {
+            input: 16_300,
+            cacheRead: 31_400,
+            cacheWrite: 0,
+            assistantMessages: 3,
+          },
+          readWrite: {
+            input: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            assistantMessages: 0,
+          },
+        },
+      }),
+      [
+        {
+          providerID: 'xyai-vibe',
+          adapterID: 'xyai-vibe',
+          label: 'XYAI Vibe',
+          shortLabel: 'XYAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [
+            {
+              label: 'Daily $31.3/$90',
+              showPercent: false,
+              resetAt: '2026-03-27T14:39:00.000Z',
+            },
+          ],
+        },
+      ],
+      makeConfig(16),
+    )
+    const lines = title.split('\n')
+
+    assert.ok(lines.includes('R3 I16.3k O916'))
+    assert.ok(lines.includes('CR31.4k Cd66%'))
+    assert.ok(lines.includes('Est$0.12'))
+    assert.ok(lines.includes('XYAI D$31.3/$90'))
+    assert.ok(lines.includes('     R22:39'))
+    assert.equal(
+      lines.some((line) => /Cd.*~|Est\$.*~/.test(line)),
+      false,
+    )
   })
 
   it('hides API cost line when sidebar.showCost=false', () => {
@@ -406,13 +443,8 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
-    assert.ok(openAIIndex >= 0)
-    assert.match(lines[openAIIndex + 1], /^  5h 80%$/)
-    assert.match(lines[openAIIndex + 2], /^  Weekly 70%$/)
-    const copilotIndex = lines.findIndex((line) => line === 'Copilot')
-    assert.ok(copilotIndex >= 0)
-    assert.match(lines[copilotIndex + 1], /^  Monthly 60%$/)
+    assert.ok(lines.includes('OAI 5h80 W70'))
+    assert.ok(lines.includes('Cop M60'))
   })
 
   it('renders Anthropic multi-window quota lines', () => {
@@ -437,11 +469,7 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     const lines = title.split('\n')
-    const anthropicIndex = lines.findIndex((line) => line === 'Anthropic')
-    assert.ok(anthropicIndex >= 0)
-    assert.match(lines[anthropicIndex + 1], /^  5h 80%$/)
-    assert.match(lines[anthropicIndex + 2], /^  Weekly 70%$/)
-    assert.match(lines[anthropicIndex + 3], /^  Sonnet 7d 65%$/)
+    assert.ok(lines.includes('Ant 5h80 W70 S7d65'))
   })
 
   it('renders Kimi multi-window quota lines like other subscription providers', () => {
@@ -468,14 +496,10 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    const lines = title.split('\n')
-    const kimiIndex = lines.findIndex((line) => line === 'Kimi')
-    assert.ok(kimiIndex >= 0)
     assert.match(
-      lines[kimiIndex + 1],
-      /^  5h 84% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})$/,
+      title,
+      /Kimi 5h84 R(?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2}) W72 R\d{2}-\d{2}/,
     )
-    assert.match(lines[kimiIndex + 2], /^  Weekly 72% Rst \d{2}-\d{2}$/)
   })
 
   it('applies short-window time formatting consistently across providers', () => {
@@ -554,15 +578,12 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /OpenAI\n  5h 80% Rst \d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /Anthropic\n  1d 46% Rst \d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /Copilot\n  Monthly 70% Rst \d{2}-\d{2}/)
-    assert.doesNotMatch(title, /Monthly 70% Rst \d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /RC-openai\n  Daily \$88\.9\/\$60 Exp \d{2}-\d{2}/)
-    assert.doesNotMatch(
-      title,
-      /Daily \$88\.9\/\$60 Exp \d{2}-\d{2} \d{2}:\d{2}/,
-    )
+    assert.match(title, /OAI 5h80 R\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /Ant D46 R\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /Cop M70 R\d{2}-\d{2}/)
+    assert.doesNotMatch(title, /M70 R\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /RC D\$88\.9\/\$60 E\d{2}-\d{2}/)
+    assert.doesNotMatch(title, /D\$88\.9\/\$60 E\d{2}-\d{2} \d{2}:\d{2}/)
   })
 
   it('adds blank line between title/tokens and tokens/quota', () => {
@@ -586,7 +607,7 @@ describe('renderSidebarTitle', () => {
 
     assert.equal(lines[1], '')
 
-    const firstQuotaIndex = lines.findIndex((line) => line.startsWith('OpenAI'))
+    const firstQuotaIndex = lines.findIndex((line) => line.startsWith('OAI'))
     assert.ok(firstQuotaIndex > 0)
     assert.equal(lines[firstQuotaIndex - 1], '')
   })
@@ -684,11 +705,7 @@ describe('renderSidebarTitle', () => {
 
     const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
     const lines = title.split('\n')
-    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
-
-    assert.ok(openAIIndex >= 0)
-    assert.match(lines[openAIIndex + 1], /^  5h 80%$/)
-    assert.match(lines[openAIIndex + 2], /^  Weekly 70%$/)
+    assert.ok(lines.includes('OAI 5h80 W70'))
   })
 
   it('renders balance-style quota lines', () => {
@@ -712,7 +729,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC Balance \$258\.3/)
+    assert.match(title, /RC B258\.3/)
   })
 
   it('renders XYAI reset time without compact expiry noise in sidebar', () => {
@@ -753,7 +770,7 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /XYAI Daily \$70\.2\/\$90 Rst \d{2}:\d{2}/)
+    assert.match(title, /XYAI D\$70\.2\/\$90 R\d{2}:\d{2}/)
     assert.doesNotMatch(title, /exp 04-15/i)
   })
 
@@ -778,7 +795,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /Buzz\s+Balance ￥10\.2/)
+    assert.match(title, /Buzz B￥10\.2/)
   })
 
   it('renders reset time and indented multi-window lines', () => {
@@ -831,15 +848,9 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    const lines = title.split('\n')
-    const openAIIndex = lines.findIndex((line) => line === 'OpenAI')
-    assert.ok(openAIIndex >= 0)
-    assert.match(lines[openAIIndex + 1], /^  5h 80% Rst \d{2}:\d{2}$/)
-    assert.match(
-      lines[openAIIndex + 2],
-      /^  1d 65% Rst \d{2}-\d{2} \d{2}:\d{2}$/,
-    )
-    assert.match(lines[openAIIndex + 3], /^  Weekly 70% Rst \d{2}-\d{2}$/)
+    assert.match(title, /OAI 5h80 R\d{2}:\d{2}/)
+    assert.match(title, /D65 R\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /W70 R\d{2}-\d{2}/)
   })
 
   it('renders RightCode daily quota without trailing percent and shows balance', () => {
@@ -873,12 +884,8 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    const lines = title.split('\n')
-    const rcIndex = lines.findIndex((line) => line === 'RC')
-    assert.ok(rcIndex >= 0)
-    assert.equal(lines[rcIndex + 1], '  Daily $88.9/$60 Exp 02-27')
-    assert.equal(lines[rcIndex + 2], '  Balance $260')
-    assert.doesNotMatch(title, /RC\s+Daily \$88\.9\/\$60\s+148%/)
+    assert.match(title, /RC D\$88\.9\/\$60 E02-27 B260/)
+    assert.doesNotMatch(title, /RC\s+D\$88\.9\/\$60\s+148/)
   })
 
   it('renders Exp+ for RightCode when multiple expiries exist', () => {
@@ -907,7 +914,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC\s+Daily \$88\.9\/\$60 Exp\+ 02-27/)
+    assert.match(title, /RC D\$88\.9\/\$60 E\+02-27/)
   })
 
   it('shows all used providers in sidebar', () => {
@@ -940,9 +947,9 @@ describe('renderSidebarTitle', () => {
       },
     ]
     const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
-    assert.match(title, /OpenAI\s+5h 80%/)
-    assert.match(title, /Copilot\s+Monthly 60%/)
-    assert.match(title, /RC\s+Daily \$88\/\$60/)
+    assert.match(title, /OAI 5h80/)
+    assert.match(title, /Cop M60/)
+    assert.match(title, /RC D\$88\/\$60/)
   })
 
   it('renders Buzz cleanly alongside OpenAI and Copilot in sidebar', () => {
@@ -976,14 +983,14 @@ describe('renderSidebarTitle', () => {
     ]
 
     const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
-    assert.match(title, /OpenAI\s+5h 80%/)
-    assert.match(title, /Copilot\s+Monthly 60%/)
-    assert.match(title, /Buzz\s+Balance ￥10\.2/)
+    assert.match(title, /OAI 5h80/)
+    assert.match(title, /Cop M60/)
+    assert.match(title, /Buzz B￥10\.2/)
   })
 })
 
 describe('renderMarkdownReport', () => {
-  it('renders cache coverage summary lines when cache buckets are available', () => {
+  it('renders cached summary line when cache buckets are available', () => {
     const report = renderMarkdownReport(
       'session',
       makeUsage({
@@ -1008,8 +1015,7 @@ describe('renderMarkdownReport', () => {
       { showCost: true },
     )
 
-    assert.match(report, /Cache Coverage: 60%/)
-    assert.match(report, /Cache Read Coverage: 75%/)
+    assert.match(report, /Cached: 44\.4%/)
   })
 
   it('hides cost columns when showCost=false', () => {
@@ -1077,20 +1083,20 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /Requests: 3/)
     assert.match(
       report,
-      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cached \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$0\.35 \|/,
+      /\| openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$0\.35 \|/,
     )
     assert.match(
       report,
-      /\| github-copilot \| 1 \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
+      /\| github-copilot \| 1 \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \|/,
     )
     assert.match(report, /### Usage by Provider\n\n\| Provider \|/)
     assert.match(
       report,
-      /\| --- \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \|/,
+      /\| --- \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \|/,
     )
     assert.match(report, /### Subscription Quota\n\n-/)
   })
@@ -1160,7 +1166,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| - \| \$4\.57 \|/,
+      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$4\.57 \|/,
     )
   })
 
@@ -1201,11 +1207,11 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$9\.88 \| \$4\.57 \|/,
+      /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| \$9\.88 \| \$4\.57 \|/,
     )
   })
 
-  it('renders provider-level cache coverage columns and highlights in markdown', () => {
+  it('renders provider-level cached column and highlight in markdown', () => {
     const report = renderMarkdownReport(
       'week',
       makeUsage({
@@ -1290,19 +1296,18 @@ describe('renderMarkdownReport', () => {
 
     assert.match(report, /### Highlights/)
     assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/)
-    assert.match(report, /Best Cache Coverage: Anthropic \(60%\)/)
-    assert.match(report, /Best Cache Read Coverage: OpenAI \(75%\)/)
+    assert.match(report, /Best Cached Ratio: OpenAI \(75%\)/)
     assert.match(
       report,
-      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cache Coverage \| Cache Read Coverage \| Measured Cost \| API Cost \|/,
+      /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cached \| Measured Cost \| API Cost \|/,
     )
     assert.match(
       report,
-      /\| openai \| 2 \| 300 \| 400 \| 900 \| 1\.6k \| - \| 75% \| - \| \$8\.30 \|/,
+      /\| openai \| 2 \| 300 \| 400 \| 900 \| 1\.6k \| 75% \| - \| \$8\.30 \|/,
     )
     assert.match(
       report,
-      /\| anthropic \| 2 \| 400 \| 480 \| 600 \| 1\.5k \| 60% \| - \| - \| \$6\.52 \|/,
+      /\| anthropic \| 2 \| 400 \| 480 \| 600 \| 1\.5k \| 42\.9% \| - \| \$6\.52 \|/,
     )
   })
 
@@ -1457,7 +1462,7 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /\| kimi-for-coding \| 1 \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| - \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
+      /\| kimi-for-coding \| 1 \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
     )
     assert.match(report, /- API cost: \$0\.14/)
   })
@@ -1573,7 +1578,7 @@ describe('renderMarkdownReport', () => {
 })
 
 describe('renderToastMessage', () => {
-  it('shows cache coverage rows in the token usage section', () => {
+  it('shows cached row in the token usage section', () => {
     const toast = renderToastMessage(
       'session',
       makeUsage({
@@ -1597,8 +1602,7 @@ describe('renderToastMessage', () => {
       [],
     )
 
-    assert.match(toast, /Cache Coverage\s+60%/)
-    assert.match(toast, /Cache Read Coverage\s+75%/)
+    assert.match(toast, /Cached\s+44\.4%/)
   })
 
   it('uses aligned token and quota sections with blank line separation', () => {
@@ -1853,12 +1857,12 @@ describe('renderToastMessage', () => {
           },
           mixed: {
             providerID: 'mixed',
-            input: 0,
+            input: 150,
             output: 0,
             reasoning: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            total: 0,
+            cacheRead: 125,
+            cacheWrite: 25,
+            total: 150,
             cost: 0,
             apiCost: 0,
             assistantMessages: 2,
@@ -1883,9 +1887,9 @@ describe('renderToastMessage', () => {
     )
 
     assert.match(toast, /Provider Cache/)
-    assert.match(toast, /OpenAI\s+Read 75%/)
-    assert.match(toast, /Anthropic\s+Cov 60%/)
-    assert.match(toast, /mixed\s+Cov 50%\s+Read 50%/i)
+    assert.match(toast, /OpenAI\s+Cached 75%/)
+    assert.match(toast, /Anthropic\s+Cached 42\.9%/)
+    assert.match(toast, /mixed\s+Cached 45\.5%/i)
   })
 
   it('does not render RightCode expiry labels inline in toast when multiple expiries exist', () => {

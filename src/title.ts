@@ -6,6 +6,8 @@ function sanitizeTitleFragment(value: string) {
 
 function isCoreDecoratedDetail(line: string) {
   if (!line) return false
+  // Legacy coverage/Cov/CRC/CC tokens remain recognized so old decorated titles
+  // can still be detected and cleaned up after format migrations.
   if (/^Requests\s+\$?\d[\d.,]*[kKmM]?$/.test(line)) return true
   if (
     /^Input\s+\$?[\d.,]+[kKmM]?(?:\s+Output(?:\s+\$?[\d.,]+[kKmM]?)?)?~?$/.test(
@@ -18,7 +20,20 @@ function isCoreDecoratedDetail(line: string) {
   if (/^Cache(?:\s+Read)?\s+Coverage\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
     return true
   }
+  if (/^Cache(?:\s+Read|\s+R)?\s+Cov\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
+    return true
+  }
+  if (/^Cached\s+\d[\d.,]*(?:%|~)?$/.test(line)) return true
   if (/^\$\S+\s+as API cost$/.test(line)) return true
+  if (/^API\s+\$\S+$/.test(line)) return true
+  if (/^Est\$\S+$/.test(line)) return true
+  if (
+    /^(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+)(?:\s+(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+))*$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
 
   // Single-line compact mode compatibility.
   if (
@@ -41,13 +56,18 @@ function isCoreDecoratedDetail(line: string) {
   ) {
     return true
   }
+  if (/^C(?:ache(?:\s*(?:R|Read))?)?\s*Cov\s+\d[\d.,]*(?:%|~)?$/.test(line)) {
+    return true
+  }
+  if (/^Cached\s+\d[\d.,]*(?:%|~)?$/.test(line)) return true
+  if (/^API\s+\$\S+$/.test(line)) return true
   return false
 }
 
 function isQuotaDecoratedDetail(line: string) {
   if (!line) return false
   if (
-    /^(OAI|Cop|Ant|Kimi|XY|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
+    /^(OAI|Cop|Ant|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
       line,
     )
   ) {
@@ -66,7 +86,35 @@ function isQuotaDecoratedDetail(line: string) {
     return true
   }
   if (
+    /^(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|S7d\d{1,3})(?:\s+(?:R|E\+?)\d[\d:.-]*)?$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
     /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:(?:Daily\s+\$[\d.,]+\/\$[\d.,]+|\$[\d.,]+\/\$[\d.,]+)(?:\s+(?:Rst|Exp\+?)\s+[-:\d]+)?|(?:\d+[hdw]|Weekly|Monthly)\s+\d{1,3}%(?:\s+Rst\s+[-:\d]+)?|(?:error|unsupported|unavailable)))$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|S7d\d{1,3})(?:\s+(?:R|E\+?)\d[\d:.-]*)?)$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|S7d\d{1,3}|(?:R|E\+?)\d[\d:.-]*))(?:\s+(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|S7d\d{1,3}|(?:R|E\+?)\d[\d:.-]*)))*$/.test(
+      line,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|Buzz|RC(?:-[^\s]+)?)(?:\s+(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|S7d\d{1,3}|(?:R|E\+?)\d[\d:.-]*)))*$/.test(
       line,
     )
   ) {
@@ -97,7 +145,20 @@ function isSingleLineDecoratedPrefix(line: string) {
   if (/^Cache(?:\s+Read)?\s+Coverage\s+\d[\d.,]*(?:%|~)$/.test(line)) {
     return true
   }
+  if (/^Cache(?:\s+Read|\s+R)?\s+Cov\s+\d[\d.,]*(?:%|~)$/.test(line)) {
+    return true
+  }
+  if (/^Cached\s+\d[\d.,]*(?:%|~)$/.test(line)) return true
   if (/^\$\S+\s+as API cost(?:~|$)/.test(line)) return true
+  if (/^API\s+\$\S+(?:~|$)/.test(line)) return true
+  if (/^Est\$\S+(?:~|$)/.test(line)) return true
+  if (
+    /^(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+)(?:\s+(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+))*?(?:~|$)/.test(
+      line,
+    )
+  ) {
+    return true
+  }
   return false
 }
 

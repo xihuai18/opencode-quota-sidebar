@@ -232,8 +232,11 @@ describe('toCachedSessionUsage / fromCachedSessionUsage', () => {
 })
 
 describe('getCacheCoverageMetrics', () => {
-  it('derives both cache metrics from explicit cache buckets', () => {
+  it('derives cached ratio from top-level totals', () => {
     const summary = makeSummary({
+      input: 700,
+      cacheRead: 1200,
+      cacheWrite: 300,
       cacheBuckets: {
         readOnly: {
           input: 300,
@@ -251,11 +254,10 @@ describe('getCacheCoverageMetrics', () => {
     })
 
     const metrics = getCacheCoverageMetrics(summary)
-    assert.equal(metrics.cacheCoverage, 0.6)
-    assert.equal(metrics.cacheReadCoverage, 0.75)
+    assert.equal(metrics.cachedRatio, 1200 / 1900)
   })
 
-  it('falls back to top-level cache totals for read-only legacy summaries', () => {
+  it('uses uncached-plus-cached input surface for cached ratio', () => {
     const metrics = getCacheCoverageMetrics(
       makeSummary({
         input: 1500,
@@ -266,13 +268,15 @@ describe('getCacheCoverageMetrics', () => {
       }),
     )
 
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.equal(metrics.cacheReadCoverage, 0.625)
+    assert.equal(metrics.cachedRatio, 0.625)
   })
 
-  it('reports 0% when bucket has input but zero cache tokens', () => {
+  it('reports 0% when there are cache writes but no cache reads yet', () => {
     const metrics = getCacheCoverageMetrics(
       makeSummary({
+        input: 800,
+        cacheRead: 0,
+        cacheWrite: 300,
         cacheBuckets: {
           readOnly: {
             input: 500,
@@ -290,12 +294,10 @@ describe('getCacheCoverageMetrics', () => {
       }),
     )
 
-    // input > 0 means the bucket has traffic, so coverage should be 0, not undefined
-    assert.equal(metrics.cacheCoverage, 0)
-    assert.equal(metrics.cacheReadCoverage, 0)
+    assert.equal(metrics.cachedRatio, 0)
   })
 
-  it('returns undefined for both metrics when all buckets are zero', () => {
+  it('returns undefined when there is no cache activity at all', () => {
     const metrics = getCacheCoverageMetrics(
       makeSummary({
         input: 500,
@@ -320,26 +322,10 @@ describe('getCacheCoverageMetrics', () => {
       }),
     )
 
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.equal(metrics.cacheReadCoverage, undefined)
+    assert.equal(metrics.cachedRatio, undefined)
   })
 
-  it('returns undefined for both metrics when no cache data at all', () => {
-    const metrics = getCacheCoverageMetrics(
-      makeSummary({
-        input: 1000,
-        cacheRead: 0,
-        cacheWrite: 0,
-        assistantMessages: 5,
-        cacheBuckets: undefined,
-      }),
-    )
-
-    assert.equal(metrics.cacheCoverage, undefined)
-    assert.equal(metrics.cacheReadCoverage, undefined)
-  })
-
-  it('falls back to read-write bucket for legacy summaries with cacheWrite > 0', () => {
+  it('returns cached ratio from legacy totals with both read and write traffic', () => {
     const metrics = getCacheCoverageMetrics(
       makeSummary({
         input: 400,
@@ -350,11 +336,10 @@ describe('getCacheCoverageMetrics', () => {
       }),
     )
 
-    assert.equal(metrics.cacheCoverage, 0.6)
-    assert.equal(metrics.cacheReadCoverage, undefined)
+    assert.equal(metrics.cachedRatio, 300 / 700)
   })
 
-  it('merges explicit buckets with residual fallback totals', () => {
+  it('ignores cache bucket internals and uses normalized totals directly', () => {
     const metrics = getCacheCoverageMetrics(
       makeSummary({
         input: 250,
@@ -378,20 +363,16 @@ describe('getCacheCoverageMetrics', () => {
       }),
     )
 
-    // Residual totals are interpreted as read-write because cacheWrite > 0:
-    // read-only coverage = 50 / (100 + 50)
-    // read-write coverage = (70 + 30) / (150 + 70 + 30)
-    assert.equal(metrics.cacheReadCoverage, 50 / 150)
-    assert.equal(metrics.cacheCoverage, 100 / 250)
+    assert.equal(metrics.cachedRatio, 120 / 370)
   })
 })
 
 describe('getProviderCacheCoverageMetrics', () => {
-  it('derives provider-level cache metrics from provider cache buckets', () => {
+  it('derives provider-level cached ratio from provider totals', () => {
     const metrics = getProviderCacheCoverageMetrics({
-      input: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
+      input: 700,
+      cacheRead: 1200,
+      cacheWrite: 300,
       assistantMessages: 0,
       cacheBuckets: {
         readOnly: {
@@ -409,8 +390,7 @@ describe('getProviderCacheCoverageMetrics', () => {
       },
     })
 
-    assert.equal(metrics.cacheCoverage, 0.6)
-    assert.equal(metrics.cacheReadCoverage, 0.75)
+    assert.equal(metrics.cachedRatio, 1200 / 1900)
   })
 })
 
@@ -445,8 +425,7 @@ describe('toCachedSessionUsage / fromCachedSessionUsage round-trip with cacheBuc
     assert.deepEqual(restored.cacheBuckets, original.cacheBuckets)
 
     const metrics = getCacheCoverageMetrics(restored)
-    assert.equal(metrics.cacheCoverage, 0.6)
-    assert.equal(metrics.cacheReadCoverage, 0.75)
+    assert.equal(metrics.cachedRatio, 1200 / 1900)
   })
 
   it('round-trips undefined cacheBuckets as undefined', () => {
@@ -488,7 +467,6 @@ describe('toCachedSessionUsage / fromCachedSessionUsage round-trip with cacheBuc
     const restored = fromCachedSessionUsage(cached, 1)
 
     const metrics = getCacheCoverageMetrics(restored)
-    assert.equal(metrics.cacheReadCoverage, 0.75)
-    assert.equal(metrics.cacheCoverage, undefined)
+    assert.equal(metrics.cachedRatio, 0.75)
   })
 })

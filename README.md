@@ -55,28 +55,25 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 ## Features
 
-- TUI session title becomes multiline in sidebar:
+- TUI session title uses a compact multiline sidebar layout:
   - line 1: original session title
   - line 2: blank separator
-  - line 3: Requests
-  - line 4: Input/Output tokens
-  - line 5: Cache Read tokens (only if non-zero)
-  - line 6: Cache Write tokens (only if non-zero)
-  - next lines: `Cache Coverage` (read/write cache models) and `Cache Read Coverage` (read-only cache models) when enough cache telemetry is available; mixed sessions can show both
-  - next line: `$X.XX as API cost` (equivalent API billing for subscription-auth providers)
-  - quota lines: quota text like `OpenAI 5h 80% Rst 16:20`; short windows (`5h`, `1d`, `Daily`) show `HH:MM` on same-day resets and `MM-DD HH:MM` when crossing days, while longer windows continue to show `MM-DD`
-  - RightCode daily quota shows `$remaining/$dailyTotal` without trailing percent, and shows balance on the next indented line when available
-  - XYAI daily quota follows the same balance-style layout and prefers the real reset time (for example `XYAI Daily $70.2/$90 Rst 22:18`)
-- Desktop automatically switches to a compact single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes ahead of `Requests/Input/Output`, and expands all windows/balance for those selected providers in short form such as `OAI 5h80 W70` or `RC D88.9/60 B260`
-- TUI is always rendered as multiline; Desktop is always rendered as compact single-line. This behavior no longer depends on `sidebar.multilineTitle`
+  - line 3: compact usage tokens such as `R3 I16.3k O916`
+  - line 4+: compact cache tokens such as `CW300 CR31.4k Cd66%`
+  - optional cost line: `Est$0.12`
+  - quota lines also use compact tokens, for example `XYAI D$31.3/$90 R22:39` or `OAI 5h80 R22:18 W70 R04-03`
+  - short windows (`5h`, `1d`, `Daily`) still show same-day resets as `HH:MM` and cross-day resets as `MM-DD HH:MM`; longer windows continue to show `MM-DD`
+  - long quota content wraps across extra compact lines instead of dropping fields from the sidebar, and continuation lines align to the quota content column
+- Desktop automatically switches to a compact monitoring-style single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes, expands all windows/balance for those selected providers in short form such as `OAI 5h80 R16:20 W70 R04-03` or `RC D88.9/60 B260`, and keeps only summary usage signals such as `Cd66%` and `Est$0.12`
+- TUI is always rendered as compact multiline; Desktop is always rendered as compact monitoring-style single-line. This behavior no longer depends on `sidebar.multilineTitle`
 - Web UI currently cannot be reliably detected by the plugin, so it follows the non-desktop multiline path
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
-- Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
+- Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cached ratios are available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
-- `quota_summary` markdown / toast also include `Cache Coverage` and `Cache Read Coverage` summary lines when available
+- `quota_summary` markdown / toast also include `Cached` summary lines when cache activity is available
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
-  - `quota_summary` — generate usage report for session/day/week/month (markdown + toast)
+  - `quota_summary` — generate usage report for session/day/week/month (full markdown report + toast). The markdown report and toast keep the full human-readable wording; they do not switch to compact sidebar tokens.
 - `quota_show` — toggle sidebar title display on/off (state persists across sessions)
 - After startup, titles are restored immediately when persisted display mode is OFF; when persisted display mode is ON, touched titles refresh on startup and the rest update on the next relevant session/message event or when `quota_show` is toggled
 - Quota connectors:
@@ -121,10 +118,10 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - `createdAt`
   - `parentID` (when the session is a subagent child session)
   - `expiryToastShown` (session-level dedupe for automatic expiry reminders)
-  - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cache coverage reporting
+  - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cached-ratio reporting and legacy cache classification
   - incremental aggregation cursor
 
-Notes on cache coverage persistence:
+Notes on cache bucket persistence:
 
 - Older cached usage written before `cacheBuckets` existed can only be approximated from top-level `cache_read` / `cache_write` totals.
 - In those legacy cases, mixed read-only + read-write cache traffic may be attributed to a single fallback bucket until the session is recomputed from messages.
@@ -207,6 +204,8 @@ You can add these command templates in `opencode.json` so you can run `/qday`, `
   }
 }
 ```
+
+When calling `quota_summary`, make sure the client shows the returned markdown report directly to the user. The tool already returns the full report body; do not replace it with a compact summary.
 
 ## Configuration files
 
@@ -324,7 +323,7 @@ Other defaults:
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
-- `sidebar.multilineTitle` is kept for backward compatibility, but current rendering is fixed by client type: TUI uses multiline titles and Desktop uses compact single-line titles.
+- `sidebar.multilineTitle` is kept for backward compatibility, but current rendering is fixed by client type: TUI uses multiline titles and Desktop uses compact monitoring-style single-line titles.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
@@ -360,7 +359,7 @@ The adapter also tolerates `https://buzzai.cc/v1`, but `https://buzzai.cc` is th
 With that setup, the sidebar/toast quota line will look like:
 
 ```text
-Buzz Balance ￥10.17
+Buzz B￥10.17
 ```
 
 ## Rendering examples
@@ -369,7 +368,7 @@ These examples show the quota block portion of the sidebar title.
 
 ### TUI layout
 
-This section describes the TUI layout. Desktop uses its own compact single-line format and Web UI currently follows the multiline path.
+This section describes the TUI layout. Desktop uses its own compact monitoring-style single-line format and Web UI currently follows the multiline path.
 
 0 providers (no quota data):
 
@@ -380,113 +379,95 @@ This section describes the TUI layout. Desktop uses its own compact single-line 
 1 provider, 1 window (fits):
 
 ```text
-Copilot Monthly 78% Rst 04-01
+Cop M78 R04-01
 ```
 
 1 provider, multi-window (for example OpenAI 5h + Weekly):
 
 ```text
-OpenAI
-  5h 78% Rst 05:05
-  Weekly 73% Rst 03-12
+OAI 5h78 R05:05 W73 R03-12
+```
+
+1 provider, multi-window on narrow width:
+
+```text
+OAI 5h78 R05:05
+    W73 R03-12
 ```
 
 1 provider, short window crossing into the next day:
 
 ```text
-Anthropic
-  5h 0% Rst 03-10 01:00
-  Weekly 46% Rst 03-15
+Ant 5h0 R03-10 01:00 W46 R03-15
 ```
 
 2+ providers (even if each provider is single-window):
 
 ```text
-OpenAI
-  5h 78% Rst 05:05
-Copilot
-  Monthly 78% Rst 04-01
+OAI 5h78 R05:05
+Cop M78 R04-01
 ```
 
 2+ providers mixed (multi-window + single-window):
 
 ```text
-OpenAI
-  5h 78% Rst 05:05
-  Weekly 73% Rst 03-12
-Copilot
-  Monthly 78% Rst 04-01
+OAI 5h78 R05:05 W73 R03-12
+Cop M78 R04-01
 ```
 
 2+ providers mixed (window providers + Buzz balance):
 
 ```text
-OpenAI
-  5h 78% Rst 05:05
-Copilot
-  Monthly 78% Rst 04-01
-Buzz Balance ￥10.2
+OAI 5h78 R05:05
+Cop M78 R04-01
+Buzz B￥10.2
 ```
 
 Balance-style quota:
 
 ```text
-RC Balance $260
+RC B260
 ```
 
 Buzz balance quota:
 
 ```text
-Buzz Balance ￥10.17
+Buzz B￥10.17
 ```
 
 Multi-detail quota (window + balance):
 
 ```text
-RC
-  Daily $88.9/$60 Exp 02-27
-  Balance $260
+RC D$88.9/$60 E02-27 B260
 ```
 
 Provider status / quota (examples):
 
 ```text
-Anthropic 5h 80%+
-Copilot unavailable
-OpenAI Remaining ?
-```
-
-### Legacy compact single-line layout
-
-For historical reference, the old non-desktop compact layout looked like this:
-
-```text
-<base> | Req ... | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...
-```
-
-Mixed with Buzz balance:
-
-```text
-<base> | Req ... | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | Buzz Balance ￥10.2
+Ant 5h80
+Cop unavailable
+OAI ?
 ```
 
 ### Desktop compact mode
 
-Desktop always uses a compact single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand. To survive upstream Desktop truncation better, quota segments are emitted before usage stats:
+Desktop always uses a compact monitoring-style single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand. To survive upstream Desktop truncation better, quota segments are emitted before usage summary signals:
 
 ```text
-<base> | OAI 5h80 W70 | Cop M78 | RC D88.9/60 B260 | Buzz B￥10.2 | R12 I18.9k O53
+<base> | OAI 5h80 R16:20 W70 R04-03 | Cop M78 R04-01 | RC D88.9/60 B260 | Buzz B￥10.2 | Cd66% | Est$0.12
 ```
 
 Shorthand rules:
 
-- `R12` = 12 requests
-- `I18.9k` / `O53` = input / output tokens
 - `5h80` = `5h 80%`
 - `W70` / `M78` / `D46` = weekly / monthly / daily window remaining percent
+- `R16:20` / `R04-03` = reset time/date for that quota window
 - `D88.9/60` = daily remaining / daily total
 - `B260` / `B￥10.2` = balance
-- Order is `base | quota... | usage`, while TUI keeps its multiline usage-first layout.
+- `Cd66%` = cached ratio (`cache.read / (input + cache.read)`)
+- `Est$0.12` = equivalent API cost estimate
+- Desktop omits `R/I/O/CR/CW`; TUI keeps the full compact multiline breakdown.
+- Order is `base | quota... | usage-summary`, while TUI keeps its multiline usage-first layout.
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 

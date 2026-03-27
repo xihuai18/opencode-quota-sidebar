@@ -41,7 +41,16 @@ describe('title', () => {
     assert.equal(looksDecorated('Session\nCache Read 10'), true)
     assert.equal(looksDecorated('Session\nCache Coverage 60%'), true)
     assert.equal(looksDecorated('Session\nCache Read Coverage 75%'), true)
+    assert.equal(looksDecorated('Session\nCache Cov 60%'), true)
+    assert.equal(looksDecorated('Session\nCache Read Cov 75%'), true)
+    assert.equal(looksDecorated('Session\nCache R Cov 75%'), true)
     assert.equal(looksDecorated('Session\n$1.23 as API cost'), true)
+    assert.equal(looksDecorated('Session\nAPI $1.23'), true)
+    assert.equal(looksDecorated('Session\nR3 I16.3k O916'), true)
+    assert.equal(looksDecorated('Session\nCW300 CR31.4k Cd66%'), true)
+    assert.equal(looksDecorated('Session\nCR31.4k CRC66% CC70%'), true)
+    assert.equal(looksDecorated('Session\nCached 66%'), true)
+    assert.equal(looksDecorated('Session\nEst$0.12'), true)
     assert.equal(
       looksDecorated('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
       true,
@@ -82,6 +91,14 @@ describe('title', () => {
       normalizeBaseTitle('Session\nCache Read Coverage 75%'),
       'Session',
     )
+    assert.equal(normalizeBaseTitle('Session\nCache Cov 60%'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nCache R Cov 75%'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nAPI $1.23'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nR3 I16.3k O916'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nCW300 CR31.4k Cd66%'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nCR31.4k CRC66% CC70%'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nCached 66%'), 'Session')
+    assert.equal(normalizeBaseTitle('Session\nEst$0.12'), 'Session')
     assert.equal(
       normalizeBaseTitle('Project notes\nCache Coverage plan'),
       'Project notes\nCache Coverage plan',

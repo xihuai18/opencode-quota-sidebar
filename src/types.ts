@@ -61,18 +61,15 @@ export type CacheUsageBuckets = {
 }
 
 /**
- * Derived cache coverage metrics.
+ * Derived cache metrics.
  *
- * - `cacheCoverage`: fraction of prompt surface covered by read-write cache
- *   (`(cacheRead + cacheWrite) / (input + cacheRead + cacheWrite)`).
- *   Only defined when the read-write bucket has traffic.
- * - `cacheReadCoverage`: fraction of prompt surface served from read-only cache
- *   (`cacheRead / (input + cacheRead)`).
- *   Only defined when the read-only bucket has traffic.
+ * - `cachedRatio`: fraction of the observed input surface that was served from
+ *   cache (`cacheRead / (input + cacheRead)`).
+ *   This is an exact ratio over normalized message totals, not a theoretical
+ *   cache hit rate.
  */
 export type CacheCoverageMetrics = {
-  cacheCoverage: number | undefined
-  cacheReadCoverage: number | undefined
+  cachedRatio: number | undefined
 }
 
 export type RecentProviderEvent = {
@@ -91,7 +88,7 @@ export type CachedProviderUsage = {
   /** Equivalent API billing cost (USD) computed from model pricing. */
   apiCost: number
   assistantMessages: number
-  /** Provider-level cache coverage buckets grouped by model cache behavior. */
+  /** Provider-level cache buckets grouped by model cache behavior. */
   cacheBuckets?: CacheUsageBuckets
 }
 
@@ -109,7 +106,7 @@ export type CachedSessionUsage = {
   apiCost: number
   assistantMessages: number
   /**
-   * Cache coverage buckets grouped by model cache behavior.
+   * Cache buckets grouped by model cache behavior.
    *
    * `undefined` when no cache-capable models were used or data predates
    * billingVersion 3. The fallback in `resolvedCacheUsageBuckets()` derives
@@ -166,9 +163,9 @@ export type QuotaSidebarConfig = {
     enabled: boolean
     width: number
     /**
-     * When true, render multi-line decorated session titles.
-     * Enabled by default for clearer token/quota layout in sidebar.
-     * Set false to keep a compact single-line title.
+     * Legacy switch retained for compatibility.
+     * TUI keeps a compact multiline sidebar layout; Desktop keeps a compact
+     * single-line layout.
      */
     multilineTitle?: boolean
     showCost: boolean

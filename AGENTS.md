@@ -87,7 +87,7 @@ Sidebar container: width=42
 补充：为减少长 quota 行被 `~` 截断造成的信息丢失，插件支持对 quota 行做“自动换行 + 续行缩进”。
 
 - 配置项：`sidebar.wrapQuotaLines`（默认 `true`）
-- 行为：仅对 quota 行生效；续行使用空格缩进到 quota 内容区；每行仍会通过 `fitLine()` 确保不超过 `width` 个 cell
+- 行为：仅对 quota 行生效；续行使用空格缩进并对齐到 quota 内容区；每行仍会通过 `fitLine()` 确保不超过 `width` 个 cell
 
 ### 3.4 ANSI 转义码
 
@@ -114,12 +114,11 @@ MCP 条目通过 JSX 结构实现两种字体：
 ### 4.1 Sidebar 中的 token 统计
 
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
-- Sidebar 中 Requests 行默认放在 Input/Output 之前
-- 示例：`Requests 12`、`Input 18.9k  Output 53` 或 `Input 1.2m  Output 54.8k`
-- TUI 现在固定走 multiline title；Desktop 固定走 compact 单行 title，不再依赖 `sidebar.multilineTitle`
-- Desktop 自动走 compact 单行 title：`<base> | OAI 5h80 W70 | RC D88.9/60 B260 | R12 I18.9k O53`
+- TUI sidebar 固定走 **compact multiline**，仍然是多行，但 token 文案使用紧凑缩写；Desktop 固定走 monitoring-style compact 单行 title，不再依赖 `sidebar.multilineTitle`
+- TUI usage 示例：`R12 I18.9k O53`、`CW300 CR31.4k Cd66%`、`Est$0.12`
+- Desktop 自动走 compact 单行 title：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
 - Desktop compact 仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
-- Desktop compact 为了更抗上游前端截断，顺序固定为 `base | quota... | usage`；TUI 仍保持 multiline usage-first 布局
+- Desktop compact 为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；Desktop 省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`；TUI 保持 multiline usage-first 布局，但每行都优先使用 compact token
 - toast 和 markdown report 同样使用 `shortNumber()`
 
 ### 4.2 Cache 显示
@@ -154,12 +153,11 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ### 5.2 格式
 
-- 单窗口：`OpenAI 5h 80% Rst 16:20`
-- 多窗口（缩进续行）：
-  - `OpenAI 5h 80% Rst 16:20`
-  - `       Weekly 70% Rst 03-01`
-- Copilot：`Copilot Monthly 70% Rst 03-01`
-- RightCode（日额度）：`RC Daily $105/$60 Exp 02-27`（不追加百分比）
+- TUI sidebar quota 默认走 compact token：`OAI 5h80 R16:20`、`Cop M70 R03-01`、`XYAI D$31.3/$90 R22:39`
+- 多窗口/多字段在放不下时续到下一行，但**不丢字段**；续行继续使用 compact token，例如：
+  - `OAI 5h80 R16:20 W70`
+  - `    R03-01`
+- RightCode / XYAI / Buzz 的余额或日额度同样走 compact token：`RC D$105/$60 E02-27 B$222.5`
 
 reset 时间规则：
 
@@ -176,6 +174,8 @@ reset 时间规则：
 - Token 区块后显示 `Cost as API` 区块，按 provider 列出 API 等价成本（金额显示同 4.4 的自适应精度规则）
 - Quota 区块沿用 sidebar 规则：多窗口缩进续行、RightCode 不显示日额度百分比
 - RightCode 命中订阅时显示两行：`Daily ... Exp ...` + `Balance ...`
+
+补充：`quota_summary` / `/qday` / `/qweek` / `/qmonth` 的 markdown report 与 toast 不使用 compact token，继续保留完整可读文案。调用方应直接展示工具返回的完整 report。
 
 ### 5.4 多窗口 quota
 

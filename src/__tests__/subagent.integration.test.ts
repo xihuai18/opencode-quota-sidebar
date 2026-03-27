@@ -559,8 +559,8 @@ describe('subagent aggregation integration', () => {
 
       const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
       assert.ok(latestP1)
-      assert.match(latestP1!.title, /Input 111\s+Output 6/)
-      assert.match(latestP1!.title, /Cache Read Coverage 12%/)
+      assert.match(latestP1!.title, /R3 I111 O6/)
+      assert.match(latestP1!.title, /Cd12%/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -766,7 +766,7 @@ describe('subagent aggregation integration', () => {
 
       const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
       assert.ok(latestP1)
-      assert.match(latestP1!.title, /Input 110\s+Output 11/)
+      assert.match(latestP1!.title, /R2 I110 O11/)
 
       // Re-parent c1 from p1 -> p2. Use decorated title echo to ensure the
       // parent refresh logic is not skipped by title echo handling.
@@ -782,12 +782,12 @@ describe('subagent aggregation integration', () => {
 
       const latestP2 = [...updates].reverse().find((u) => u.id === 'p2')
       assert.ok(latestP2)
-      assert.match(latestP2!.title, /Input 120\s+Output 12/)
+      assert.match(latestP2!.title, /R2 I120 O12/)
 
       const latestP1After = [...updates].reverse().find((u) => u.id === 'p1')
       assert.ok(latestP1After)
       // After re-parent, p1 should no longer include child usage.
-      assert.match(latestP1After!.title, /Input 10\s+Output 1/)
+      assert.match(latestP1After!.title, /R1 I10 O1/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -971,9 +971,7 @@ describe('subagent aggregation integration', () => {
       } as never)
 
       await waitFor(() =>
-        updates.some(
-          (u) => u.id === 'p1' && /Input 110\s+Output 11\b/.test(u.title),
-        ),
+        updates.some((u) => u.id === 'p1' && /R2 I110 O11\b/.test(u.title)),
       )
 
       childEntries = []
@@ -986,14 +984,12 @@ describe('subagent aggregation integration', () => {
       } as never)
 
       await waitFor(() =>
-        updates.some(
-          (u) => u.id === 'p1' && /Input 10\s+Output 1\b/.test(u.title),
-        ),
+        updates.some((u) => u.id === 'p1' && /R1 I10 O1\b/.test(u.title)),
       )
 
       const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
       assert.ok(latestP1)
-      assert.match(latestP1!.title, /Input 10\s+Output 1\b/)
+      assert.match(latestP1!.title, /R1 I10 O1\b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

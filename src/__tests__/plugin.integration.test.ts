@@ -238,10 +238,10 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.ok(updates.length > 0)
-      assert.match(title, /Input\s+18\.9k\s+Output\s+53/)
-      assert.match(title, /\$0\.02 as API cost/)
-      assert.match(title, /Cache Read 1\.5k/)
-      assert.match(title, /Cache Read Coverage 7%/)
+      assert.match(title, /R1 I18\.9k O53/)
+      assert.match(title, /Est\$0\.02/)
+      assert.match(title, /CR1\.5k/)
+      assert.match(title, /Cd7%/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -322,8 +322,9 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /R1 I18\.9k O53/)
+      assert.match(title, /Cd7%/)
       assert.doesNotMatch(title, /Requests 1|Cache Read 1\.5k/)
+      assert.doesNotMatch(title, /R1 I18\.9k O53|Est\$0\.02/)
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -350,7 +351,7 @@ describe('plugin integration', () => {
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     try {
-      let title = 'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable'
+      let title = 'Echoed Session\nCd5%\nOAI unavailable'
       const updates: string[] = []
 
       const msg = {
@@ -447,10 +448,7 @@ describe('plugin integration', () => {
 
       await delay(350)
       assert.equal(updates.length, 0)
-      assert.equal(
-        title,
-        'Echoed Session\nCache Read Coverage 5%\nOpenAI unavailable',
-      )
+      assert.equal(title, 'Echoed Session\nCd5%\nOAI unavailable')
 
       await hooks.event!({
         event: { type: 'message.updated', properties: { info: msg } },
@@ -459,14 +457,11 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       const latest = updates.at(-1) || ''
-      assert.match(
-        latest,
-        /^Echoed Session\n\nRequests 1\nInput 420  Output 84/m,
-      )
-      assert.match(latest, /Cache Read 21/)
-      assert.match(latest, /Cache Read Coverage 5%/)
+      assert.match(latest, /^Echoed Session\n\nR1 I420 O84/m)
+      assert.match(latest, /CR21/)
+      assert.match(latest, /Cd5%/)
       assert.equal((latest.match(/Echoed Session/g) || []).length, 1)
-      assert.equal((latest.match(/Cache Read Coverage 5%/g) || []).length, 1)
+      assert.equal((latest.match(/Cd5%/g) || []).length, 1)
       assert.doesNotMatch(latest, /OpenAI unavailable/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -881,9 +876,9 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.ok(updates.length > 0)
-      assert.match(title, /Input\s+420\s+Output\s+84/)
-      assert.match(title, /Cache Read Coverage 5%/)
-      assert.match(title, /OpenAI unavailable/)
+      assert.match(title, /R1 I420 O84/)
+      assert.match(title, /Cd5%/)
+      assert.match(title, /OAI unavailable/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -1107,9 +1102,9 @@ describe('plugin integration', () => {
         .reverse()
         .find((item) => item.id === 'p1')
       assert.ok(latestParent)
-      assert.match(latestParent!.title, /Input 300  Output 50/)
-      assert.match(latestParent!.title, /OpenAI/)
-      assert.match(latestParent!.title, /Copilot/)
+      assert.match(latestParent!.title, /R2 I300 O50/)
+      assert.match(latestParent!.title, /OAI/)
+      assert.match(latestParent!.title, /Cop/)
     } finally {
       ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -1268,9 +1263,9 @@ describe('plugin integration', () => {
         .reverse()
         .find((item) => item.id === 'p1')
       assert.ok(latestParent)
-      assert.match(latestParent!.title, /Input\s+350\.0k\s+Output\s+30\.0k/)
-      assert.match(latestParent!.title, /Cache Read Coverage 5%/)
-      assert.match(latestParent!.title, /\$1\.02 as API cost/)
+      assert.match(latestParent!.title, /R2 I350\.0k O30\.0k/)
+      assert.match(latestParent!.title, /Cd5%/)
+      assert.match(latestParent!.title, /Est\$1\.02/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

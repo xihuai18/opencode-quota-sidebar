@@ -226,7 +226,7 @@ describe('range usage persistence', () => {
         report,
         /input 100, output 20, cache_read 20, cache_write 0, total 140/,
       )
-      assert.match(report, /- Cache Read Coverage: 16\.7%/)
+      assert.match(report, /- Cached: 16\.7%/)
       assert.doesNotMatch(report, /999/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome

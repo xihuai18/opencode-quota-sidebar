@@ -348,11 +348,7 @@ describe('summarizeMessagesIncremental', () => {
     assert.equal(usage.cacheBuckets!.readWrite.cacheWrite, 30)
 
     const metrics = getCacheCoverageMetrics(usage)
-    // read-only: 90 / (160+90) = 0.36
-    assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.36) < 1e-9)
-    // read-write: (20+30) / (80+20+30) = 50/130
-    assert.ok(
-      Math.abs((metrics.cacheCoverage || 0) - 50 / 130) < 1e-9,
-    )
+    // unified cached ratio: 110 / (240 + 110) = 11/35
+    assert.ok(Math.abs((metrics.cachedRatio || 0) - 11 / 35) < 1e-9)
   })
 })
