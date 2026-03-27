@@ -14,6 +14,46 @@ const MODEL_COST_RATE_ALIASES: Record<string, string[]> = {
   'kimi-for-coding:kimi-k2-thinking': ['moonshotai-cn:kimi-k2-thinking'],
 }
 
+function anthropicModelAliases(modelID: string) {
+  const aliases: string[] = []
+
+  const push = (value: string) => {
+    if (!value) return
+    if (!aliases.includes(value)) aliases.push(value)
+  }
+
+  push(modelID)
+
+  const stems = [modelID]
+  for (const stem of stems) {
+    const withoutVendorPrefix = stem.replace(/^anthropic[/.]/, '')
+    push(withoutVendorPrefix)
+    push(`anthropic/${withoutVendorPrefix}`)
+
+    const withoutThinkingSuffix = withoutVendorPrefix.replace(/-thinking$/, '')
+    push(withoutThinkingSuffix)
+    push(`anthropic/${withoutThinkingSuffix}`)
+
+    const withoutLatestSuffix = withoutThinkingSuffix.replace(/-latest$/, '')
+    push(withoutLatestSuffix)
+    push(`anthropic/${withoutLatestSuffix}`)
+
+    const withoutDateSuffix = withoutLatestSuffix.replace(/-\d{8}$/, '')
+    push(withoutDateSuffix)
+    push(`anthropic/${withoutDateSuffix}`)
+
+    const dotted = withoutDateSuffix.replace(/(\d)-(\d)(?=-|$)/g, '$1.$2')
+    push(dotted)
+    push(`anthropic/${dotted}`)
+
+    const hyphenated = withoutDateSuffix.replace(/(\d)\.(\d)(?=-|$)/g, '$1-$2')
+    push(hyphenated)
+    push(`anthropic/${hyphenated}`)
+  }
+
+  return aliases
+}
+
 function normalizeKnownProviderID(providerID: string) {
   if (providerID.startsWith('github-copilot')) return 'github-copilot'
   return providerID
@@ -57,9 +97,16 @@ export function modelCostLookupKeys(providerID: string, modelID: string) {
     if (!keys.includes(key)) keys.push(key)
   }
 
-  push(modelCostKey(providerID, modelID))
-  if (canonicalProviderID !== providerID) {
-    push(modelCostKey(canonicalProviderID, modelID))
+  const modelIDs =
+    canonicalProviderID === 'anthropic'
+      ? anthropicModelAliases(modelID)
+      : [modelID]
+
+  for (const candidateModelID of modelIDs) {
+    push(modelCostKey(providerID, candidateModelID))
+    if (canonicalProviderID !== providerID) {
+      push(modelCostKey(canonicalProviderID, candidateModelID))
+    }
   }
 
   for (const key of [...keys]) {

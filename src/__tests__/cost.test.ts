@@ -165,7 +165,10 @@ describe('cost', () => {
       'github-copilot',
     )
     assert.equal(canonicalApiCostProviderID('claude'), 'anthropic')
-    assert.equal(canonicalApiCostProviderID('kimi-for-coding'), 'kimi-for-coding')
+    assert.equal(
+      canonicalApiCostProviderID('kimi-for-coding'),
+      'kimi-for-coding',
+    )
   })
 
   it('maps kimi-for-coding k2p5 to moonshot pricing keys', () => {
@@ -177,6 +180,35 @@ describe('cost', () => {
       modelCostLookupKeys('kimi-for-coding', 'kimi-k2-thinking'),
       ['kimi-for-coding:kimi-k2-thinking', 'moonshotai-cn:kimi-k2-thinking'],
     )
+  })
+
+  it('adds anthropic model aliases for dated and dotted claude IDs', () => {
+    const dated = modelCostLookupKeys('anthropic', 'claude-3.7-sonnet-20250219')
+    assert.ok(dated.includes('anthropic:claude-3.7-sonnet-20250219'))
+    assert.ok(dated.includes('anthropic:claude-3.7-sonnet'))
+    assert.ok(dated.includes('anthropic:claude-3-7-sonnet'))
+
+    const opencodeCurrent = modelCostLookupKeys(
+      'anthropic',
+      'anthropic/claude-sonnet-4-5-20250929-thinking',
+    )
+    assert.ok(
+      opencodeCurrent.includes(
+        'anthropic:anthropic/claude-sonnet-4-5-20250929-thinking',
+      ),
+    )
+    assert.ok(opencodeCurrent.includes('anthropic:claude-sonnet-4-5-20250929'))
+    assert.ok(opencodeCurrent.includes('anthropic:claude-sonnet-4-5'))
+    assert.ok(opencodeCurrent.includes('anthropic:anthropic/claude-sonnet-4-5'))
+
+    const thirdParty = modelCostLookupKeys(
+      'buzz-anthropic',
+      'claude-sonnet-4-5',
+    )
+    assert.ok(thirdParty.includes('buzz-anthropic:claude-sonnet-4-5'))
+    assert.ok(thirdParty.includes('anthropic:claude-sonnet-4-5'))
+    assert.ok(thirdParty.includes('buzz-anthropic:claude-sonnet-4.5'))
+    assert.ok(thirdParty.includes('anthropic:claude-sonnet-4.5'))
   })
 
   it('treats kimi-for-coding as API-cost-enabled', () => {

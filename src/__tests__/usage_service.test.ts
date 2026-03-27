@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { createUsageService } from '../usage_service.js'
-import { USAGE_BILLING_CACHE_VERSION, getCacheCoverageMetrics } from '../usage.js'
+import {
+  USAGE_BILLING_CACHE_VERSION,
+  getCacheCoverageMetrics,
+} from '../usage.js'
 import type { QuotaSidebarConfig, QuotaSidebarState } from '../types.js'
 
 function delay(ms: number) {
@@ -134,14 +137,14 @@ describe('usage service', () => {
                     providerID: 'openai',
                     modelID: 'gpt-5',
                     time: { created: now - 50, completed: now - 40 },
-                      tokens: {
-                        input: 50,
-                        output: 10,
-                        reasoning: 5,
-                        cache: { read: 25, write: 25 },
-                      },
-                      cost: 9.99,
+                    tokens: {
+                      input: 50,
+                      output: 10,
+                      reasoning: 5,
+                      cache: { read: 25, write: 25 },
                     },
+                    cost: 9.99,
+                  },
                 },
               ],
             }
@@ -194,7 +197,9 @@ describe('usage service', () => {
 
     const metrics = getCacheCoverageMetrics(usage)
     assert.equal(metrics.cacheCoverage, undefined)
-    assert.ok(Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9)
+    assert.ok(
+      Math.abs((metrics.cacheReadCoverage || 0) - 0.3333333333333333) < 1e-9,
+    )
   })
 
   it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {
@@ -403,7 +408,10 @@ describe('usage service', () => {
       },
     })
 
-    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
     const metrics = getCacheCoverageMetrics(usage)
 
     assert.equal(metrics.cacheCoverage, undefined)
@@ -520,11 +528,194 @@ describe('usage service', () => {
       },
     })
 
-    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
 
     assert.equal(messageCalls, 1)
     assert.ok(usage.apiCost > 0)
     assert.ok(state.sessions[sessionID].usage?.apiCost)
+  })
+
+  it('matches anthropic api cost when message and pricing use different claude IDs', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-session'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Anthropic Session',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-anthropic',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-3.7-sonnet',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'anthropic',
+                  models: {
+                    'claude-3-7-sonnet-20250219': {
+                      id: 'claude-3-7-sonnet-20250219',
+                      cost: {
+                        input: 3,
+                        output: 15,
+                        cache_read: 0.3,
+                        cache_write: 3.75,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
+    assert.ok(
+      Math.abs((usage.providers.anthropic?.apiCost || 0) - 0.7275) < 1e-9,
+    )
+  })
+
+  it('matches current opencode anthropic names with prefix and thinking suffix', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-current'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Anthropic Current',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-anthropic-current',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'anthropic/claude-sonnet-4-5-20250929-thinking',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'anthropic',
+                  models: {
+                    'claude-sonnet-4-5': {
+                      id: 'claude-sonnet-4-5',
+                      cost: {
+                        input: 3,
+                        output: 15,
+                        cache_read: 0.3,
+                        cache_write: 3.75,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
+    assert.ok(
+      Math.abs((usage.providers.anthropic?.apiCost || 0) - 0.7275) < 1e-9,
+    )
   })
 
   it('maps kimi-for-coding k2p5 usage to moonshotai-cn kimi-k2.5 pricing', async () => {
@@ -604,7 +795,10 @@ describe('usage service', () => {
       },
     })
 
-    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
     const kimiUsage = usage.providers['kimi-for-coding']
 
     assert.ok(kimiUsage)
@@ -727,11 +921,16 @@ describe('usage service', () => {
       },
     })
 
-    const usage = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
 
     assert.equal(messageCalls, 1)
     assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
-    assert.ok(Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9)
+    assert.ok(
+      Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9,
+    )
   })
 
   it('fails session-only tool summary when messages cannot load and no cache exists', async () => {

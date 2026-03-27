@@ -152,16 +152,18 @@ export function createUsageService(deps: {
 
         const modelID =
           typeof modelValue.id === 'string' ? modelValue.id : modelKey
-        acc[modelCostKey(rawProviderID, modelID)] = rates
-        if (modelKey !== modelID) {
-          acc[modelCostKey(rawProviderID, modelKey)] = rates
-        }
+        const lookupKeys = new Set([
+          ...modelCostLookupKeys(rawProviderID, modelID),
+          ...modelCostLookupKeys(rawProviderID, modelKey),
+        ])
 
         if (canonicalProviderID !== rawProviderID) {
-          acc[modelCostKey(canonicalProviderID, modelID)] = rates
-          if (modelKey !== modelID) {
-            acc[modelCostKey(canonicalProviderID, modelKey)] = rates
-          }
+          lookupKeys.add(modelCostKey(canonicalProviderID, modelID))
+          lookupKeys.add(modelCostKey(canonicalProviderID, modelKey))
+        }
+
+        for (const key of lookupKeys) {
+          acc[key] = rates
         }
       }
 
@@ -481,7 +483,8 @@ export function createUsageService(deps: {
     const modelCostMap = await getModelCostMap()
 
     const staleBillingCache =
-      Boolean(sessionState?.usage) && !isUsageBillingCurrent(sessionState?.usage)
+      Boolean(sessionState?.usage) &&
+      !isUsageBillingCurrent(sessionState?.usage)
     const forceRescan = forceRescanSessions.has(sessionID) || staleBillingCache
     if (forceRescan) forceRescanSessions.delete(sessionID)
 
