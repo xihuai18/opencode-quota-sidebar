@@ -941,6 +941,13 @@ export function renderMarkdownReport(
       : `| ${providerID} | ${shortNumber(provider.assistantMessages)} | ${shortNumber(provider.input)} | ${shortNumber(provider.output)} | ${shortNumber(provider.cacheRead + provider.cacheWrite)} | ${shortNumber(provider.total)} |`
   })
 
+  const providerHeader = showCost
+    ? '| Provider | Requests | Input | Output | Cache | Total | Cache Coverage | Cache Read Coverage | Measured Cost | API Cost |'
+    : '| Provider | Requests | Input | Output | Cache | Total |'
+  const providerDivider = showCost
+    ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+    : '| --- | ---: | ---: | ---: | ---: | ---: |'
+
   const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
     const displayLabel = quotaDisplayLabel(quota)
     // Multi-window detail
@@ -1016,12 +1023,9 @@ export function renderMarkdownReport(
       : []),
     '',
     '### Usage by Provider',
-    showCost
-      ? '| Provider | Requests | Input | Output | Cache | Total | Cache Coverage | Cache Read Coverage | Measured Cost | API Cost |'
-      : '| Provider | Requests | Input | Output | Cache | Total |',
-    showCost
-      ? '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|'
-      : '|---|---:|---:|---:|---:|---:|',
+    '',
+    providerHeader,
+    providerDivider,
     ...(providerRows.length
       ? providerRows
       : [
@@ -1031,6 +1035,7 @@ export function renderMarkdownReport(
         ]),
     '',
     '### Subscription Quota',
+    '',
     ...(quotaLines.length
       ? quotaLines
       : ['- no provider quota data available']),

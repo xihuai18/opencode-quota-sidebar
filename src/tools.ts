@@ -72,7 +72,8 @@ export function createQuotaSidebarTools(deps: {
 
   return {
     quota_summary: tool({
-      description: 'Show usage and quota summary for session/day/week/month.',
+      description:
+        'Show usage and quota summary for session/day/week/month. Returns the full markdown report with totals, highlights, provider table, and subscription quota so callers can present the report directly to the user.',
       args: {
         period: z.enum(['session', 'day', 'week', 'month']).optional(),
         toast: z.boolean().optional(),
@@ -119,7 +120,7 @@ export function createQuotaSidebarTools(deps: {
 
     quota_show: tool({
       description:
-        'Toggle sidebar title display mode. When on, titles show token usage and quota; when off, titles revert to original.',
+        'Toggle sidebar title display mode. When on, titles show token usage and quota; when off, titles revert to original. Returns a user-facing status message that callers should present directly.',
       args: {
         enabled: z
           .boolean()

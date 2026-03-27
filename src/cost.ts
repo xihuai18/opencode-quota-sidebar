@@ -16,21 +16,43 @@ const MODEL_COST_RATE_ALIASES: Record<string, string[]> = {
 
 function anthropicModelAliases(modelID: string) {
   const aliases: string[] = []
+  const queue: string[] = []
 
   const push = (value: string) => {
     if (!value) return
-    if (!aliases.includes(value)) aliases.push(value)
+    if (!aliases.includes(value)) {
+      aliases.push(value)
+      queue.push(value)
+    }
   }
 
   push(modelID)
 
-  const stems = [modelID]
-  for (const stem of stems) {
-    const withoutVendorPrefix = stem.replace(/^anthropic[/.]/, '')
-    push(withoutVendorPrefix)
-    push(`anthropic/${withoutVendorPrefix}`)
+  for (let index = 0; index < queue.length; index++) {
+    const stem = queue[index]
 
-    const withoutThinkingSuffix = withoutVendorPrefix.replace(/-thinking$/, '')
+    const withoutProviderPrefix = stem
+      .replace(/^(?:[a-z]+\.)*anthropic\./, '')
+      .replace(/^anthropic[/.]/, '')
+    push(withoutProviderPrefix)
+    push(`anthropic/${withoutProviderPrefix}`)
+
+    const withoutVersionSuffix = withoutProviderPrefix.replace(
+      /-v\d+(?::\d+)?$/,
+      '',
+    )
+    push(withoutVersionSuffix)
+    push(`anthropic/${withoutVersionSuffix}`)
+
+    const atDate = withoutVersionSuffix.replace(/@(\d{8})$/, '-$1')
+    push(atDate)
+    push(`anthropic/${atDate}`)
+
+    const withAtDate = withoutVersionSuffix.replace(/-(\d{8})$/, '@$1')
+    push(withAtDate)
+    push(`anthropic/${withAtDate}`)
+
+    const withoutThinkingSuffix = withoutVersionSuffix.replace(/-thinking$/, '')
     push(withoutThinkingSuffix)
     push(`anthropic/${withoutThinkingSuffix}`)
 
@@ -38,7 +60,9 @@ function anthropicModelAliases(modelID: string) {
     push(withoutLatestSuffix)
     push(`anthropic/${withoutLatestSuffix}`)
 
-    const withoutDateSuffix = withoutLatestSuffix.replace(/-\d{8}$/, '')
+    const withoutDateSuffix = withoutLatestSuffix
+      .replace(/-\d{8}$/, '')
+      .replace(/@\d{8}$/, '')
     push(withoutDateSuffix)
     push(`anthropic/${withoutDateSuffix}`)
 

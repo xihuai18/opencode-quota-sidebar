@@ -718,6 +718,116 @@ describe('usage service', () => {
     )
   })
 
+  it('matches current opencode anthropic vertex and bedrock style IDs', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-platforms'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Anthropic Platforms',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-vertex',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-sonnet-4-5@20250929',
+                  time: {
+                    created: completedAt - 20,
+                    completed: completedAt - 10,
+                  },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+              {
+                info: {
+                  id: 'm-bedrock',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+                  time: { created: completedAt - 9, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 10_000 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'anthropic',
+                  models: {
+                    'claude-sonnet-4-5': {
+                      id: 'claude-sonnet-4-5',
+                      cost: {
+                        input: 3,
+                        output: 15,
+                        cache_read: 0.3,
+                        cache_write: 3.75,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.providers.anthropic?.assistantMessages, 2)
+    assert.ok(Math.abs(usage.apiCost - 1.455) < 1e-9)
+    assert.ok(
+      Math.abs((usage.providers.anthropic?.apiCost || 0) - 1.455) < 1e-9,
+    )
+  })
+
   it('maps kimi-for-coding k2p5 usage to moonshotai-cn kimi-k2.5 pricing', async () => {
     const state = makeState()
     const config = makeConfig()

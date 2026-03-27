@@ -201,6 +201,28 @@ describe('cost', () => {
     assert.ok(opencodeCurrent.includes('anthropic:claude-sonnet-4-5'))
     assert.ok(opencodeCurrent.includes('anthropic:anthropic/claude-sonnet-4-5'))
 
+    const vertexStyle = modelCostLookupKeys(
+      'anthropic',
+      'claude-sonnet-4-5@20250929',
+    )
+    assert.ok(vertexStyle.includes('anthropic:claude-sonnet-4-5@20250929'))
+    assert.ok(vertexStyle.includes('anthropic:claude-sonnet-4-5-20250929'))
+    assert.ok(vertexStyle.includes('anthropic:claude-sonnet-4-5'))
+
+    const bedrockStyle = modelCostLookupKeys(
+      'anthropic',
+      'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    )
+    assert.ok(
+      bedrockStyle.includes(
+        'anthropic:global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      ),
+    )
+    assert.ok(
+      bedrockStyle.includes('anthropic:anthropic/claude-sonnet-4-5-20250929'),
+    )
+    assert.ok(bedrockStyle.includes('anthropic:claude-sonnet-4-5'))
+
     const thirdParty = modelCostLookupKeys(
       'buzz-anthropic',
       'claude-sonnet-4-5',

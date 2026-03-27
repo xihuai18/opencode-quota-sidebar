@@ -1087,6 +1087,12 @@ describe('renderMarkdownReport', () => {
       report,
       /\| github-copilot \| 1 \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \| - \|/,
     )
+    assert.match(report, /### Usage by Provider\n\n\| Provider \|/)
+    assert.match(
+      report,
+      /\| --- \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \|/,
+    )
+    assert.match(report, /### Subscription Quota\n\n-/)
   })
 
   it('uses N/A values when only Copilot usage exists', () => {
