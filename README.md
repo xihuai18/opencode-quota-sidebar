@@ -68,7 +68,8 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - RightCode daily quota shows `$remaining/$dailyTotal` without trailing percent, and shows balance on the next indented line when available
   - XYAI daily quota follows the same balance-style layout and prefers the real reset time (for example `XYAI Daily $70.2/$90 Rst 22:18`)
 - Desktop automatically switches to a compact single-line title. It keeps `Requests/Input/Output` plus recently used providers from the last `50` requests or last `60` minutes, and expands all windows/balance for those selected providers in short form such as `OAI 5h80 W70` or `RC D88.9/60 B260`
-- Web UI currently does not have reliable client detection, so it does not auto-switch to desktop compact mode. If you want GUI-friendly single-line titles there, set `sidebar.multilineTitle=false` manually or use `quota_summary` for details
+- TUI is always rendered as multiline; Desktop is always rendered as compact single-line. This behavior no longer depends on `sidebar.multilineTitle`
+- Web UI currently cannot be reliably detected by the plugin, so it follows the non-desktop multiline path
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cache coverage is available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
@@ -249,7 +250,7 @@ Sidebar defaults:
 
 - `sidebar.enabled`: `true`
 - `sidebar.width`: `36` (clamped to `20`-`60`)
-- `sidebar.multilineTitle`: `true`
+- `sidebar.multilineTitle`: `true` (legacy compatibility field; TUI/Desktop display mode is now chosen automatically)
 - `sidebar.showCost`: `true`
 - `sidebar.showQuota`: `true`
 - `sidebar.wrapQuotaLines`: `true`
@@ -323,8 +324,7 @@ Other defaults:
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
-- `sidebar.multilineTitle` controls multi-line sidebar layout (default: `true`). Set `false` for compact single-line title.
-- Desktop ignores that visual preference and always uses the plugin's compact single-line title mode. TUI still follows `sidebar.multilineTitle`.
+- `sidebar.multilineTitle` is kept for backward compatibility, but current rendering is fixed by client type: TUI uses multiline titles and Desktop uses compact single-line titles.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
@@ -367,9 +367,9 @@ Buzz Balance ￥10.17
 
 These examples show the quota block portion of the sidebar title.
 
-### `sidebar.multilineTitle=true`
+### TUI layout
 
-This section describes the TUI layout. Desktop uses its own compact single-line format regardless of this setting.
+This section describes the TUI layout. Desktop uses its own compact single-line format and Web UI currently follows the multiline path.
 
 0 providers (no quota data):
 
@@ -456,9 +456,9 @@ Copilot unavailable
 OpenAI Remaining ?
 ```
 
-### `sidebar.multilineTitle=false`
+### Legacy compact single-line layout
 
-Quota is rendered inline as part of a single-line title:
+For historical reference, the old non-desktop compact layout looked like this:
 
 ```text
 <base> | Req ... | Input ... | Output ... | OpenAI 5h 78%+ | Copilot Monthly 78% | ...

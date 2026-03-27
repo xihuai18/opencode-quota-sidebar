@@ -68,9 +68,9 @@ function makeUsage(overrides: Partial<UsageSummary> = {}): UsageSummary {
 }
 
 describe('renderSidebarTitle', () => {
-  it('renders a single-line title when multilineTitle=false', () => {
+  it('renders a compact single-line title on desktop', () => {
+    process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(80)
-    config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
       makeUsage(),
@@ -78,8 +78,7 @@ describe('renderSidebarTitle', () => {
       config,
     )
     assert.equal(title.includes('\n'), false)
-    assert.match(title, /Input 1\.5k  Output 1\.2m/)
-    assert.match(title, /Req 3/)
+    assert.match(title, /R3 I1\.5k O1\.2m/)
   })
 
   it('renders compact desktop titles with all recent provider windows and balances', () => {
@@ -195,12 +194,16 @@ describe('renderSidebarTitle', () => {
     }
   })
 
-  it('renders Buzz balance consistently in single-line titles', () => {
+  it('renders Buzz balance consistently in desktop compact titles', () => {
+    process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
-    config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
-      makeUsage(),
+      makeUsage({
+        recentProviders: [
+          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+        ],
+      }),
       [
         {
           providerID: 'openai',
@@ -217,15 +220,19 @@ describe('renderSidebarTitle', () => {
       ],
       config,
     )
-    assert.match(title, /Buzz\s+Balance ￥10\.2/)
+    assert.match(title, /Buzz B￥10\.2/)
   })
 
-  it('shows non-ok quota status in single-line titles', () => {
+  it('shows non-ok quota status in desktop compact titles', () => {
+    process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
-    config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
-      makeUsage(),
+      makeUsage({
+        recentProviders: [
+          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+        ],
+      }),
       [
         {
           providerID: 'openai',
@@ -239,15 +246,19 @@ describe('renderSidebarTitle', () => {
       config,
     )
 
-    assert.match(title, /OpenAI unavailable/)
+    assert.match(title, /OAI unavailable/)
   })
 
-  it('sanitizes invalid quota percentages in single-line titles', () => {
+  it('sanitizes invalid quota percentages in desktop compact titles', () => {
+    process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
-    config.sidebar.multilineTitle = false
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
-      makeUsage(),
+      makeUsage({
+        recentProviders: [
+          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+        ],
+      }),
       [
         {
           providerID: 'openai',
@@ -262,7 +273,7 @@ describe('renderSidebarTitle', () => {
       config,
     )
 
-    assert.match(title, /OpenAI 5h/)
+    assert.match(title, /OAI 5h/)
     assert.doesNotMatch(title, /-5%|NaN%|Infinity%/)
   })
 

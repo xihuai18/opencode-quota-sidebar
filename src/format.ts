@@ -317,7 +317,7 @@ function renderDesktopCompactTitle(
   usage: UsageSummary,
   quotas: QuotaSnapshot[],
   config: QuotaSidebarConfig,
-  width: number,
+  _width: number,
 ) {
   const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
     ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
@@ -335,10 +335,10 @@ function renderDesktopCompactTitle(
     ...quotaSegments,
   ]
   const detail = segments.join(' | ')
-  if (!detail) return fitLine(baseTitle, width)
+  const safeBase = sanitizeLine(baseTitle) || 'Session'
+  if (!detail) return safeBase
 
-  const safeBase = fitLine(baseTitle, Math.max(8, Math.floor(width * 0.35)))
-  return fitLine(`${safeBase} | ${detail}`, width)
+  return `${safeBase} | ${detail}`
 }
 
 function formatPercent(value: number, decimals = 1) {
@@ -497,11 +497,6 @@ export function renderSidebarTitle(
       config,
       width,
     )
-  }
-
-  if (config.sidebar.multilineTitle !== true) {
-    const singleLineBase = safeBaseTitle.split(/\r?\n/, 1)[0] || 'Session'
-    return renderSingleLineTitle(singleLineBase, usage, quotas, config, width)
   }
 
   const cacheMetrics = getCacheCoverageMetrics(usage)

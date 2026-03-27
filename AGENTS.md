@@ -116,6 +116,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
 - Sidebar 中 Requests 行默认放在 Input/Output 之前
 - 示例：`Requests 12`、`Input 18.9k  Output 53` 或 `Input 1.2m  Output 54.8k`
+- TUI 现在固定走 multiline title；Desktop 固定走 compact 单行 title，不再依赖 `sidebar.multilineTitle`
 - Desktop 自动走 compact 单行 title：`<base> | R12 I18.9k O53 | OAI 5h80 W70 | RC D88.9/60 B260`
 - Desktop compact 仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
 - toast 和 markdown report 同样使用 `shortNumber()`
