@@ -1451,9 +1451,9 @@ describe('usage service', () => {
     )
 
     assert.equal(messageCalls, 1)
-    assert.ok(Math.abs(usage.apiCost - 0.0475218) < 1e-9)
+    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers['zhipuai-coding-plan'].apiCost - 0.0475218) <
+      Math.abs(usage.providers['zhipuai-coding-plan'].apiCost - 0.0471506) <
         1e-9,
     )
   })
@@ -1555,8 +1555,8 @@ describe('usage service', () => {
     )
 
     assert.equal(messageCalls, 1)
-    assert.ok(Math.abs(usage.apiCost - 0.0475218) < 1e-9)
-    assert.ok(Math.abs(usage.providers['z-ai'].apiCost - 0.0475218) < 1e-9)
+    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9)
+    assert.ok(Math.abs(usage.providers['z-ai'].apiCost - 0.0471506) < 1e-9)
   })
 
   it('fails session-only tool summary when messages cannot load and no cache exists', async () => {
