@@ -1,5 +1,7 @@
 export type QuotaStatus = 'ok' | 'unavailable' | 'unsupported' | 'error'
 
+export type SidebarTitleMode = 'auto' | 'multiline' | 'compact'
+
 export type QuotaWindow = {
   label: string
   /** Set false when this window line should not render a trailing percentage. */
@@ -165,6 +167,11 @@ export type QuotaSidebarConfig = {
     enabled: boolean
     width: number
     /**
+     * `auto`: compact by default, but keep the actively selected TUI session
+     * multiline when the plugin can positively identify it.
+     */
+    titleMode?: SidebarTitleMode
+    /**
      * Legacy switch retained for compatibility.
      * TUI keeps a compact multiline sidebar layout; Desktop keeps a compact
      * single-line layout.
@@ -182,7 +189,7 @@ export type QuotaSidebarConfig = {
     childrenMaxSessions: number
     /** Concurrency for fetching descendant session messages (bounded). */
     childrenConcurrency: number
-    /** Desktop-only compact title selection window by request count/time. */
+    /** Compact single-line title selection window by request count/time. */
     desktopCompact?: {
       recentRequests?: number
       recentMinutes?: number

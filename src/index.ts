@@ -5,8 +5,10 @@ import { type Hooks, type PluginInput } from '@opencode-ai/plugin'
 
 import {
   renderMarkdownReport,
+  resolveTitleView,
   renderSidebarTitle,
   renderToastMessage,
+  TUI_ACTIVE_MS,
 } from './format.js'
 import { createQuotaRuntime } from './quota.js'
 import {
@@ -181,6 +183,21 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const summarizeSessionUsageForDisplay =
     usageService.summarizeSessionUsageForDisplay
   const summarizeForTool = usageService.summarizeForTool
+  let tuiSessionID: string | undefined
+  let tuiActiveAt = 0
+  let tuiTimer: ReturnType<typeof setTimeout> | undefined
+
+  const armTuiTimer = () => {
+    if (tuiTimer) clearTimeout(tuiTimer)
+    if (!tuiSessionID) return
+    tuiTimer = setTimeout(() => {
+      const id = tuiSessionID
+      tuiActiveAt = 0
+      tuiTimer = undefined
+      if (id) scheduleTitleRefresh(id, 0)
+    }, TUI_ACTIVE_MS)
+    tuiTimer.unref?.()
+  }
 
   // title apply / refresh lifecycle
   let scheduleTitleRefresh = (sessionID: string, delay = 250) => {
@@ -223,6 +240,8 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     markDirty,
     scheduleSave,
     renderSidebarTitle,
+    getTitleView: (sessionID) =>
+      resolveTitleView({ config, sessionID, tuiSessionID, tuiActiveAt }),
     getQuotaSnapshots,
     summarizeSessionUsageForDisplay,
     scheduleParentRefreshIfSafe,
@@ -267,6 +286,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   }
 
   const shutdown = async () => {
+    if (tuiTimer) clearTimeout(tuiTimer)
     await Promise.race([
       startupTitleWork,
       new Promise((resolve) => setTimeout(resolve, 5_000)),
@@ -427,6 +447,15 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     onSessionDeleted: async (session) => {
       await flushSave().catch(swallow('onSessionDeleted:flushSave'))
 
+      if (tuiSessionID === session.id) {
+        tuiSessionID = undefined
+        tuiActiveAt = 0
+        if (tuiTimer) {
+          clearTimeout(tuiTimer)
+          tuiTimer = undefined
+        }
+      }
+
       descendantsResolver.invalidateForAncestors(session.parentID)
       descendantsResolver.invalidateForAncestors(session.id)
       usageService.forgetSession(session.id)
@@ -456,6 +485,26 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       if (config.sidebar.includeChildren && session.parentID) {
         titleRefresh.schedule(session.parentID, 0)
       }
+    },
+
+    onTuiActivity: async () => {
+      const stale =
+        Boolean(tuiSessionID) && Date.now() - tuiActiveAt > TUI_ACTIVE_MS
+      tuiActiveAt = Date.now()
+      armTuiTimer()
+      if (stale && tuiSessionID) {
+        titleRefresh.schedule(tuiSessionID, 0)
+      }
+    },
+
+    onTuiSessionSelect: async (sessionID) => {
+      const prev = tuiSessionID
+      tuiSessionID = sessionID
+      armTuiTimer()
+      if (prev && prev !== sessionID) {
+        titleRefresh.schedule(prev, 0)
+      }
+      titleRefresh.schedule(sessionID, 0)
     },
 
     onMessageRemoved: async (info) => {

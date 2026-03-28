@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
+import { TUI_ACTIVE_MS } from '../format.js'
 import { QuotaSidebarPlugin } from '../index.js'
 import { dateKeyFromTimestamp } from '../storage.js'
 
@@ -143,7 +144,7 @@ describe('plugin integration', () => {
     }
   })
 
-  it('updates session title after assistant message with plain text lines', async () => {
+  it('keeps multiline titles for the actively selected TUI session', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -232,6 +233,13 @@ describe('plugin integration', () => {
       } as never)
 
       await hooks.event!({
+        event: {
+          type: 'tui.session.select',
+          properties: { sessionID: 's1' },
+        },
+      } as never)
+
+      await hooks.event!({
         event: { type: 'message.updated', properties: { info: msg } },
       } as never)
 
@@ -244,6 +252,225 @@ describe('plugin integration', () => {
       assert.match(title, /Cd7%/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('expires stale TUI selection and restores multiline on new TUI activity', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: { multilineTitle: true, showCost: false, showQuota: false },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    const previousClient = process.env.OPENCODE_CLIENT
+    const realSetTimeout = globalThis.setTimeout
+    const realClearTimeout = globalThis.clearTimeout
+    let expiry: (() => void) | undefined
+    let token: object | undefined
+    ;(globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+      ((
+        fn: Parameters<typeof setTimeout>[0],
+        ms?: Parameters<typeof setTimeout>[1],
+        ...args: unknown[]
+      ) => {
+        if (ms === TUI_ACTIVE_MS) {
+          token = {}
+          const cur = token
+          expiry = () => {
+            if (token !== cur) return
+            if (typeof fn === 'function') {
+              ;(fn as (...args: unknown[]) => void)(...args)
+            }
+          }
+          return cur as ReturnType<typeof setTimeout>
+        }
+        return realSetTimeout(fn, ms, ...args)
+      }) as typeof setTimeout
+    ;(globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
+      ((value) => {
+        if (value === token) {
+          token = undefined
+          expiry = undefined
+          return
+        }
+        return realClearTimeout(value)
+      }) as typeof clearTimeout
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    process.env.OPENCODE_CLIENT = 'cli'
+    try {
+      let title = 'Greeting and quick check-in'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm1',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 18_900,
+          output: 53,
+          reasoning: 0,
+          cache: { read: 1500, write: 0 },
+        },
+        cost: 0.02,
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's1', title, time: { created: Date.now() - 10_000 } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: {
+          type: 'tui.session.select',
+          properties: { sessionID: 's1' },
+        },
+      } as never)
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => title.includes('\n'))
+      assert.match(title, /R1 I18\.9k O53/)
+      assert.ok(expiry)
+
+      expiry()
+      await waitFor(() => !title.includes('\n'))
+      assert.match(title, /Cd7%/)
+      assert.doesNotMatch(title, /R1 I18\.9k O53/)
+
+      await hooks.event!({
+        event: {
+          type: 'tui.command.execute',
+          properties: { command: 'prompt.submit' },
+        },
+      } as never)
+      await waitFor(() => title.includes('\n'))
+      assert.match(title, /R1 I18\.9k O53/)
+      assert.match(title, /Cd7%/)
+    } finally {
+      ;(globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        realSetTimeout
+      ;(globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
+        realClearTimeout
+      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('uses compact single-line titles for cli/web sessions without TUI selection', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: { multilineTitle: true, showCost: false, showQuota: false },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    process.env.OPENCODE_CLIENT = 'cli'
+    try {
+      let title = 'Greeting and quick check-in'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm1',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 18_900,
+          output: 53,
+          reasoning: 0,
+          cache: { read: 1500, write: 0 },
+        },
+        cost: 0.02,
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's1', title, time: { created: Date.now() - 10_000 } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+
+      assert.equal(title.includes('\n'), false)
+      assert.match(title, /Cd7%/)
+      assert.doesNotMatch(title, /R1 I18\.9k O53|Est\$0\.02/)
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
@@ -339,6 +566,7 @@ describe('plugin integration', () => {
       JSON.stringify(
         {
           sidebar: {
+            titleMode: 'multiline',
             multilineTitle: true,
             showCost: false,
             showQuota: false,
@@ -476,6 +704,7 @@ describe('plugin integration', () => {
       JSON.stringify(
         {
           sidebar: {
+            titleMode: 'multiline',
             multilineTitle: true,
             showCost: true,
             showQuota: true,
@@ -798,7 +1027,11 @@ describe('plugin integration', () => {
     const projectDir = await makeTempDir()
     await fs.writeFile(
       path.join(projectDir, 'quota-sidebar.config.json'),
-      JSON.stringify({ sidebar: { multilineTitle: true } }, null, 2),
+      JSON.stringify(
+        { sidebar: { titleMode: 'multiline', multilineTitle: true } },
+        null,
+        2,
+      ),
     )
 
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -892,7 +1125,11 @@ describe('plugin integration', () => {
     const projectDir = await makeTempDir()
     await fs.writeFile(
       path.join(projectDir, 'quota-sidebar.config.json'),
-      JSON.stringify({ sidebar: { multilineTitle: true } }, null, 2),
+      JSON.stringify(
+        { sidebar: { titleMode: 'multiline', multilineTitle: true } },
+        null,
+        2,
+      ),
     )
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
@@ -1117,7 +1354,13 @@ describe('plugin integration', () => {
     await fs.writeFile(
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
-        { sidebar: { multilineTitle: true, showQuota: false } },
+        {
+          sidebar: {
+            titleMode: 'multiline',
+            multilineTitle: true,
+            showQuota: false,
+          },
+        },
         null,
         2,
       ),

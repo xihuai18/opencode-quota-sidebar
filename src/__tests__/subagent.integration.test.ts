@@ -389,6 +389,7 @@ describe('subagent aggregation integration', () => {
       JSON.stringify(
         {
           sidebar: {
+            titleMode: 'multiline',
             includeChildren: true,
             showQuota: false,
             wrapQuotaLines: true,
@@ -578,6 +579,7 @@ describe('subagent aggregation integration', () => {
       JSON.stringify(
         {
           sidebar: {
+            titleMode: 'multiline',
             includeChildren: true,
             showQuota: false,
             wrapQuotaLines: true,
@@ -804,6 +806,7 @@ describe('subagent aggregation integration', () => {
       JSON.stringify(
         {
           sidebar: {
+            titleMode: 'multiline',
             includeChildren: true,
             showQuota: false,
             wrapQuotaLines: true,

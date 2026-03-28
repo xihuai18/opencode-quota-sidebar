@@ -65,8 +65,8 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - short windows (`5h`, `1d`, `Daily`) still show same-day resets as `HH:MM` and cross-day resets as `MM-DD HH:MM`; longer windows continue to show `MM-DD`
   - long quota content wraps across extra compact lines instead of dropping fields from the sidebar, and continuation lines align to the quota content column
 - Desktop automatically switches to a compact monitoring-style single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes, expands all windows/balance for those selected providers in short form such as `OAI 5h80 R16:20 W70 R04-03` or `RC D88.9/60 B260`, and keeps only summary usage signals such as `Cd66%` and `Est$0.12`
-- TUI is always rendered as compact multiline; Desktop is always rendered as compact monitoring-style single-line. This behavior no longer depends on `sidebar.multilineTitle`
-- Web UI currently cannot be reliably detected by the plugin, so it follows the non-desktop multiline path
+- Auto mode now prefers compact single-line titles everywhere except the actively selected TUI session. That means Desktop stays compact, Web UI / `serve` clients also use compact single-line titles, and the current TUI session keeps the compact multiline layout.
+- `sidebar.titleMode` can force `auto`, `multiline`, or `compact` if the heuristic does not match your workflow.
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cached ratios are available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
@@ -249,7 +249,8 @@ Sidebar defaults:
 
 - `sidebar.enabled`: `true`
 - `sidebar.width`: `36` (clamped to `20`-`60`)
-- `sidebar.multilineTitle`: `true` (legacy compatibility field; TUI/Desktop display mode is now chosen automatically)
+- `sidebar.titleMode`: `auto` (`auto`/`multiline`/`compact`)
+- `sidebar.multilineTitle`: `true` (legacy compatibility field; title style is now chosen automatically)
 - `sidebar.showCost`: `true`
 - `sidebar.showQuota`: `true`
 - `sidebar.wrapQuotaLines`: `true`
@@ -257,8 +258,8 @@ Sidebar defaults:
 - `sidebar.childrenMaxDepth`: `6` (clamped to `1`-`32`)
 - `sidebar.childrenMaxSessions`: `128` (clamped to `0`-`2000`)
 - `sidebar.childrenConcurrency`: `5` (clamped to `1`-`10`)
-- `sidebar.desktopCompact.recentRequests`: `50` (desktop compact only)
-- `sidebar.desktopCompact.recentMinutes`: `60` (desktop compact only)
+- `sidebar.desktopCompact.recentRequests`: `50` (compact single-line titles)
+- `sidebar.desktopCompact.recentMinutes`: `60` (compact single-line titles)
 
 Quota defaults:
 
@@ -282,6 +283,7 @@ Other defaults:
   "sidebar": {
     "enabled": true,
     "width": 36,
+    "titleMode": "auto",
     "multilineTitle": true,
     "showCost": true,
     "showQuota": true,
@@ -323,13 +325,15 @@ Other defaults:
 - `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
-- `sidebar.multilineTitle` is kept for backward compatibility, but current rendering is fixed by client type: TUI uses multiline titles and Desktop uses compact monitoring-style single-line titles.
+- `sidebar.titleMode` defaults to `auto`: Desktop is compact, the actively selected TUI session stays multiline, and everything else (including Web UI / `serve` clients) uses the compact single-line layout. Use `multiline` or `compact` to force one style.
+- `auto` relies on positive TUI signals (`tui.session.select`, plus recent `tui.command.execute` / `tui.prompt.append` activity to keep that selection fresh). If your setup still picks the wrong style, force it with `sidebar.titleMode`.
+- `sidebar.multilineTitle` is kept for backward compatibility, but `sidebar.titleMode` now controls the active policy.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
 - `sidebar.childrenMaxDepth` limits how many levels of nested subagents are traversed (default: `6`, clamped 1–32).
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
 - `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
-- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` control which recently used providers remain visible in desktop compact titles.
+- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` control which recently used providers remain visible in compact single-line titles.
 - `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - API cost is computed from OpenCode model pricing metadata, not from `message.cost`. This keeps subscription-backed providers such as OpenAI OAuth usable for API-equivalent cost estimation even when OpenCode's measured cost is `0`.
@@ -368,7 +372,7 @@ These examples show the quota block portion of the sidebar title.
 
 ### TUI layout
 
-This section describes the TUI layout. Desktop uses its own compact monitoring-style single-line format and Web UI currently follows the multiline path.
+This section describes the multiline TUI layout. Desktop and Web UI / `serve` clients use the compact single-line format unless you force `sidebar.titleMode = "multiline"`.
 
 0 providers (no quota data):
 

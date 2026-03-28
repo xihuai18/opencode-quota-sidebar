@@ -5,6 +5,8 @@ import {
   renderMarkdownReport,
   renderSidebarTitle,
   renderToastMessage,
+  resolveTitleView,
+  TUI_ACTIVE_MS,
 } from '../format.js'
 import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
 import type { UsageSummary } from '../usage.js'
@@ -24,6 +26,7 @@ function makeConfig(width = 36): QuotaSidebarConfig {
     sidebar: {
       enabled: true,
       width,
+      titleMode: 'multiline',
       multilineTitle: true,
       showCost: true,
       showQuota: true,
@@ -71,6 +74,7 @@ describe('renderSidebarTitle', () => {
   it('renders a compact single-line title on desktop', () => {
     process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(80)
+    config.sidebar.titleMode = 'auto'
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
       makeUsage(),
@@ -86,6 +90,8 @@ describe('renderSidebarTitle', () => {
     const previousClient = process.env.OPENCODE_CLIENT
     process.env.OPENCODE_CLIENT = 'desktop'
     try {
+      const config = makeConfig(200)
+      config.sidebar.titleMode = 'auto'
       const title = renderSidebarTitle(
         'Greeting and quick check-in',
         makeUsage({
@@ -128,7 +134,7 @@ describe('renderSidebarTitle', () => {
             balance: { amount: 10.2, currency: '￥' },
           },
         ],
-        makeConfig(200),
+        config,
       )
 
       assert.equal(title.includes('\n'), false)
@@ -147,6 +153,7 @@ describe('renderSidebarTitle', () => {
     try {
       const now = Date.now()
       const config = makeConfig(200)
+      config.sidebar.titleMode = 'auto'
       config.sidebar.desktopCompact = { recentRequests: 2, recentMinutes: 60 }
 
       const title = renderSidebarTitle(
@@ -198,6 +205,7 @@ describe('renderSidebarTitle', () => {
   it('renders Buzz balance consistently in desktop compact titles', () => {
     process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
+    config.sidebar.titleMode = 'auto'
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
       makeUsage({
@@ -227,6 +235,7 @@ describe('renderSidebarTitle', () => {
   it('shows non-ok quota status in desktop compact titles', () => {
     process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
+    config.sidebar.titleMode = 'auto'
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
       makeUsage({
@@ -253,6 +262,7 @@ describe('renderSidebarTitle', () => {
   it('sanitizes invalid quota percentages in desktop compact titles', () => {
     process.env.OPENCODE_CLIENT = 'desktop'
     const config = makeConfig(160)
+    config.sidebar.titleMode = 'auto'
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
       makeUsage({
@@ -278,6 +288,34 @@ describe('renderSidebarTitle', () => {
     assert.doesNotMatch(title, /-5%|NaN%|Infinity%/)
   })
 
+  it('renders the desktop-style compact line when compact view is forced', () => {
+    const config = makeConfig(120)
+    const title = renderSidebarTitle(
+      'Greeting and quick check-in',
+      makeUsage({
+        recentProviders: [
+          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+        ],
+      }),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          shortLabel: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        },
+      ],
+      config,
+      'compact',
+    )
+
+    assert.equal(title.includes('\n'), false)
+    assert.match(title, /Greeting and quick check-in \| OAI 5h80 \| Cd63% \| Est\$2\.34/)
+  })
+
   it('uses adaptive k/m units for sidebar token lines', () => {
     const title = renderSidebarTitle(
       'Greeting and quick check-in',
@@ -292,6 +330,42 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /R3 I1\.5k O1\.2m/)
     assert.match(title, /CR2\.5k Cd63%/)
     assert.match(title, /Est\$2\.34/)
+  })
+
+  it('keeps auto mode compact unless a TUI session is positively identified', () => {
+    const config = makeConfig(60)
+    config.sidebar.titleMode = 'auto'
+
+    assert.equal(resolveTitleView({ config, sessionID: 's1' }), 'compact')
+    assert.equal(
+      resolveTitleView({
+        config,
+        sessionID: 's1',
+        tuiSessionID: 's1',
+        tuiActiveAt: 1000,
+        now: 1000,
+      }),
+      'multiline',
+    )
+    assert.equal(
+      resolveTitleView({
+        config,
+        sessionID: 's1',
+        tuiSessionID: 's1',
+        tuiActiveAt: 1000,
+        now: 1000 + TUI_ACTIVE_MS + 1,
+      }),
+      'compact',
+    )
+
+    config.sidebar.titleMode = 'multiline'
+    assert.equal(resolveTitleView({ config, sessionID: 's1' }), 'multiline')
+
+    config.sidebar.titleMode = 'compact'
+    assert.equal(
+      resolveTitleView({ config, sessionID: 's1', tuiSessionID: 's1' }),
+      'compact',
+    )
   })
 
   it('renders API cost as the last token detail line', () => {

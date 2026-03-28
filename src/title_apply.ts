@@ -14,7 +14,11 @@ import type {
 } from './types.js'
 import type { UsageSummary } from './usage.js'
 import { swallow, debug, mapConcurrent } from './helpers.js'
-import { isDesktopClient, selectDesktopCompactProviderIDs } from './format.js'
+import {
+  resolveTitleView,
+  selectDesktopCompactProviderIDs,
+  type TitleView,
+} from './format.js'
 
 export function createTitleApplicator(deps: {
   state: QuotaSidebarState
@@ -34,7 +38,9 @@ export function createTitleApplicator(deps: {
     usage: UsageSummary,
     quotas: QuotaSnapshot[],
     config: QuotaSidebarConfig,
+    view?: TitleView,
   ) => string
+  getTitleView?: (sessionID: string) => TitleView
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
@@ -141,9 +147,12 @@ export function createTitleApplicator(deps: {
       sessionID,
       deps.config.sidebar.includeChildren,
     )
+    const view =
+      deps.getTitleView?.(sessionID) ??
+      resolveTitleView({ config: deps.config, sessionID })
     const quotaProviders = Array.from(
       new Set(
-        isDesktopClient()
+        view === 'compact'
           ? selectDesktopCompactProviderIDs(usage, deps.config)
           : Object.keys(usage.providers),
       ),
@@ -159,6 +168,7 @@ export function createTitleApplicator(deps: {
       usage,
       quotas,
       deps.config,
+      view,
     )
 
     if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false

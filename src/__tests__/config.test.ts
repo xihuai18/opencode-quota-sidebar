@@ -28,6 +28,7 @@ describe('loadConfig', () => {
     const config = await loadConfig([path.join(dir, 'missing.json')])
     assert.deepEqual(config, defaultConfig)
     assert.equal(config.sidebar.includeChildren, true)
+    assert.equal(config.sidebar.titleMode, 'auto')
   })
 
   it('clamps width into safe range', async () => {
@@ -55,6 +56,7 @@ describe('loadConfig', () => {
         sidebar: {
           enabled: false,
           width: 1,
+          titleMode: 'weird',
           showCost: false,
           showQuota: false,
           wrapQuotaLines: true,
@@ -86,6 +88,7 @@ describe('loadConfig', () => {
     const config = await loadConfig([filePath])
     assert.equal(config.sidebar.enabled, false)
     assert.equal(config.sidebar.width, 20)
+    assert.equal(config.sidebar.titleMode, 'auto')
     assert.equal(config.sidebar.showCost, false)
     assert.equal(config.sidebar.showQuota, false)
     assert.equal(config.sidebar.wrapQuotaLines, true)
@@ -146,6 +149,27 @@ describe('loadConfig', () => {
     assert.equal(config.sidebar.width, 48)
     assert.equal(config.quota.includeOpenAI, false)
     assert.equal(config.quota.providers?.rightcode?.enabled, true)
+  })
+
+  it('accepts explicit compact or multiline title modes', async () => {
+    const dir = await makeTempDir()
+    const compactPath = path.join(dir, 'compact.json')
+    const multilinePath = path.join(dir, 'multiline.json')
+
+    await fs.writeFile(
+      compactPath,
+      JSON.stringify({ sidebar: { titleMode: 'compact' } }),
+    )
+    await fs.writeFile(
+      multilinePath,
+      JSON.stringify({ sidebar: { titleMode: 'multiline' } }),
+    )
+
+    const compact = await loadConfig([compactPath])
+    const multiline = await loadConfig([multilinePath])
+
+    assert.equal(compact.sidebar.titleMode, 'compact')
+    assert.equal(multiline.sidebar.titleMode, 'multiline')
   })
 
   it('preserves provider-specific login config fields', async () => {

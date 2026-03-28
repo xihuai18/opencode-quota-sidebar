@@ -12,6 +12,10 @@ import {
 } from './quota_render.js'
 import { stripAnsi } from './title.js'
 
+export type TitleView = 'multiline' | 'compact'
+
+export const TUI_ACTIVE_MS = 15 * 60_000
+
 /** M6 fix: handle negative, NaN, Infinity gracefully. */
 function shortNumber(value: number, decimals = 1) {
   if (!Number.isFinite(value) || value < 0) return '0'
@@ -184,6 +188,26 @@ function formatRequestsLabel(value: number, short = false) {
 
 export function isDesktopClient() {
   return process.env.OPENCODE_CLIENT === 'desktop'
+}
+
+export function resolveTitleView(opts: {
+  config: QuotaSidebarConfig
+  sessionID?: string
+  tuiSessionID?: string
+  tuiActiveAt?: number
+  now?: number
+}): TitleView {
+  if (opts.config.sidebar.titleMode === 'compact') return 'compact'
+  if (opts.config.sidebar.titleMode === 'multiline') return 'multiline'
+  if (isDesktopClient()) return 'compact'
+  if (
+    opts.sessionID &&
+    opts.sessionID === opts.tuiSessionID &&
+    (opts.now ?? Date.now()) - (opts.tuiActiveAt ?? 0) <= TUI_ACTIVE_MS
+  ) {
+    return 'multiline'
+  }
+  return 'compact'
 }
 
 function desktopCompactSettings(config: QuotaSidebarConfig) {
@@ -566,11 +590,13 @@ export function renderSidebarTitle(
   usage: UsageSummary,
   quotas: QuotaSnapshot[],
   config: QuotaSidebarConfig,
+  view?: TitleView,
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
   const safeBaseTitle = stripAnsi(baseTitle || 'Session') || 'Session'
+  const mode = view || resolveTitleView({ config })
 
-  if (isDesktopClient()) {
+  if (mode === 'compact') {
     const singleLineBase = safeBaseTitle.split(/\r?\n/, 1)[0] || 'Session'
     return renderDesktopCompactTitle(
       singleLineBase,

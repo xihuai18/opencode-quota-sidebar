@@ -48,6 +48,42 @@ function makeUsage(): UsageSummary {
   }
 }
 
+function makeCompactUsage(): UsageSummary {
+  return {
+    ...makeUsage(),
+    assistantMessages: 3,
+    providers: {
+      openai: {
+        providerID: 'openai',
+        input: 10,
+        output: 20,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 30,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 2,
+      },
+      anthropic: {
+        providerID: 'anthropic',
+        input: 5,
+        output: 10,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 15,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+      },
+    },
+    recentProviders: [
+      { providerID: 'openai', completedAt: Date.now() - 1_000 },
+    ],
+  }
+}
+
 describe('title apply', () => {
   it('keeps lastAppliedTitle in sync when server normalizes decorated titles', async () => {
     const config = makeConfig()
@@ -178,6 +214,62 @@ describe('title apply', () => {
     await applicator.applyTitle(sessionID)
     assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized)
     assert.equal(dirtyKey, dateKey)
+  })
+
+  it('uses compact-provider selection when title view is compact', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's1'
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions[sessionID] = {
+      createdAt,
+      baseTitle: 'Session',
+      lastAppliedTitle: undefined,
+    }
+    state.sessionDateMap[sessionID] = dateKey
+
+    let seen: string[] = []
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () =>
+            ({
+              data: {
+                id: sessionID,
+                title: 'Session',
+                time: { created: createdAt },
+                parentID: undefined,
+              },
+            }) as any,
+          update: async () => ({ data: { ok: true } }) as any,
+          list: async () => ({ data: [] }) as any,
+        },
+      } as any,
+      ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => 'Session | Cd0%',
+      getTitleView: () => 'compact',
+      getQuotaSnapshots: async (providerIDs) => {
+        seen = providerIDs
+        return []
+      },
+      summarizeSessionUsageForDisplay: async () => makeCompactUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      restoreConcurrency: 1,
+    })
+
+    await applicator.applyTitle(sessionID)
+
+    assert.deepEqual(seen, ['openai'])
   })
 
   it('accepts user titles that mention cache coverage as plain text', async () => {

@@ -115,11 +115,11 @@ MCP 条目通过 JSX 结构实现两种字体：
 ### 4.1 Sidebar 中的 token 统计
 
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
-- TUI sidebar 固定走 **compact multiline**，仍然是多行，但 token 文案使用紧凑缩写；Desktop 固定走 monitoring-style compact 单行 title，不再依赖 `sidebar.multilineTitle`
+- `sidebar.titleMode=auto` 时：当前活跃 TUI session 走 **compact multiline**，Desktop 与 Web UI / `serve` 客户端默认走 monitoring-style compact 单行 title；这一策略不再依赖 `sidebar.multilineTitle`
 - TUI usage 示例：`R12 I18.9k O53`、`CW300 CR31.4k Cd66%`、`Est$0.12`
-- Desktop 自动走 compact 单行 title：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
-- Desktop compact 仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
-- Desktop compact 为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；Desktop 省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`；TUI 保持 multiline usage-first 布局，但每行都优先使用 compact token
+- Compact 单行 title 示例：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
+- Compact 单行模式仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
+- Compact 单行为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；单行模式省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`；multiline 仍保持 usage-first 布局，但每行都优先使用 compact token
 - toast 和 markdown report 同样使用 `shortNumber()`
 
 ### 4.2 Cache 显示

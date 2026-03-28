@@ -2,6 +2,7 @@
   "sidebar": {
     "enabled": true,
     "width": 36,
+    "titleMode": "auto",
     "multilineTitle": true,
     "showCost": true,
     "showQuota": true,
