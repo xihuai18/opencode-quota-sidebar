@@ -2217,7 +2217,7 @@ describe('renderToastMessage', () => {
     assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
   })
 
-  it('renders Zhipu token quota and mcp balance cleanly in toast', () => {
+  it('renders Zhipu token quota without mcp usage in toast', () => {
     const toast = renderToastMessage('week', makeUsage(), [
       {
         providerID: 'zhipuai-coding-plan',
@@ -2233,16 +2233,11 @@ describe('renderToastMessage', () => {
             remainingPercent: 99,
             resetAt: '2026-03-29T01:51:57+08:00',
           },
-          {
-            label: 'MCP 3937/4000',
-            showPercent: false,
-            resetAt: '2026-04-19T22:11:38+08:00',
-          },
         ],
       },
     ])
 
     assert.match(toast, /Zhipu\s+5h 99\.0% Rst/)
-    assert.match(toast, /MCP 3937\/4000 Rst 04-19/)
+    assert.doesNotMatch(toast, /MCP/)
   })
 })

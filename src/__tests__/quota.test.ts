@@ -252,7 +252,7 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.note, 'missing api key')
   })
 
-  it('uses built-in zhipu coding plan adapter and parses token + mcp windows', async () => {
+  it('uses built-in zhipu coding plan adapter and ignores mcp limits', async () => {
     setFetch(async (input, init) => {
       assert.equal(
         String(input),
@@ -307,12 +307,9 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.note, 'MAX plan')
     assert.equal(snapshot!.resetAt, '2026-03-28T17:51:57.673Z')
     assert.ok(snapshot!.windows)
-    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows!.length, 1)
     assert.equal(snapshot!.windows![0].label, '5h')
     assert.equal(snapshot!.windows![0].remainingPercent, 99)
-    assert.equal(snapshot!.windows![1].label, 'MCP 3937/4000')
-    assert.equal(snapshot!.windows![1].showPercent, false)
-    assert.equal(snapshot!.windows![1].resetAt, '2026-04-19T14:11:38.998Z')
   })
 
   it('uses z.ai quota endpoint when zhipu coding plan baseURL is international', async () => {

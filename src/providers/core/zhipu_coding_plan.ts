@@ -105,30 +105,6 @@ function parseTokenWindow(
   }
 }
 
-function parseMcpWindow(
-  value: Record<string, unknown>,
-): QuotaWindow | undefined {
-  if (value.type !== 'TIME_LIMIT') return undefined
-  const total = asNumber(value.usage)
-  const remaining = asNumber(value.remaining)
-  if (
-    total === undefined ||
-    remaining === undefined ||
-    !Number.isFinite(total) ||
-    !Number.isFinite(remaining) ||
-    total <= 0
-  ) {
-    return undefined
-  }
-
-  return {
-    label: `MCP ${formatCountValue(remaining)}/${formatCountValue(total)}`,
-    showPercent: false,
-    remainingPercent: Math.max(0, Math.min(100, (remaining / total) * 100)),
-    resetAt: toIso(value.nextResetTime),
-  }
-}
-
 async function fetchZhipuCodingPlanQuota({
   providerID,
   providerOptions,
@@ -227,11 +203,7 @@ async function fetchZhipuCodingPlanQuota({
   const token = limits
     .map((item) => parseTokenWindow(item))
     .find((value): value is QuotaWindow => Boolean(value))
-  const mcp = limits
-    .map((item) => parseMcpWindow(item))
-    .find((value): value is QuotaWindow => Boolean(value))
-
-  const windows = [token, mcp].filter((value): value is QuotaWindow =>
+  const windows = [token].filter((value): value is QuotaWindow =>
     Boolean(value),
   )
   const primary = token || windows[0]
