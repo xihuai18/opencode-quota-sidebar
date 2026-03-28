@@ -17,7 +17,7 @@ import type {
  * fields).  This is distinct from the plugin *state* version managed by the
  * persistence layer; billing version only governs usage-cache staleness.
  */
-export const USAGE_BILLING_CACHE_VERSION = 8
+export const USAGE_BILLING_CACHE_VERSION = 9
 
 const MAX_RECENT_PROVIDER_EVENTS = 100
 

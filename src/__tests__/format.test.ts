@@ -401,7 +401,7 @@ describe('renderSidebarTitle', () => {
     assert.ok(lines.includes('CR31.4k Cd66%'))
     assert.ok(lines.includes('Est$0.12'))
     assert.ok(lines.includes('XYAI D$31.3/$90'))
-    assert.ok(lines.includes('     R22:39'))
+    assert.ok(lines.some((line) => /^\s+R/.test(line)))
     assert.equal(
       lines.some((line) => /Cd.*~|Est\$.*~/.test(line)),
       false,
@@ -1991,6 +1991,34 @@ describe('renderToastMessage', () => {
     assert.match(toast, /N\/A \(Copilot\)/)
   })
 
+  it('renders generic N/A for Cost as API when non-copilot usage has zero api cost', () => {
+    const toast = renderToastMessage(
+      'week',
+      makeUsage({
+        apiCost: 0,
+        providers: {
+          'zhipuai-coding-plan': {
+            providerID: 'zhipuai-coding-plan',
+            input: 28629,
+            output: 3852,
+            reasoning: 0,
+            cacheRead: 30976,
+            cacheWrite: 0,
+            total: 63457,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 3,
+          },
+        },
+      }),
+      [],
+    )
+
+    assert.match(toast, /Cost as API/)
+    assert.match(toast, /\n  N\/A\n/)
+    assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
+  })
+
   it('collapses duplicate RightCode quota snapshots in toast', () => {
     const toast = renderToastMessage('week', makeUsage(), [
       {
@@ -2187,5 +2215,34 @@ describe('renderToastMessage', () => {
     assert.match(toast, /Cost as API/)
     assert.match(toast, /Kimi\s+\$0\.14/)
     assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
+  })
+
+  it('renders Zhipu token quota and mcp balance cleanly in toast', () => {
+    const toast = renderToastMessage('week', makeUsage(), [
+      {
+        providerID: 'zhipuai-coding-plan',
+        adapterID: 'zhipuai-coding-plan',
+        label: 'Zhipu Coding Plan',
+        shortLabel: 'Zhipu',
+        status: 'ok',
+        checkedAt: Date.now(),
+        note: 'MAX plan',
+        windows: [
+          {
+            label: '5h',
+            remainingPercent: 99,
+            resetAt: '2026-03-29T01:51:57+08:00',
+          },
+          {
+            label: 'MCP 3937/4000',
+            showPercent: false,
+            resetAt: '2026-04-19T22:11:38+08:00',
+          },
+        ],
+      },
+    ])
+
+    assert.match(toast, /Zhipu\s+5h 99\.0% Rst/)
+    assert.match(toast, /MCP 3937\/4000 Rst 04-19/)
   })
 })

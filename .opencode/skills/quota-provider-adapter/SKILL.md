@@ -15,8 +15,11 @@ Use this workflow for any provider-facing quota change.
 - `src/quota.ts`
 - `src/quota_service.ts`
 - `src/quota_render.ts`
+- `src/cost.ts`
 - `src/__tests__/quota.test.ts`
+- `src/__tests__/cost.test.ts`
 - `src/__tests__/quota_service.test.ts`
+- `src/__tests__/usage_service.test.ts`
 - `src/__tests__/registry.test.ts`
 - `src/__tests__/format.test.ts`
 
@@ -28,8 +31,9 @@ Use this workflow for any provider-facing quota change.
 4. Check auth lookup and normalization flow in `src/quota.ts`; add `normalizeID()` when provider IDs have aliases or prefixes.
 5. Check cache isolation in `src/quota_service.ts`; quota cache keys must separate tenants/base URLs/accounts when needed.
 6. Decide whether the provider belongs in `listDefaultQuotaProviderIDs()` so `quota_summary` can show it without extra config.
-7. Verify rendering through `src/quota_render.ts` and `src/format.ts`; prefer structured `windows` or `balance` data instead of encoding display logic inside the adapter.
-8. Add or update tests for adapter matching, fetch parsing, cache behavior, and rendered output.
+7. If the provider should support `Cost as API`, decide whether its quota identity should map to another canonical pricing provider in `src/cost.ts` (for example a subscription adapter reusing an official API pricing table), then update lookup aliases and fallback pricing as needed.
+8. Verify rendering through `src/quota_render.ts` and `src/format.ts`; prefer structured `windows` or `balance` data instead of encoding display logic inside the adapter.
+9. Add or update tests for adapter matching, fetch parsing, cache behavior, rendered output, and any pricing alias / recompute paths touched.
 
 ## Guardrails
 
@@ -37,6 +41,7 @@ Use this workflow for any provider-facing quota change.
 - Do not hardcode display-only strings in multiple places; reuse adapter labels and shared render paths.
 - Treat auth refresh and auth persistence as part of the adapter contract when the upstream API needs it.
 - If the adapter is baseURL-driven, test both canonical and tolerated URL shapes.
+- If quota and pricing provider IDs differ, document the canonical pricing mapping and cover it in `src/__tests__/cost.test.ts` plus stale-cache recompute coverage in `src/__tests__/usage_service.test.ts`.
 - If the adapter changes supported-provider docs, update `AGENTS.md` section 5.5.
 
 ## Verify

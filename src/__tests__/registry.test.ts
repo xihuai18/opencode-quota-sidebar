@@ -44,6 +44,26 @@ describe('provider registry', () => {
     assert.equal(adapter!.id, 'kimi-for-coding')
   })
 
+  it('matches zhipu coding plan by provider id', () => {
+    const registry = createDefaultProviderRegistry()
+    const adapter = registry.resolve({
+      providerID: 'zhipuai-coding-plan',
+      providerOptions: {},
+    })
+    assert.ok(adapter)
+    assert.equal(adapter!.id, 'zhipuai-coding-plan')
+  })
+
+  it('prefers zhipu coding plan adapter when baseURL matches coding endpoint', () => {
+    const registry = createDefaultProviderRegistry()
+    const adapter = registry.resolve({
+      providerID: 'openai',
+      providerOptions: { baseURL: 'https://open.bigmodel.cn/api/anthropic' },
+    })
+    assert.ok(adapter)
+    assert.equal(adapter!.id, 'zhipuai-coding-plan')
+  })
+
   it('normalizes known provider variants', () => {
     const registry = createDefaultProviderRegistry()
     assert.equal(
@@ -53,6 +73,10 @@ describe('provider registry', () => {
     assert.equal(
       registry.normalizeProviderID('kimi-for-coding'),
       'kimi-for-coding',
+    )
+    assert.equal(
+      registry.normalizeProviderID('zhipuai-coding-plan'),
+      'zhipuai-coding-plan',
     )
     assert.equal(registry.normalizeProviderID('openai'), 'openai')
   })

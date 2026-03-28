@@ -3,6 +3,7 @@ import type { QuotaSnapshot } from './types.js'
 const PROVIDER_SHORT_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   'kimi-for-coding': 'Kimi',
+  'zhipuai-coding-plan': 'Zhipu',
   'github-copilot': 'Copilot',
   anthropic: 'Anthropic',
   rightcode: 'RC',
@@ -10,6 +11,7 @@ const PROVIDER_SHORT_LABELS: Record<string, string> = {
 
 export function canonicalProviderID(providerID: string) {
   if (providerID.startsWith('github-copilot')) return 'github-copilot'
+  if (providerID === 'zhipuai-coding-plan') return 'zhipuai-coding-plan'
   return providerID
 }
 

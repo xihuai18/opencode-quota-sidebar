@@ -252,6 +252,109 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.note, 'missing api key')
   })
 
+  it('uses built-in zhipu coding plan adapter and parses token + mcp windows', async () => {
+    setFetch(async (input, init) => {
+      assert.equal(
+        String(input),
+        'https://bigmodel.cn/api/monitor/usage/quota/limit',
+      )
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'zhipu-key')
+      return jsonResponse({
+        code: 200,
+        msg: 'ok',
+        success: true,
+        data: {
+          level: 'max',
+          limits: [
+            {
+              type: 'TIME_LIMIT',
+              unit: 5,
+              number: 1,
+              usage: 4000,
+              remaining: 3937,
+              percentage: 1,
+              nextResetTime: 1776607898998,
+            },
+            {
+              type: 'TOKENS_LIMIT',
+              unit: 3,
+              number: 5,
+              percentage: 1,
+              nextResetTime: 1774720317673,
+            },
+          ],
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'zhipuai-coding-plan',
+      {
+        'zhipuai-coding-plan': { type: 'api', key: 'zhipu-key' },
+      },
+      makeConfig(),
+      undefined,
+      { apiKey: 'zhipu-key' },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'zhipuai-coding-plan')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'Zhipu Coding Plan')
+    assert.equal(snapshot!.shortLabel, 'Zhipu')
+    assert.equal(snapshot!.remainingPercent, 99)
+    assert.equal(snapshot!.note, 'MAX plan')
+    assert.equal(snapshot!.resetAt, '2026-03-28T17:51:57.673Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 99)
+    assert.equal(snapshot!.windows![1].label, 'MCP 3937/4000')
+    assert.equal(snapshot!.windows![1].showPercent, false)
+    assert.equal(snapshot!.windows![1].resetAt, '2026-04-19T14:11:38.998Z')
+  })
+
+  it('uses z.ai quota endpoint when zhipu coding plan baseURL is international', async () => {
+    setFetch(async (input) => {
+      assert.equal(
+        String(input),
+        'https://api.z.ai/api/monitor/usage/quota/limit',
+      )
+      return jsonResponse({
+        code: 200,
+        msg: 'ok',
+        success: true,
+        data: {
+          limits: [
+            {
+              type: 'TOKENS_LIMIT',
+              unit: 3,
+              number: 5,
+              percentage: 10,
+              nextResetTime: '2026-03-29T01:51:57+08:00',
+            },
+          ],
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      { openai: { type: 'api', key: 'zhipu-key' } },
+      makeConfig(),
+      undefined,
+      {
+        apiKey: 'zhipu-key',
+        baseURL: 'https://api.z.ai/api/anthropic',
+      },
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'zhipuai-coding-plan')
+    assert.equal(snapshot!.remainingPercent, 90)
+  })
+
   it('uses xyai-vibe login config to fetch and persist share-session', async () => {
     const seenBodies: string[] = []
     let updateAuthCalls = 0

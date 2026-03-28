@@ -170,16 +170,39 @@ describe('cost', () => {
       canonicalApiCostProviderID('kimi-for-coding'),
       'kimi-for-coding',
     )
+    assert.equal(canonicalApiCostProviderID('zhipuai-coding-plan'), 'zhipu')
   })
 
   it('maps kimi-for-coding k2p5 to moonshot pricing keys', () => {
     assert.deepEqual(modelCostLookupKeys('kimi-for-coding', 'k2p5'), [
       'kimi-for-coding:k2p5',
-      'moonshotai-cn:kimi-k2.5',
+      'kimi-for-coding:kimi-k2.5',
+      'moonshotai:kimi-k2.5',
     ])
     assert.deepEqual(
       modelCostLookupKeys('kimi-for-coding', 'kimi-k2-thinking'),
-      ['kimi-for-coding:kimi-k2-thinking', 'moonshotai-cn:kimi-k2-thinking'],
+      ['kimi-for-coding:kimi-k2-thinking', 'moonshotai:kimi-k2-thinking'],
+    )
+    assert.ok(
+      !modelCostLookupKeys('kimi-for-coding', 'k2p5').includes(
+        'moonshotai:k2p5',
+      ),
+    )
+  })
+
+  it('maps zhipu coding plan models to zhipu pricing keys', () => {
+    const direct = modelCostLookupKeys('zhipuai-coding-plan', 'glm-5')
+    assert.ok(direct.includes('zhipuai-coding-plan:glm-5'))
+    assert.ok(direct.includes('zhipu:glm-5'))
+    assert.ok(
+      modelCostLookupKeys('zhipuai-coding-plan', 'glm-5-thinking').includes(
+        'zhipu:glm-5',
+      ),
+    )
+    assert.ok(
+      modelCostLookupKeys('zhipuai-coding-plan', 'zhipu/glm-4.5-air').includes(
+        'zhipu:glm-4.5-air',
+      ),
     )
   })
 
@@ -253,8 +276,38 @@ describe('cost', () => {
     assert.equal(longContext?.cacheWrite, 7.5)
   })
 
+  it('ships bundled Zhipu fallback pricing for current coding-plan models', () => {
+    const map = getBundledModelCostMap()
+
+    assert.equal(map['zhipu:glm-5']?.input, 1)
+    assert.equal(map['zhipu:glm-5']?.output, 3.2)
+    assert.ok(Math.abs((map['zhipu:glm-5']?.cacheRead || 0) - 0.2) < 1e-12)
+    assert.equal(map['zhipu:glm-5']?.cacheWrite, 0)
+    assert.equal(map['zhipu:glm-4.7']?.input, 0.6)
+    assert.equal(map['zhipu:glm-4.6']?.output, 2.2)
+    assert.equal(map['zhipu:glm-4.5-air']?.input, 0.2)
+    assert.equal(map['zhipu:glm-4.5v']?.output, 1.8)
+  })
+
+  it('ships bundled Moonshot international pricing for Kimi models', () => {
+    const map = getBundledModelCostMap()
+
+    assert.equal(map['moonshotai:kimi-k2.5']?.input, 0.6)
+    assert.equal(map['moonshotai:kimi-k2.5']?.output, 3)
+    assert.ok(
+      Math.abs((map['moonshotai:kimi-k2.5']?.cacheRead || 0) - 0.1) < 1e-12,
+    )
+    assert.equal(map['moonshotai:kimi-k2-thinking']?.output, 2.5)
+    assert.equal(map['moonshotai:kimi-k2-turbo-preview']?.output, 10)
+    assert.equal(map['moonshotai:kimi-k2-thinking-turbo']?.input, 1.15)
+  })
+
   it('treats kimi-for-coding as API-cost-enabled', () => {
     assert.equal(API_COST_ENABLED_PROVIDERS.has('kimi-for-coding'), true)
+  })
+
+  it('treats zhipu as API-cost-enabled', () => {
+    assert.equal(API_COST_ENABLED_PROVIDERS.has('zhipu'), true)
   })
 
   it('classifies cache coverage mode from pricing rates', () => {

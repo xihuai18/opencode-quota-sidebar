@@ -7,6 +7,7 @@ import {
   cacheCoverageModeFromRates,
   calcEquivalentApiCostForMessage,
   canonicalApiCostProviderID,
+  canonicalPricingProviderID,
   getBundledModelCostMap,
   modelCostLookupKeys,
   modelCostKey,
@@ -143,7 +144,7 @@ export function createUsageService(deps: {
       const rawProviderID =
         typeof provider.id === 'string' ? provider.id : undefined
       if (!rawProviderID) return acc
-      const canonicalProviderID = canonicalApiCostProviderID(rawProviderID)
+      const canonicalProviderID = canonicalPricingProviderID(rawProviderID)
 
       const models = provider.models
       if (!isRecord(models)) return acc

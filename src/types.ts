@@ -6,6 +6,8 @@ export type QuotaWindow = {
   showPercent?: boolean
   /** Prefix for reset/expiry time text in sidebar (default: Rst). */
   resetLabel?: string
+  /** Optional detail note rendered inline for the first window in reports. */
+  note?: string
   remainingPercent?: number
   usedPercent?: number
   resetAt?: string

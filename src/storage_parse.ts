@@ -212,6 +212,7 @@ export function parseQuotaCache(value: unknown) {
                 typeof window.resetLabel === 'string'
                   ? window.resetLabel
                   : undefined,
+              note: typeof window.note === 'string' ? window.note : undefined,
               remainingPercent:
                 typeof window.remainingPercent === 'number'
                   ? window.remainingPercent

@@ -1001,7 +1001,7 @@ describe('usage service', () => {
     assert.ok(Math.abs(buzzUsage.apiCost - 0.7275) < 1e-9)
   })
 
-  it('maps kimi-for-coding k2p5 usage to moonshotai-cn kimi-k2.5 pricing', async () => {
+  it('maps kimi-for-coding k2p5 usage to Moonshot international pricing first', async () => {
     const state = makeState()
     const config = makeConfig()
     const sessionID = 'kimi-session'
@@ -1050,7 +1050,7 @@ describe('usage service', () => {
             data: {
               all: [
                 {
-                  id: 'moonshotai-cn',
+                  id: 'moonshotai',
                   models: {
                     'kimi-k2.5': {
                       id: 'kimi-k2.5',
@@ -1094,7 +1094,7 @@ describe('usage service', () => {
     assert.equal(metrics.cachedRatio, 1 / 3)
   })
 
-  it('recomputes stale kimi-for-coding usage when pricing is available via alias', async () => {
+  it('recomputes stale kimi-for-coding usage when pricing is available via Moonshot alias', async () => {
     const state = makeState()
     const config = makeConfig()
     const sessionID = 'kimi-stale'
@@ -1175,7 +1175,7 @@ describe('usage service', () => {
             data: {
               all: [
                 {
-                  id: 'moonshotai-cn',
+                  id: 'moonshotai',
                   models: {
                     'kimi-k2.5': {
                       id: 'kimi-k2.5',
@@ -1212,6 +1212,249 @@ describe('usage service', () => {
     assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
     assert.ok(
       Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9,
+    )
+  })
+
+  it('recomputes stale kimi-for-coding usage from bundled international fallback pricing', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-bundled-stale'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Kimi bundled stale',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: USAGE_BILLING_CACHE_VERSION - 1,
+        input: 100_000,
+        output: 25_000,
+        reasoning: 0,
+        cacheRead: 50_000,
+        cacheWrite: 0,
+        total: 175_000,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {
+          'kimi-for-coding': {
+            input: 100_000,
+            output: 25_000,
+            reasoning: 0,
+            cacheRead: 50_000,
+            cacheWrite: 0,
+            total: 175_000,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'old-kimi-bundled',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['old-kimi-bundled'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let messageCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            messageCalls++
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'old-kimi-bundled',
+                    sessionID,
+                    role: 'assistant',
+                    providerID: 'kimi-for-coding',
+                    modelID: 'k2p5',
+                    time: { created: completedAt - 10, completed: completedAt },
+                    tokens: {
+                      input: 100_000,
+                      output: 20_000,
+                      reasoning: 5_000,
+                      cache: { read: 50_000, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'moonshotai',
+                  models: {
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
+                      cost: {
+                        input: 0,
+                        output: 0,
+                        cache_read: 0,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
+    assert.ok(
+      Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9,
+    )
+  })
+
+  it('recomputes stale zhipu coding-plan usage when bundled fallback pricing is available', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'zhipu-stale'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Zhipu stale',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: USAGE_BILLING_CACHE_VERSION - 1,
+        input: 28_629,
+        output: 3_852,
+        reasoning: 0,
+        cacheRead: 30_976,
+        cacheWrite: 0,
+        total: 63_457,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 3,
+        providers: {
+          'zhipuai-coding-plan': {
+            input: 28_629,
+            output: 3_852,
+            reasoning: 0,
+            cacheRead: 30_976,
+            cacheWrite: 0,
+            total: 63_457,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 3,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'old-zhipu',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['old-zhipu'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let messageCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            messageCalls++
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'old-zhipu',
+                    sessionID,
+                    role: 'assistant',
+                    providerID: 'zhipuai-coding-plan',
+                    modelID: 'glm-5.1',
+                    time: { created: completedAt - 10, completed: completedAt },
+                    tokens: {
+                      input: 28_629,
+                      output: 3_852,
+                      reasoning: 0,
+                      cache: { read: 30_976, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'zhipuai-coding-plan',
+                  models: {
+                    'glm-5.1': {
+                      id: 'glm-5.1',
+                      cost: {
+                        input: 0,
+                        output: 0,
+                        cache_read: 0,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.0475218) < 1e-9)
+    assert.ok(
+      Math.abs(usage.providers['zhipuai-coding-plan'].apiCost - 0.0475218) <
+        1e-9,
     )
   })
 

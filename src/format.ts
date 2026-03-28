@@ -235,6 +235,7 @@ function compactProviderLabel(quota: QuotaSnapshot) {
   if (canonical === 'github-copilot') return 'Cop'
   if (canonical === 'anthropic') return 'Ant'
   if (canonical === 'kimi-for-coding') return 'Kimi'
+  if (canonical === 'zhipuai-coding-plan') return 'Zhipu'
   if (canonical === 'rightcode') return 'RC'
   if (canonical === 'xyai-vibe') return 'XYAI'
   if (canonical === 'buzz') return 'Buzz'
@@ -283,15 +284,16 @@ function compactQuotaWindowText(
   const resetToken = reset
     ? `${compactQuotaResetToken(win.resetLabel)}${reset}`
     : undefined
+  const note = sanitizeLine(win.note || '')
 
   if (win.showPercent === false) {
     const safe = sanitizeLine(win.label || '')
     const daily = safe ? safe.replace(/^Daily\s+/i, 'D') : ''
-    return [daily, resetToken].filter(Boolean).join(' ')
+    return [daily, resetToken, note].filter(Boolean).join(' ')
   }
 
   const percentToken = compactQuotaPercentToken(win.label, win.remainingPercent)
-  return [percentToken, resetToken].filter(Boolean).join(' ')
+  return [percentToken, resetToken, note].filter(Boolean).join(' ')
 }
 
 function compactQuotaWindowTokens(
@@ -301,17 +303,18 @@ function compactQuotaWindowTokens(
   const resetToken = reset
     ? `${compactQuotaResetToken(win.resetLabel)}${reset}`
     : undefined
+  const note = sanitizeLine(win.note || '')
 
   if (win.showPercent === false) {
     const safe = sanitizeLine(win.label || '')
     const daily = safe ? safe.replace(/^Daily\s+/i, 'D') : ''
-    return [daily, resetToken].filter((value): value is string =>
+    return [daily, resetToken, note].filter((value): value is string =>
       Boolean(value),
     )
   }
 
   const percentToken = compactQuotaPercentToken(win.label, win.remainingPercent)
-  return [percentToken, resetToken].filter((value): value is string =>
+  return [percentToken, resetToken, note].filter((value): value is string =>
     Boolean(value),
   )
 }
@@ -754,6 +757,7 @@ function compactQuotaWide(
     if (reset) {
       parts.push(`${sanitizeLine(win.resetLabel || 'Rst')} ${reset}`)
     }
+    if (win.note) parts.push(sanitizeLine(win.note))
     return parts.join(' ')
   }
 
@@ -1059,7 +1063,9 @@ export function renderMarkdownReport(
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
       const windowLines = quota.windows.map((win) => {
         const extraNote =
-          win === quota.windows?.[0] && quota.note ? ` | ${quota.note}` : ''
+          win.note || (win === quota.windows?.[0] && quota.note)
+            ? ` | ${win.note || quota.note}`
+            : ''
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
@@ -1205,7 +1211,22 @@ export function renderToastMessage(
       lines.push(...alignPairs(costPairs).map((line) => fitLine(line, width)))
     } else {
       const hasAnyUsage = Object.keys(usage.providers).length > 0
-      lines.push(fitLine(hasAnyUsage ? '  N/A (Copilot)' : '  -', width))
+      const hasOnlyCopilotUsage =
+        hasAnyUsage &&
+        Object.values(usage.providers).every(
+          (provider) =>
+            canonicalProviderID(provider.providerID) === 'github-copilot',
+        )
+      lines.push(
+        fitLine(
+          hasOnlyCopilotUsage
+            ? '  N/A (Copilot)'
+            : hasAnyUsage
+              ? '  N/A'
+              : '  -',
+          width,
+        ),
+      )
     }
   }
 
@@ -1238,6 +1259,7 @@ export function renderToastMessage(
           const parts = [win.label]
           if (showPercent) parts.push(pct)
           if (reset) parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
+          if (win.note) parts.push(win.note)
           return {
             label: idx === 0 ? quotaDisplayLabel(item) : '',
             value: parts.filter(Boolean).join(' '),

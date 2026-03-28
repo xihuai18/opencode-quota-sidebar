@@ -3,6 +3,7 @@ import { buzzAdapter } from './third_party/buzz.js'
 import { copilotAdapter } from './core/copilot.js'
 import { kimiForCodingAdapter } from './core/kimi_for_coding.js'
 import { openaiAdapter } from './core/openai.js'
+import { zhipuCodingPlanAdapter } from './core/zhipu_coding_plan.js'
 import { QuotaProviderRegistry } from './registry.js'
 import { rightCodeAdapter } from './third_party/rightcode.js'
 import { xyaiVibeAdapter } from './third_party/xyai_vibe.js'
@@ -13,6 +14,7 @@ export function createDefaultProviderRegistry() {
   registry.register(buzzAdapter)
   registry.register(xyaiVibeAdapter)
   registry.register(kimiForCodingAdapter)
+  registry.register(zhipuCodingPlanAdapter)
   registry.register(openaiAdapter)
   registry.register(copilotAdapter)
   registry.register(anthropicAdapter)
@@ -27,6 +29,7 @@ export {
   openaiAdapter,
   rightCodeAdapter,
   xyaiVibeAdapter,
+  zhipuCodingPlanAdapter,
   QuotaProviderRegistry,
 }
 
