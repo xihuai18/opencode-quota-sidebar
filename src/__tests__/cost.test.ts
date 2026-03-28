@@ -171,6 +171,7 @@ describe('cost', () => {
       'kimi-for-coding',
     )
     assert.equal(canonicalApiCostProviderID('zhipuai-coding-plan'), 'zhipu')
+    assert.equal(canonicalApiCostProviderID('z-ai'), 'zhipu')
   })
 
   it('maps kimi-for-coding k2p5 to moonshot pricing keys', () => {
@@ -194,6 +195,7 @@ describe('cost', () => {
     const direct = modelCostLookupKeys('zhipuai-coding-plan', 'glm-5')
     assert.ok(direct.includes('zhipuai-coding-plan:glm-5'))
     assert.ok(direct.includes('zhipu:glm-5'))
+    assert.ok(modelCostLookupKeys('z-ai', 'glm-5.1').includes('zhipu:glm-5'))
     assert.ok(
       modelCostLookupKeys('zhipuai-coding-plan', 'glm-5-thinking').includes(
         'zhipu:glm-5',

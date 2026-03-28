@@ -1458,6 +1458,107 @@ describe('usage service', () => {
     )
   })
 
+  it('recomputes current-version zhipu usage when bundled fallback pricing becomes available', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'z-ai-current'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'Z-AI current',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: {
+        billingVersion: USAGE_BILLING_CACHE_VERSION,
+        input: 28_629,
+        output: 3_852,
+        reasoning: 0,
+        cacheRead: 30_976,
+        cacheWrite: 0,
+        total: 63_457,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {
+          'z-ai': {
+            input: 28_629,
+            output: 3_852,
+            reasoning: 0,
+            cacheRead: 30_976,
+            cacheWrite: 0,
+            total: 63_457,
+            cost: 0,
+            apiCost: 0,
+            assistantMessages: 1,
+          },
+        },
+      },
+      cursor: {
+        lastMessageId: 'm-zai-current',
+        lastMessageTime: completedAt,
+        lastMessageIdsAtTime: ['m-zai-current'],
+      },
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    let messageCalls = 0
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => {
+            messageCalls++
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'm-zai-current',
+                    sessionID,
+                    role: 'assistant',
+                    providerID: 'z-ai',
+                    modelID: 'glm-5.1',
+                    time: { created: completedAt - 10, completed: completedAt },
+                    tokens: {
+                      input: 28_629,
+                      output: 3_852,
+                      reasoning: 0,
+                      cache: { read: 30_976, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({ data: { all: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.0475218) < 1e-9)
+    assert.ok(Math.abs(usage.providers['z-ai'].apiCost - 0.0475218) < 1e-9)
+  })
+
   it('fails session-only tool summary when messages cannot load and no cache exists', async () => {
     const state = makeState()
     const config = makeConfig()

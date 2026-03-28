@@ -454,6 +454,44 @@ export function createUsageService(deps: {
     return cached.billingVersion === USAGE_BILLING_CACHE_VERSION
   }
 
+  const hasAnySubscriptionProvider = (cached: CachedSessionUsage) => {
+    const providerIDs = Object.keys(cached.providers)
+    if (providerIDs.length === 0) return true
+    return providerIDs.some((providerID) => {
+      const canonical = canonicalApiCostProviderID(providerID)
+      return API_COST_ENABLED_PROVIDERS.has(canonical)
+    })
+  }
+
+  const shouldRecomputeUsageCache = (
+    cached: CachedSessionUsage,
+    hasPricing: boolean,
+    hasResolvableApiCostMessage: boolean,
+  ) => {
+    if (!isUsageBillingCurrent(cached)) return true
+    if (!hasPricing) return false
+    if (!hasResolvableApiCostMessage) return false
+    if (cached.assistantMessages <= 0) return false
+    if (cached.apiCost > 0) return false
+    if (cached.total <= 0) return false
+    if (!hasAnySubscriptionProvider(cached)) return false
+    return true
+  }
+
+  const hasResolvableApiCostMessages = (
+    entries: MessageEntry[],
+    modelCostMap: Record<string, ModelCostRates>,
+  ) => {
+    return entries.some(({ info }) => {
+      if (info.role !== 'assistant') return false
+      const providerID = canonicalApiCostProviderID(info.providerID)
+      if (!API_COST_ENABLED_PROVIDERS.has(providerID)) return false
+      return modelCostLookupKeys(info.providerID, info.modelID).some((key) =>
+        Boolean(modelCostMap[key]),
+      )
+    })
+  }
+
   type SessionUsageResult = { usage: UsageSummary; persist: boolean }
 
   const summarizeSessionUsage = async (
@@ -485,15 +523,33 @@ export function createUsageService(deps: {
     }
 
     const modelCostMap = await getModelCostMap()
+    const hasPricing = Object.keys(modelCostMap).length > 0
+    const hasResolvablePricing = hasResolvableApiCostMessages(
+      entries,
+      modelCostMap,
+    )
 
     const staleBillingCache =
       Boolean(sessionState?.usage) &&
       !isUsageBillingCurrent(sessionState?.usage)
-    const forceRescan = forceRescanSessions.has(sessionID) || staleBillingCache
+    const pricingRefreshCache =
+      sessionState?.usage &&
+      shouldRecomputeUsageCache(
+        sessionState.usage,
+        hasPricing,
+        hasResolvablePricing,
+      )
+    const forceRescan =
+      forceRescanSessions.has(sessionID) ||
+      staleBillingCache ||
+      Boolean(pricingRefreshCache)
     if (forceRescan) forceRescanSessions.delete(sessionID)
 
     if (staleBillingCache) {
       debug(`usage cache billing refresh for session ${sessionID}`)
+    }
+    if (pricingRefreshCache && !staleBillingCache) {
+      debug(`usage cache pricing refresh for session ${sessionID}`)
     }
 
     const { usage, cursor } = summarizeMessagesIncremental(
@@ -638,27 +694,6 @@ export function createUsageService(deps: {
     const modelCostMap = await getModelCostMap()
     const hasPricing = Object.keys(modelCostMap).length > 0
 
-    const hasAnySubscriptionProvider = (cached: CachedSessionUsage) => {
-      const providerIDs = Object.keys(cached.providers)
-      // Back-compat: older cached chunks may have empty providers.
-      // In that case, allow recompute so we can persist apiCost.
-      if (providerIDs.length === 0) return true
-      return providerIDs.some((providerID) => {
-        const canonical = canonicalApiCostProviderID(providerID)
-        return API_COST_ENABLED_PROVIDERS.has(canonical)
-      })
-    }
-
-    const shouldRecomputeUsageCache = (cached: CachedSessionUsage) => {
-      if (!isUsageBillingCurrent(cached)) return true
-      if (!hasPricing) return false
-      if (cached.assistantMessages <= 0) return false
-      if (cached.apiCost > 0) return false
-      if (cached.total <= 0) return false
-      if (!hasAnySubscriptionProvider(cached)) return false
-      return true
-    }
-
     if (sessions.length > 0) {
       const fetched = await mapConcurrent(
         sessions,
@@ -698,7 +733,11 @@ export function createUsageService(deps: {
 
           const shouldPersistFullUsage =
             !session.state.usage ||
-            shouldRecomputeUsageCache(session.state.usage)
+            shouldRecomputeUsageCache(
+              session.state.usage,
+              hasPricing,
+              hasResolvableApiCostMessages(entries, modelCostMap),
+            )
 
           if (!shouldPersistFullUsage) {
             return {

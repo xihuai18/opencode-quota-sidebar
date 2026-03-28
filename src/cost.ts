@@ -166,15 +166,20 @@ function normalizeKnownProviderID(providerID: string) {
   return providerID
 }
 
+function isCanonicalZhipuProviderID(providerID: string) {
+  return (
+    providerID === 'zhipu' ||
+    providerID === 'bigmodel' ||
+    providerID === 'z-ai' ||
+    providerID === 'zhipuai-coding-plan'
+  )
+}
+
 export function canonicalPricingProviderID(providerID: string) {
   const normalized = normalizeKnownProviderID(providerID)
   const lowered = normalized.toLowerCase()
 
-  if (
-    lowered === 'zhipu' ||
-    lowered === 'bigmodel' ||
-    lowered === 'zhipuai-coding-plan'
-  ) {
+  if (isCanonicalZhipuProviderID(lowered)) {
     return 'zhipu'
   }
   if (lowered === 'kimi-for-coding') return 'moonshotai'
@@ -196,11 +201,7 @@ export function canonicalApiCostProviderID(providerID: string) {
   if (lowered.includes('anthropic') || lowered.includes('claude')) {
     return 'anthropic'
   }
-  if (
-    lowered === 'zhipu' ||
-    lowered === 'bigmodel' ||
-    lowered === 'zhipuai-coding-plan'
-  ) {
+  if (isCanonicalZhipuProviderID(lowered)) {
     return 'zhipu'
   }
   return normalized
