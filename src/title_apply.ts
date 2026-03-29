@@ -20,6 +20,7 @@ import {
   selectDesktopCompactProviderIDs,
   type TitleView,
 } from './format.js'
+import { collapseQuotaSnapshots } from './quota_render.js'
 
 export function createTitleApplicator(deps: {
   state: QuotaSidebarState
@@ -75,7 +76,7 @@ export function createTitleApplicator(deps: {
     }))
 
   const applyTitle = async (sessionID: string) => {
-    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false
+    if (!deps.config.sidebar.enabled) return false
 
     let stateMutated = false
 
@@ -157,7 +158,7 @@ export function createTitleApplicator(deps: {
     )
     const view =
       deps.getTitleView?.(sessionID) ??
-      resolveTitleView({ config: deps.config, sessionID })
+      resolveTitleView({ config: deps.config })
     const quotaProviders = Array.from(
       new Set(
         view === 'compact'
@@ -172,11 +173,21 @@ export function createTitleApplicator(deps: {
         : ([] as QuotaSnapshot[])
 
     sessionState.sidebarPanel = {
+      version: 1,
       updatedAt: Date.now(),
       usage: toCachedSessionUsage(usage),
-      quotas: cloneQuotas(quotas),
+      quotas: cloneQuotas(collapseQuotaSnapshots(quotas)),
     }
     stateMutated = true
+
+    if (!deps.state.titleEnabled) {
+      if (stateMutated) {
+        deps.markDirty(deps.state.sessionDateMap[sessionID])
+      }
+      deps.scheduleSave()
+      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+      return false
+    }
 
     const nextTitle = deps.renderSidebarTitle(
       sessionState.baseTitle,
@@ -185,8 +196,6 @@ export function createTitleApplicator(deps: {
       deps.config,
       view,
     )
-
-    if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false
 
     if (
       canonicalizeTitleForCompare(nextTitle) ===

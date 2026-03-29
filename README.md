@@ -3,21 +3,21 @@
 [![npm version](https://img.shields.io/npm/v/@leo000001/opencode-quota-sidebar.svg)](https://www.npmjs.com/package/@leo000001/opencode-quota-sidebar)
 [![license](https://img.shields.io/npm/l/@leo000001/opencode-quota-sidebar.svg)](https://github.com/xihuai18/opencode-quota-sidebar/blob/main/LICENSE)
 
-OpenCode plugin: show token usage and subscription quota in the session sidebar title.
+OpenCode plugin: show token usage and subscription quota in TUI sidebar panels and compact shared session titles.
 
 ![Example sidebar title with usage and quota](./assets/OpenCode-Quota-Sidebar.png)
 
 ## Install
 
-If you use the OpenCode installer flow, the package manifest now advertises both `server` and `tui` targets.
+The package manifest advertises both `server` and `tui` targets, but OpenCode loads those targets from different config files at runtime.
 
-If you configure files manually, add the server entry to `opencode.json` and the TUI entry to `tui.json`:
+If you configure the plugin manually, you must add the server entry to `opencode.json` and the TUI entry to `tui.json`:
 
 `opencode.json`
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.23"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.26"]
 }
 ```
 
@@ -25,11 +25,13 @@ If you configure files manually, add the server entry to `opencode.json` and the
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.23"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.26"]
 }
 ```
 
 Note for OpenCode `>=1.2.15`: TUI settings and TUI plugins live in `tui.json`, while server plugins stay in `opencode.json`.
+
+If you use an installer flow that reads `oc-plugin` targets and patches config for you, it can populate both files automatically. Simply having the package installed in `node_modules` or listed only in `opencode.json` is not enough for the TUI runtime to load `./tui`.
 This plugin also accepts both `config.providers` and older `provider.list` runtime shapes when discovering provider options.
 
 If you prefer automatic upgrades, you can still use `@latest`, but pinning an exact version makes behavior easier to reproduce when debugging.
@@ -97,7 +99,7 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Quota snapshots are de-duplicated before rendering to avoid repeated provider lines
 - Custom tools:
   - `quota_summary` — generate usage report for session/day/week/month (full markdown report + toast). The markdown report and toast keep the full human-readable wording; they do not switch to compact sidebar tokens.
-- `quota_show` — toggle sidebar title display on/off (state persists across sessions)
+- `quota_show` — toggle shared title decoration on/off (state persists across sessions)
 - After startup, titles are restored immediately when persisted display mode is OFF; when persisted display mode is ON, touched titles refresh on startup and the rest update on the next relevant session/message event or when `quota_show` is toggled
 - Quota connectors:
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
@@ -142,6 +144,7 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - `parentID` (when the session is a subagent child session)
   - `expiryToastShown` (session-level dedupe for automatic expiry reminders)
   - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cached-ratio reporting and legacy cache classification
+  - `sidebarPanel` cache used by the TUI sidebar plugin (`version`, cached usage, compact quota snapshots)
   - incremental aggregation cursor
 
 Notes on cache bucket persistence:

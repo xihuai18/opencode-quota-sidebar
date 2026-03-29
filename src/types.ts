@@ -123,6 +123,7 @@ export type CachedSessionUsage = {
 }
 
 export type SidebarPanelState = {
+  version: 1
   updatedAt: number
   usage?: CachedSessionUsage
   quotas?: QuotaSnapshot[]

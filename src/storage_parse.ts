@@ -223,9 +223,12 @@ function parseQuotaSnapshots(value: unknown): QuotaSnapshot[] | undefined {
 
 function parseSidebarPanel(value: unknown): SidebarPanelState | undefined {
   if (!isRecord(value)) return undefined
+  const version = asNumber(value.version, 1)
+  if (version !== 1) return undefined
   const updatedAt = asNumber(value.updatedAt, 0)
   if (!updatedAt) return undefined
   return {
+    version: 1,
     updatedAt,
     usage: parseCachedUsage(value.usage),
     quotas: parseQuotaSnapshots(value.quotas),

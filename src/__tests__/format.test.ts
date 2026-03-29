@@ -341,26 +341,13 @@ describe('renderSidebarTitle', () => {
     const config = makeConfig(60)
     config.sidebar.titleMode = 'auto'
 
-    assert.equal(resolveTitleView({ config, sessionID: 's1' }), 'compact')
-    assert.equal(
-      resolveTitleView({
-        config,
-        sessionID: 's1',
-        tuiSessionID: 's1',
-        tuiActiveAt: 1000,
-        now: 1000,
-      }),
-      'compact',
-    )
+    assert.equal(resolveTitleView({ config }), 'compact')
 
     config.sidebar.titleMode = 'multiline'
-    assert.equal(resolveTitleView({ config, sessionID: 's1' }), 'multiline')
+    assert.equal(resolveTitleView({ config }), 'multiline')
 
     config.sidebar.titleMode = 'compact'
-    assert.equal(
-      resolveTitleView({ config, sessionID: 's1', tuiSessionID: 's1' }),
-      'compact',
-    )
+    assert.equal(resolveTitleView({ config }), 'compact')
   })
 
   it('renders API cost as the last token detail line', () => {

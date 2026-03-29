@@ -4,7 +4,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
-import { TUI_ACTIVE_MS } from '../format.js'
 import { QuotaSidebarPlugin } from '../index.js'
 import { dateKeyFromTimestamp } from '../storage.js'
 
@@ -270,39 +269,6 @@ describe('plugin integration', () => {
     )
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     const previousClient = process.env.OPENCODE_CLIENT
-    const realSetTimeout = globalThis.setTimeout
-    const realClearTimeout = globalThis.clearTimeout
-    let expiry: (() => void) | undefined
-    let token: object | undefined
-    ;(globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-      ((
-        fn: Parameters<typeof setTimeout>[0],
-        ms?: Parameters<typeof setTimeout>[1],
-        ...args: unknown[]
-      ) => {
-        if (ms === TUI_ACTIVE_MS) {
-          token = {}
-          const cur = token
-          expiry = () => {
-            if (token !== cur) return
-            if (typeof fn === 'function') {
-              ;(fn as (...args: unknown[]) => void)(...args)
-            }
-          }
-          return cur as ReturnType<typeof setTimeout>
-        }
-        return realSetTimeout(fn, ms, ...args)
-      }) as typeof setTimeout
-    ;(
-      globalThis as unknown as { clearTimeout: typeof clearTimeout }
-    ).clearTimeout = ((value) => {
-      if (value === token) {
-        token = undefined
-        expiry = undefined
-        return
-      }
-      return realClearTimeout(value)
-    }) as typeof clearTimeout
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     process.env.OPENCODE_CLIENT = 'cli'
     try {
@@ -367,10 +333,6 @@ describe('plugin integration', () => {
 
       await waitFor(() => updates.length > 0)
       assert.equal(title.includes('\n'), false)
-      assert.ok(expiry)
-
-      expiry()
-      await waitFor(() => updates.length >= 1)
       assert.match(title, /Cd7%/)
       assert.doesNotMatch(title, /R1 I18\.9k O53/)
 
@@ -384,11 +346,6 @@ describe('plugin integration', () => {
       assert.equal(title.includes('\n'), false)
       assert.match(title, /Cd7%/)
     } finally {
-      ;(globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-        realSetTimeout
-      ;(
-        globalThis as unknown as { clearTimeout: typeof clearTimeout }
-      ).clearTimeout = realClearTimeout
       process.env.OPENCODE_CLIENT = previousClient
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

@@ -44,6 +44,8 @@ type SidebarPanelData = {
   quotaLines: string[]
 }
 
+const STATE_CACHE_MAX = 4
+
 type SessionMessages = ReturnType<TuiPluginApi['state']['session']['messages']>
 type AssistantLike = Extract<SessionMessages[number], { role: 'assistant' }>
 
@@ -59,16 +61,34 @@ function latestAssistantWithOutput(messages: SessionMessages) {
 
 const stateCache = new Map<
   string,
-  { mtimeMs: number; state: Awaited<ReturnType<typeof loadState>> }
+  {
+    mtimeMs: number
+    accessedAt: number
+    state: Awaited<ReturnType<typeof loadState>>
+  }
 >()
 
 async function loadStateCached(filePath: string) {
   const stat = await fs.stat(filePath).catch(() => undefined)
   const mtimeMs = stat?.mtimeMs ?? -1
   const cached = stateCache.get(filePath)
-  if (cached && cached.mtimeMs === mtimeMs) return cached.state
+  if (cached && cached.mtimeMs === mtimeMs) {
+    cached.accessedAt = Date.now()
+    return cached.state
+  }
   const state = await loadState(filePath)
-  stateCache.set(filePath, { mtimeMs, state })
+  if (!stateCache.has(filePath) && stateCache.size >= STATE_CACHE_MAX) {
+    let oldestKey: string | undefined
+    let oldestTime = Infinity
+    for (const [key, entry] of stateCache) {
+      if (entry.accessedAt < oldestTime) {
+        oldestTime = entry.accessedAt
+        oldestKey = key
+      }
+    }
+    if (oldestKey) stateCache.delete(oldestKey)
+  }
+  stateCache.set(filePath, { mtimeMs, accessedAt: Date.now(), state })
   return state
 }
 
@@ -99,10 +119,19 @@ async function loadSidebarPanel(
   )
   const state = await loadStateCached(stateFilePath(resolveOpencodeDataDir()))
   const session = state.sessions[sessionID]
-  const enabled = config.sidebar.enabled && state.titleEnabled
+  const enabled = config.sidebar.enabled
   const width = Math.max(8, config.sidebar.width - SECTION_INDENT)
 
-  if (!enabled || !session?.sidebarPanel?.usage) {
+  if (!enabled) {
+    return {
+      enabled,
+      width,
+      usageLines: [],
+      quotaLines: [],
+    }
+  }
+
+  if (!session?.sidebarPanel?.usage) {
     return {
       enabled,
       width,
@@ -133,11 +162,21 @@ function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
     async () => loadSidebarPanel(api, sessionID()),
   )
 
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const scheduleRefresh = () => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => setRefresh((value) => value + 1), 250)
+  const timers = new Set<ReturnType<typeof setTimeout>>()
+  const queueRefresh = (delay = 250) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer)
+      setRefresh((value) => value + 1)
+    }, delay)
+    timers.add(timer)
   }
+
+  const scheduleRefresh = () => {
+    queueRefresh(300)
+    queueRefresh(1_000)
+  }
+
+  queueRefresh(1_000)
 
   const unsubscribers = [
     api.event.on('session.updated', (event) => {
@@ -155,7 +194,8 @@ function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
   ]
 
   onCleanup(() => {
-    if (timer) clearTimeout(timer)
+    for (const timer of timers) clearTimeout(timer)
+    timers.clear()
     for (const unsubscribe of unsubscribers) unsubscribe()
   })
 
@@ -207,7 +247,11 @@ function ContextSection(props: {
   )
 }
 
-function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
+function SidebarContentView(props: {
+  api: TuiPluginApi
+  sessionID: string
+  showContext: boolean
+}) {
   const panel = useSidebarPanelData(props.api, () => props.sessionID)
   const width = createMemo(
     () => panel()?.width || DEFAULT_WIDTH - SECTION_INDENT,
@@ -216,11 +260,13 @@ function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   return (
     <Show when={panel()?.enabled}>
       <box gap={0}>
-        <ContextSection
-          api={props.api}
-          sessionID={props.sessionID}
-          width={width}
-        />
+        <Show when={props.showContext}>
+          <ContextSection
+            api={props.api}
+            sessionID={props.sessionID}
+            width={width}
+          />
+        </Show>
 
         <Show when={(panel()?.usageLines.length || 0) > 0}>
           <box paddingTop={1} gap={0}>
@@ -303,17 +349,22 @@ function SidebarTitleView(props: {
 }
 
 const tui: TuiPlugin = async (api) => {
+  const config = await loadConfig(
+    quotaConfigPaths(worktreePath(api), directoryPath(api)),
+  )
   const contextPlugin = api.plugins
     .list()
     .find((item) => item.id === INTERNAL_CONTEXT_PLUGIN_ID)
-  const shouldRestoreContext = Boolean(
-    contextPlugin?.enabled && contextPlugin?.active,
-  )
-  if (contextPlugin?.active) {
-    void api.plugins.deactivate(INTERNAL_CONTEXT_PLUGIN_ID).catch(() => false)
+  let didDeactivateContext = false
+  if (config.sidebar.enabled && contextPlugin?.active) {
+    didDeactivateContext = await api.plugins
+      .deactivate(INTERNAL_CONTEXT_PLUGIN_ID)
+      .catch(() => false)
   }
+  const showCustomContext =
+    config.sidebar.enabled && (!contextPlugin?.active || didDeactivateContext)
   api.lifecycle.onDispose(() => {
-    if (!shouldRestoreContext) return
+    if (!didDeactivateContext) return
     return api.plugins
       .activate(INTERNAL_CONTEXT_PLUGIN_ID)
       .then(() => undefined)
@@ -337,7 +388,13 @@ const tui: TuiPlugin = async (api) => {
         )
       },
       sidebar_content(_ctx: unknown, props: { session_id: string }) {
-        return <SidebarContentView api={api} sessionID={props.session_id} />
+        return (
+          <SidebarContentView
+            api={api}
+            sessionID={props.session_id}
+            showContext={showCustomContext}
+          />
+        )
       },
     },
   })

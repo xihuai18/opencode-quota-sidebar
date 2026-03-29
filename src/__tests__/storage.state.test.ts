@@ -100,6 +100,7 @@ describe('storage state persistence', () => {
     state.sessions.s1 = {
       ...makeSession(createdAt, 'Session'),
       sidebarPanel: {
+        version: 1,
         updatedAt: createdAt,
         usage: {
           billingVersion: 9,

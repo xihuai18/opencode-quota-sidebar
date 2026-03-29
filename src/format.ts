@@ -14,8 +14,6 @@ import { stripAnsi } from './title.js'
 
 export type TitleView = 'multiline' | 'compact'
 
-export const TUI_ACTIVE_MS = 15 * 60_000
-
 /** M6 fix: handle negative, NaN, Infinity gracefully. */
 function shortNumber(value: number, decimals = 1) {
   if (!Number.isFinite(value) || value < 0) return '0'
@@ -196,20 +194,12 @@ function formatRequestsLabel(value: number, short = false) {
   return short ? `Req ${count}` : `Requests ${count}`
 }
 
-export function isDesktopClient() {
-  return process.env.OPENCODE_CLIENT === 'desktop'
-}
-
 export function resolveTitleView(opts: {
   config: QuotaSidebarConfig
-  sessionID?: string
-  tuiSessionID?: string
-  tuiActiveAt?: number
-  now?: number
 }): TitleView {
+  void opts
   if (opts.config.sidebar.titleMode === 'compact') return 'compact'
   if (opts.config.sidebar.titleMode === 'multiline') return 'multiline'
-  if (isDesktopClient()) return 'compact'
   return 'compact'
 }
 
