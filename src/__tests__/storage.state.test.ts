@@ -147,6 +147,135 @@ describe('storage state persistence', () => {
     )
   })
 
+  it('loadState sees externally added sessions in tracked day chunks', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.s1 = makeSession(createdAt, 'S1')
+    state.sessionDateMap.s1 = dateKey
+    await saveState(statePath, state, { writeAll: true })
+
+    const first = await loadState(statePath)
+    assert.equal(first.sessions.s2, undefined)
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const chunkPath = chunkFilePath(
+      chunkRootPathFromStateFile(statePath),
+      dateKey,
+    )
+    await fs.writeFile(
+      chunkPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          dateKey,
+          sessions: {
+            s1: makeSession(createdAt, 'S1'),
+            s2: makeSession(createdAt + 1000, 'S2'),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    const second = await loadState(statePath)
+    assert.equal(second.sessions.s2?.baseTitle, 'S2')
+    assert.equal(second.sessionDateMap.s2, dateKey)
+  })
+
+  it('loadState sees external sidebarPanel updates in tracked day chunks', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.s1 = {
+      ...makeSession(createdAt, 'Session'),
+      lastAppliedTitle: 'Session | Est$0.01',
+      usage: {
+        billingVersion: 9,
+        input: 1,
+        output: 2,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 3,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 1,
+        providers: {},
+      },
+    }
+    state.sessionDateMap.s1 = dateKey
+    await saveState(statePath, state, { writeAll: true })
+
+    const first = await loadState(statePath)
+    assert.equal(first.sessions.s1?.sidebarPanel, undefined)
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const chunkPath = chunkFilePath(
+      chunkRootPathFromStateFile(statePath),
+      dateKey,
+    )
+    await fs.writeFile(
+      chunkPath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          dateKey,
+          sessions: {
+            s1: {
+              ...state.sessions.s1,
+              sidebarPanel: {
+                version: 1,
+                updatedAt: createdAt + 1000,
+                usage: {
+                  billingVersion: 9,
+                  input: 1,
+                  output: 2,
+                  reasoning: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 3,
+                  cost: 0,
+                  apiCost: 0,
+                  assistantMessages: 1,
+                  providers: {},
+                },
+                quotas: [
+                  {
+                    providerID: 'openai',
+                    label: 'OpenAI',
+                    status: 'ok',
+                    checkedAt: createdAt + 1000,
+                  },
+                ],
+              },
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
+
+    const second = await loadState(statePath)
+    assert.equal(second.sessions.s1?.sidebarPanel?.usage?.input, 1)
+    assert.equal(
+      second.sessions.s1?.sidebarPanel?.quotas?.[0]?.providerID,
+      'openai',
+    )
+  })
+
   it('does not resurrect deleted sessions from day chunks', async () => {
     const dir = await makeTempDir()
     const statePath = stateFilePath(dir)

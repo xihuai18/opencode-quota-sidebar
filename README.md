@@ -57,14 +57,14 @@ Add the built server file to your `opencode.json` and the TUI file to your `tui.
 
 ```json
 {
-  "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/tui.js"]
+  "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/tui.tsx"]
 }
 ```
 
 On Windows, use forward slashes, for example:
 
 - `file:///D:/Lab/opencode-quota-sidebar/dist/index.js`
-- `file:///D:/Lab/opencode-quota-sidebar/dist/tui.js`
+- `file:///D:/Lab/opencode-quota-sidebar/dist/tui.tsx`
 
 ## Supported quota providers
 
@@ -84,11 +84,11 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 - TUI sidebar can render a dedicated block layout instead of stuffing telemetry into the shared title:
   - `TITLE`: clean base session title
-  - `CONTEXT`: one compact line such as `242k tok 24% ctx`
   - `USAGE`: compact request/input/output/cache lines such as `R184 I189k O53.2k`, `CR31.4k CW3.2k Cd66%`, `Est $12.8`
   - `QUOTA`: one compact provider group per provider, with indented continuation lines for multi-window quotas or balances
-  - while active, the TUI plugin temporarily deactivates the built-in `internal:sidebar-context` block so the custom one-line context row does not duplicate it
+  - while active, the TUI plugin temporarily deactivates the built-in `internal:sidebar-context` block so the custom panel does not duplicate it
 - Shared `session.title` now stays compact in `auto` mode. Desktop, Web UI / `serve`, and TUI all keep the shared title on a compact single line such as `<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`.
+- TUI panel data is read from persisted day-chunk session state (`usage` + `sidebarPanel`) so entering or resuming a session can render from persistence first; compact-title parsing remains only a defensive fallback.
 - `sidebar.titleMode=multiline` is still available as a legacy fallback when you explicitly want the old multiline title decoration path.
 - `sidebar.titleMode` can force `auto`, `multiline`, or `compact` if the heuristic does not match your workflow.
 - Multi-client caveat: the shared title is still one `session.title` for every client. The new TUI sidebar blocks avoid polluting that shared title, but Desktop/Web still see the compact shared title rather than a sidebar panel.
@@ -144,7 +144,7 @@ The plugin stores lightweight global state and date-partitioned session chunks.
   - `parentID` (when the session is a subagent child session)
   - `expiryToastShown` (session-level dedupe for automatic expiry reminders)
   - cached usage summary used by `quota_summary`, including session-level and provider-level `cacheBuckets` for cached-ratio reporting and legacy cache classification
-  - `sidebarPanel` cache used by the TUI sidebar plugin (`version`, cached usage, compact quota snapshots)
+  - `sidebarPanel` cache used by the TUI sidebar plugin (`version`, cached usage, compact quota snapshots`) so `TITLE / USAGE / QUOTA` can render from persisted structure on session open/resume
   - incremental aggregation cursor
 
 Notes on cache bucket persistence:
@@ -346,13 +346,47 @@ Other defaults:
 }
 ```
 
+### Common minimal configs
+
+Keep the shared title compact and let TUI render the structured panel:
+
+```json
+{
+  "sidebar": {
+    "enabled": true,
+    "titleMode": "auto",
+    "showCost": true,
+    "showQuota": true,
+    "includeChildren": true
+  }
+}
+```
+
+Enable XYAI Vibe quota with account login:
+
+```json
+{
+  "quota": {
+    "providers": {
+      "xyai-vibe": {
+        "enabled": true,
+        "login": {
+          "username": "your-account",
+          "password": "your-password"
+        }
+      }
+    }
+  }
+}
+```
+
 ### Notes
 
 - `sidebar.showCost` controls API-cost visibility in the TUI `USAGE` block, the compact shared title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
 - `sidebar.titleMode` defaults to `auto`: the shared `session.title` stays compact for Desktop, Web UI / `serve`, and TUI alike. The rich TUI layout comes from the dedicated TUI plugin slots instead of a multiline shared title. Use `multiline` only if you explicitly want the legacy decorated-title path, or `compact` to force compact titles everywhere.
-- The TUI plugin renders `TITLE`, `CONTEXT`, `USAGE`, and `QUOTA` blocks in the sidebar and temporarily disables the built-in `internal:sidebar-context` block while it is active.
+- The TUI plugin renders `TITLE`, `USAGE`, and `QUOTA` blocks in the sidebar and temporarily disables the built-in `internal:sidebar-context` block while it is active.
 - The shared `session.title` is still one string per session for all clients. TUI sidebar blocks avoid polluting that title, but Desktop/Web still see the compact shared title rather than a TUI panel.
 - `sidebar.multilineTitle` is kept for backward compatibility, but `sidebar.titleMode` now controls the active policy.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
@@ -407,8 +441,6 @@ Typical layout:
 ```text
 TITLE
   Fix quota adapter matching
-CONTEXT
-  242k tok 24% ctx
 USAGE
   R184 I189k O53.2k
   CR31.4k CW3.2k Cd66%
@@ -537,7 +569,7 @@ Shorthand rules:
 - `B260` / `B￥10.2` = balance
 - `Cd66%` = cached ratio (`cache.read / (input + cache.read)`)
 - `Est$0.12` = equivalent API cost estimate
-- Compact shared titles omit `R/I/O/CR/CW`; the dedicated TUI sidebar keeps the richer `CONTEXT / USAGE / QUOTA` breakdown.
+- Compact shared titles omit `R/I/O/CR/CW`; the dedicated TUI sidebar keeps the richer `TITLE / USAGE / QUOTA` breakdown.
 - Order is `base | quota... | usage-summary` for compact shared titles.
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.

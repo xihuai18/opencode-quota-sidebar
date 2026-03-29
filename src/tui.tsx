@@ -1,23 +1,13 @@
 /** @jsxImportSource @opentui/solid */
-import fs from 'node:fs/promises'
-
 import type {
   TuiPlugin,
   TuiPluginApi,
   TuiPluginModule,
 } from '@opencode-ai/plugin/tui'
-import {
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  Show,
-} from 'solid-js'
+import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import {
   fitLine,
-  renderSidebarContextLine,
   renderSidebarQuotaLines,
   renderSidebarUsageLines,
 } from './format.js'
@@ -28,9 +18,9 @@ import {
   resolveOpencodeDataDir,
   stateFilePath,
 } from './storage.js'
-import { normalizeBaseTitle } from './title.js'
+import { looksDecorated, normalizeBaseTitle } from './title.js'
 import type { QuotaSidebarConfig } from './types.js'
-import { fromCachedSessionUsage } from './usage.js'
+import { fromCachedSessionUsage, summarizeMessages } from './usage.js'
 
 const id = 'leo.quota-sidebar'
 const INTERNAL_CONTEXT_PLUGIN_ID = 'internal:sidebar-context'
@@ -42,55 +32,11 @@ type SidebarPanelData = {
   width: number
   usageLines: string[]
   quotaLines: string[]
+  compactTitle?: string
 }
 
-const STATE_CACHE_MAX = 4
-
-type SessionMessages = ReturnType<TuiPluginApi['state']['session']['messages']>
-type AssistantLike = Extract<SessionMessages[number], { role: 'assistant' }>
-
-function latestAssistantWithOutput(messages: SessionMessages) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (!message || message.role !== 'assistant') continue
-    if (message.tokens.output <= 0) continue
-    return message as AssistantLike
-  }
-  return undefined
-}
-
-const stateCache = new Map<
-  string,
-  {
-    mtimeMs: number
-    accessedAt: number
-    state: Awaited<ReturnType<typeof loadState>>
-  }
->()
-
-async function loadStateCached(filePath: string) {
-  const stat = await fs.stat(filePath).catch(() => undefined)
-  const mtimeMs = stat?.mtimeMs ?? -1
-  const cached = stateCache.get(filePath)
-  if (cached && cached.mtimeMs === mtimeMs) {
-    cached.accessedAt = Date.now()
-    return cached.state
-  }
-  const state = await loadState(filePath)
-  if (!stateCache.has(filePath) && stateCache.size >= STATE_CACHE_MAX) {
-    let oldestKey: string | undefined
-    let oldestTime = Infinity
-    for (const [key, entry] of stateCache) {
-      if (entry.accessedAt < oldestTime) {
-        oldestTime = entry.accessedAt
-        oldestKey = key
-      }
-    }
-    if (oldestKey) stateCache.delete(oldestKey)
-  }
-  stateCache.set(filePath, { mtimeMs, accessedAt: Date.now(), state })
-  return state
-}
+const latestCompactTitles = new Map<string, string>()
+const [compactTitleVersion, setCompactTitleVersion] = createSignal(0)
 
 function directoryPath(api: TuiPluginApi) {
   return api.state.path.directory || process.cwd()
@@ -110,17 +56,40 @@ function panelConfig(config: QuotaSidebarConfig): QuotaSidebarConfig {
   }
 }
 
+function resolveCompactTitle(sessionID: string, persistedTitle?: string) {
+  const liveTitle = latestCompactTitles.get(sessionID)
+  if (liveTitle && looksDecorated(liveTitle)) return liveTitle
+  if (persistedTitle && looksDecorated(persistedTitle)) return persistedTitle
+  return liveTitle || persistedTitle
+}
+
 async function loadSidebarPanel(
   api: TuiPluginApi,
   sessionID: string,
 ): Promise<SidebarPanelData> {
+  const statePath = stateFilePath(resolveOpencodeDataDir())
   const config = await loadConfig(
     quotaConfigPaths(worktreePath(api), directoryPath(api)),
   )
-  const state = await loadStateCached(stateFilePath(resolveOpencodeDataDir()))
+  // Session payload lives in day chunks that the server updates from a
+  // separate process, so TUI should re-read persisted state instead of keeping
+  // an extra full-state cache here.
+  const state = await loadState(statePath)
   const session = state.sessions[sessionID]
   const enabled = config.sidebar.enabled
   const width = Math.max(8, config.sidebar.width - SECTION_INDENT)
+  const liveEntries = api.state.session.messages(sessionID).map((info) => ({
+    info,
+  })) as Parameters<typeof summarizeMessages>[0]
+
+  const liveUsage = summarizeMessages(liveEntries, 0, 1)
+  const cachedUsage = session?.sidebarPanel?.usage || session?.usage
+  const usage = cachedUsage
+    ? fromCachedSessionUsage(cachedUsage)
+    : liveUsage.assistantMessages > 0
+      ? liveUsage
+      : undefined
+  const compactTitle = resolveCompactTitle(sessionID, session?.lastAppliedTitle)
 
   if (!enabled) {
     return {
@@ -128,22 +97,15 @@ async function loadSidebarPanel(
       width,
       usageLines: [],
       quotaLines: [],
+      compactTitle: session?.lastAppliedTitle,
     }
   }
 
-  if (!session?.sidebarPanel?.usage) {
-    return {
-      enabled,
-      width,
-      usageLines: [],
-      quotaLines: [],
-    }
-  }
-
-  const usage = fromCachedSessionUsage(session.sidebarPanel.usage)
-  const usageLines = renderSidebarUsageLines(usage, panelConfig(config))
+  const usageLines = usage
+    ? renderSidebarUsageLines(usage, panelConfig(config))
+    : []
   const quotaLines = renderSidebarQuotaLines(
-    session.sidebarPanel.quotas || [],
+    session?.sidebarPanel?.quotas || [],
     panelConfig(config),
   )
 
@@ -152,21 +114,36 @@ async function loadSidebarPanel(
     width,
     usageLines,
     quotaLines,
+    compactTitle,
   }
 }
 
 function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
-  const [refresh, setRefresh] = createSignal(0)
-  const [panel] = createResource(
-    () => `${sessionID()}:${refresh()}`,
-    async () => loadSidebarPanel(api, sessionID()),
-  )
+  const [panel, setPanel] = createSignal<SidebarPanelData | undefined>()
+  let disposed = false
+  let loadVersion = 0
+
+  const reload = () => {
+    const currentVersion = ++loadVersion
+    const currentSessionID = sessionID()
+    void loadSidebarPanel(api, currentSessionID)
+      .then((next) => {
+        if (disposed || currentVersion !== loadVersion) return
+        setPanel(next)
+      })
+      .catch((error) => {
+        if (disposed || currentVersion !== loadVersion) return
+        void error
+      })
+  }
+
+  reload()
 
   const timers = new Set<ReturnType<typeof setTimeout>>()
   const queueRefresh = (delay = 250) => {
     const timer = setTimeout(() => {
       timers.delete(timer)
-      setRefresh((value) => value + 1)
+      reload()
     }, delay)
     timers.add(timer)
   }
@@ -176,24 +153,38 @@ function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
     queueRefresh(1_000)
   }
 
-  queueRefresh(1_000)
+  // Bulk session sync populates messages asynchronously without emitting the
+  // real-time message.updated events we listen to below. Retry a few times on
+  // mount so historical sessions can render usage once the sync finishes.
+  queueRefresh(500)
+  queueRefresh(1_500)
+  queueRefresh(4_000)
 
   const unsubscribers = [
     api.event.on('session.updated', (event) => {
-      if (event.properties.info.id === sessionID()) scheduleRefresh()
+      if (event.properties.info.id === sessionID()) {
+        scheduleRefresh()
+      }
     }),
     api.event.on('message.updated', (event) => {
-      if (event.properties.info.sessionID === sessionID()) scheduleRefresh()
+      if (event.properties.info.sessionID === sessionID()) {
+        scheduleRefresh()
+      }
     }),
     api.event.on('message.removed', (event) => {
-      if (event.properties.sessionID === sessionID()) scheduleRefresh()
+      if (event.properties.sessionID === sessionID()) {
+        scheduleRefresh()
+      }
     }),
     api.event.on('tui.session.select', (event) => {
-      if (event.properties.sessionID === sessionID()) scheduleRefresh()
+      if (event.properties.sessionID === sessionID()) {
+        scheduleRefresh()
+      }
     }),
   ]
 
   onCleanup(() => {
+    disposed = true
     for (const timer of timers) clearTimeout(timer)
     timers.clear()
     for (const unsubscribe of unsubscribers) unsubscribe()
@@ -206,95 +197,75 @@ function sectionHeading(api: TuiPluginApi, value: string) {
   return <text fg={api.theme.current.textMuted}>{value}</text>
 }
 
-function ContextSection(props: {
-  api: TuiPluginApi
-  sessionID: string
-  width: () => number
-}) {
-  const messages = createMemo(() =>
-    props.api.state.session.messages(props.sessionID),
-  )
-  const contextLine = createMemo(() => {
-    const last = latestAssistantWithOutput(messages())
-    if (!last) return undefined
-
-    const tokens =
-      last.tokens.input +
-      last.tokens.output +
-      last.tokens.reasoning +
-      last.tokens.cache.read +
-      last.tokens.cache.write
-    const model = props.api.state.provider.find(
-      (item) => item.id === last.providerID,
-    )?.models[last.modelID]
-    const percent =
-      model?.limit.context && model.limit.context > 0
-        ? (tokens / model.limit.context) * 100
-        : undefined
-
-    return renderSidebarContextLine(tokens, percent, props.width())
-  })
-
-  return (
-    <Show when={contextLine()}>
-      <box paddingTop={1} gap={0}>
-        {sectionHeading(props.api, 'CONTEXT')}
-        <box paddingLeft={SECTION_INDENT}>
-          <text fg={props.api.theme.current.text}>{contextLine()}</text>
-        </box>
-      </box>
-    </Show>
-  )
+function fallbackQuotaLinesFromTitle(title: string, width: number) {
+  const parts = (title || '')
+    .split(' | ')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length <= 1) return [] as string[]
+  return parts
+    .slice(1)
+    .filter((part) => !/^Cd\d/.test(part) && !/^Est\b/.test(part))
+    .map((part) => fitLine(part, width))
 }
 
-function SidebarContentView(props: {
-  api: TuiPluginApi
-  sessionID: string
-  showContext: boolean
-}) {
+function fallbackUsageCostLineFromTitle(title: string, width: number) {
+  const est = (title || '')
+    .split(' | ')
+    .map((part) => part.trim())
+    .find((part) => /^Est\$/.test(part) || /^Est\s+\$/.test(part))
+  if (!est) return undefined
+  return fitLine(est.replace(/^Est\$/, 'Est $'), width)
+}
+
+function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   const panel = useSidebarPanelData(props.api, () => props.sessionID)
   const width = createMemo(
     () => panel()?.width || DEFAULT_WIDTH - SECTION_INDENT,
   )
+  const compactTitle = createMemo(() => {
+    compactTitleVersion()
+    return resolveCompactTitle(props.sessionID, panel()?.compactTitle) || ''
+  })
+  const usageLines = createMemo(() => {
+    const liveLines = panel()?.usageLines || []
+    const hasCostLine = liveLines.some((line) => /^Est\b/.test(line))
+    if (hasCostLine) return liveLines
+    const costLine = fallbackUsageCostLineFromTitle(compactTitle(), width())
+    return costLine ? [...liveLines, costLine] : liveLines
+  })
+  const quotaLines = createMemo(() => {
+    const liveLines = panel()?.quotaLines || []
+    if (liveLines.length > 0) return liveLines
+    return fallbackQuotaLinesFromTitle(compactTitle(), width())
+  })
+  const hasUsage = createMemo(() => usageLines().length > 0)
+  const hasQuota = createMemo(() => quotaLines().length > 0)
 
   return (
-    <Show when={panel()?.enabled}>
-      <box gap={0}>
-        <Show when={props.showContext}>
-          <ContextSection
-            api={props.api}
-            sessionID={props.sessionID}
-            width={width}
-          />
-        </Show>
-
-        <Show when={(panel()?.usageLines.length || 0) > 0}>
-          <box paddingTop={1} gap={0}>
-            {sectionHeading(props.api, 'USAGE')}
-            <box paddingLeft={SECTION_INDENT} gap={0}>
-              <For each={panel()?.usageLines || []}>
-                {(line) => (
-                  <text fg={props.api.theme.current.text}>{line}</text>
-                )}
-              </For>
-            </box>
+    <box gap={0}>
+      <Show when={hasUsage()}>
+        <box gap={0}>
+          {sectionHeading(props.api, 'USAGE')}
+          <box gap={0}>
+            <For each={usageLines()}>
+              {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
+            </For>
           </box>
-        </Show>
+        </box>
+      </Show>
 
-        <Show when={(panel()?.quotaLines.length || 0) > 0}>
-          <box paddingTop={1} gap={0}>
-            {sectionHeading(props.api, 'QUOTA')}
-            <box paddingLeft={SECTION_INDENT} gap={0}>
-              <For each={panel()?.quotaLines || []}>
-                {(line) => (
-                  <text fg={props.api.theme.current.text}>{line}</text>
-                )}
-              </For>
-            </box>
+      <Show when={hasQuota()}>
+        <box paddingTop={hasUsage() ? 1 : 0} gap={0}>
+          {sectionHeading(props.api, 'QUOTA')}
+          <box gap={0}>
+            <For each={quotaLines()}>
+              {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
+            </For>
           </box>
-        </Show>
-      </box>
-    </Show>
+        </box>
+      </Show>
+    </box>
   )
 }
 
@@ -320,31 +291,17 @@ function SidebarTitleView(props: {
   )
 
   return (
-    <Show
-      when={panel()?.enabled}
-      fallback={
-        <box gap={0} paddingRight={1}>
-          <For each={titleLines()}>
-            {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
-          </For>
-          <Show when={shareLine()}>
-            <text fg={props.api.theme.current.textMuted}>{shareLine()}</text>
-          </Show>
-        </box>
-      }
-    >
-      <box gap={0} paddingRight={1}>
-        {sectionHeading(props.api, 'TITLE')}
-        <box paddingLeft={SECTION_INDENT} gap={0}>
-          <For each={titleLines()}>
-            {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
-          </For>
-          <Show when={shareLine()}>
-            <text fg={props.api.theme.current.textMuted}>{shareLine()}</text>
-          </Show>
-        </box>
+    <box gap={0} paddingRight={1}>
+      {sectionHeading(props.api, 'TITLE')}
+      <box gap={0}>
+        <For each={titleLines()}>
+          {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
+        </For>
+        <Show when={shareLine()}>
+          <text fg={props.api.theme.current.textMuted}>{shareLine()}</text>
+        </Show>
       </box>
-    </Show>
+    </box>
   )
 }
 
@@ -352,17 +309,17 @@ const tui: TuiPlugin = async (api) => {
   const config = await loadConfig(
     quotaConfigPaths(worktreePath(api), directoryPath(api)),
   )
-  const contextPlugin = api.plugins
-    .list()
-    .find((item) => item.id === INTERNAL_CONTEXT_PLUGIN_ID)
   let didDeactivateContext = false
-  if (config.sidebar.enabled && contextPlugin?.active) {
-    didDeactivateContext = await api.plugins
-      .deactivate(INTERNAL_CONTEXT_PLUGIN_ID)
-      .catch(() => false)
+  if (config.sidebar.enabled) {
+    const contextPlugin = api.plugins
+      .list()
+      .find((item) => item.id === INTERNAL_CONTEXT_PLUGIN_ID)
+    if (contextPlugin?.active) {
+      didDeactivateContext = await api.plugins
+        .deactivate(INTERNAL_CONTEXT_PLUGIN_ID)
+        .catch(() => false)
+    }
   }
-  const showCustomContext =
-    config.sidebar.enabled && (!contextPlugin?.active || didDeactivateContext)
   api.lifecycle.onDispose(() => {
     if (!didDeactivateContext) return
     return api.plugins
@@ -378,6 +335,10 @@ const tui: TuiPlugin = async (api) => {
         _ctx: unknown,
         props: { session_id: string; title: string; share_url?: string },
       ) {
+        if (latestCompactTitles.get(props.session_id) !== props.title) {
+          latestCompactTitles.set(props.session_id, props.title)
+          setCompactTitleVersion((value) => value + 1)
+        }
         return (
           <SidebarTitleView
             api={api}
@@ -388,13 +349,7 @@ const tui: TuiPlugin = async (api) => {
         )
       },
       sidebar_content(_ctx: unknown, props: { session_id: string }) {
-        return (
-          <SidebarContentView
-            api={api}
-            sessionID={props.session_id}
-            showContext={showCustomContext}
-          />
-        )
+        return <SidebarContentView api={api} sessionID={props.session_id} />
       },
     },
   })

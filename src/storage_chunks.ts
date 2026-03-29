@@ -45,7 +45,11 @@ async function mkdirpNoSymlink(rootPath: string, dirPath: string) {
 class ChunkCache {
   private cache = new Map<
     string,
-    { sessions: Record<string, SessionState>; accessedAt: number }
+    {
+      sessions: Record<string, SessionState>
+      accessedAt: number
+      stamp: { mtimeMs: number; size: number }
+    }
   >()
   private maxSize: number
 
@@ -57,14 +61,32 @@ class ChunkCache {
     return `${path.resolve(rootPath)}::${dateKey}`
   }
 
-  get(rootPath: string, dateKey: string): Record<string, SessionState> | undefined {
-    const entry = this.cache.get(this.key(rootPath, dateKey))
+  get(
+    rootPath: string,
+    dateKey: string,
+    stamp: { mtimeMs: number; size: number } | undefined,
+  ): Record<string, SessionState> | undefined {
+    const key = this.key(rootPath, dateKey)
+    const entry = this.cache.get(key)
     if (!entry) return undefined
+    if (
+      !stamp ||
+      entry.stamp.mtimeMs !== stamp.mtimeMs ||
+      entry.stamp.size !== stamp.size
+    ) {
+      this.cache.delete(key)
+      return undefined
+    }
     entry.accessedAt = Date.now()
     return entry.sessions
   }
 
-  set(rootPath: string, dateKey: string, sessions: Record<string, SessionState>) {
+  set(
+    rootPath: string,
+    dateKey: string,
+    sessions: Record<string, SessionState>,
+    stamp: { mtimeMs: number; size: number },
+  ) {
     if (this.cache.size >= this.maxSize) {
       // Evict least recently accessed
       let oldestKey: string | undefined
@@ -80,6 +102,7 @@ class ChunkCache {
     this.cache.set(this.key(rootPath, dateKey), {
       sessions,
       accessedAt: Date.now(),
+      stamp,
     })
   }
 
@@ -95,15 +118,22 @@ export async function readDayChunk(
   dateKey: string,
 ): Promise<Record<string, SessionState>> {
   if (!isDateKey(dateKey)) return {}
-  const cached = chunkCache.get(rootPath, dateKey)
-  if (cached) return cached
-
   const filePath = chunkFilePath(rootPath, dateKey)
   const stat = await fs.lstat(filePath).catch(() => undefined)
   if (stat?.isSymbolicLink()) {
+    chunkCache.invalidate(rootPath, dateKey)
     debug(`refusing to read symlink chunk: ${filePath}`)
     return {}
   }
+  if (!stat?.isFile()) {
+    chunkCache.invalidate(rootPath, dateKey)
+    return {}
+  }
+
+  const stamp = { mtimeMs: stat.mtimeMs, size: stat.size }
+  const cached = chunkCache.get(rootPath, dateKey, stamp)
+  if (cached) return cached
+
   const parsed = await fs
     .readFile(filePath, 'utf8')
     .then((value) => JSON.parse(value) as unknown)
@@ -121,7 +151,7 @@ export async function readDayChunk(
     return acc
   }, {})
 
-  chunkCache.set(rootPath, dateKey, sessions)
+  chunkCache.set(rootPath, dateKey, sessions, stamp)
   return sessions
 }
 
