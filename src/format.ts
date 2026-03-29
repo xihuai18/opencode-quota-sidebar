@@ -755,6 +755,15 @@ export function renderSidebarQuotaLines(
   quotas: QuotaSnapshot[],
   config: QuotaSidebarConfig,
 ) {
+  return renderSidebarQuotaLineGroups(quotas, config).flatMap(
+    (group) => group.lines,
+  )
+}
+
+export function renderSidebarQuotaLineGroups(
+  quotas: QuotaSnapshot[],
+  config: QuotaSidebarConfig,
+) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
   const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
     ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
@@ -765,16 +774,18 @@ export function renderSidebarQuotaLines(
   }, 0)
 
   return visibleQuotas
-    .flatMap((item) =>
-      compactQuotaWide(item, labelWidth, {
+    .map((item) => ({
+      quota: item,
+      lines: compactQuotaWide(item, labelWidth, {
         width,
         wrapLines: config.sidebar.wrapQuotaLines,
         forceWrapped: false,
         compactDetails: true,
-      }),
-    )
-    .filter((line): line is string => Boolean(line))
-    .map((line) => fitLine(line, width))
+      })
+        .filter((line): line is string => Boolean(line))
+        .map((line) => fitLine(line, width)),
+    }))
+    .filter((group) => group.lines.length > 0)
 }
 
 /**

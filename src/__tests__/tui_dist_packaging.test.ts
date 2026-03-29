@@ -12,6 +12,9 @@ describe('tui dist packaging', () => {
     const source = await fs.readFile(sourcePath, 'utf8')
 
     assert.match(source, /const plugin: TuiPluginModule & \{ id: string \} =/)
+    assert.match(source, /<SectionHeading api=\{props\.api\} value="Usage" \/>/)
+    assert.match(source, /value="Quota"/)
+    assert.doesNotMatch(source, /['"]TITLE['"]/)
     await assert.rejects(fs.access(jsxPath))
   })
 })

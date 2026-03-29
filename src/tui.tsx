@@ -6,11 +6,15 @@ import type {
 } from '@opencode-ai/plugin/tui'
 import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
+import { fitLine, renderSidebarUsageLines } from './format.js'
 import {
-  fitLine,
-  renderSidebarQuotaLines,
-  renderSidebarUsageLines,
-} from './format.js'
+  fallbackQuotaGroupsFromTitle,
+  quotaGroupsAreCollapsible,
+  quotaGroupsSummary,
+  quotaGroupsUseBullets,
+  renderSidebarQuotaGroups,
+  type SidebarQuotaGroup,
+} from './tui_helpers.js'
 import {
   loadConfig,
   loadState,
@@ -31,7 +35,7 @@ type SidebarPanelData = {
   enabled: boolean
   width: number
   usageLines: string[]
-  quotaLines: string[]
+  quotaGroups: SidebarQuotaGroup[]
   compactTitle?: string
 }
 
@@ -96,7 +100,7 @@ async function loadSidebarPanel(
       enabled,
       width,
       usageLines: [],
-      quotaLines: [],
+      quotaGroups: [],
       compactTitle: session?.lastAppliedTitle,
     }
   }
@@ -104,7 +108,7 @@ async function loadSidebarPanel(
   const usageLines = usage
     ? renderSidebarUsageLines(usage, panelConfig(config))
     : []
-  const quotaLines = renderSidebarQuotaLines(
+  const quotaGroups = renderSidebarQuotaGroups(
     session?.sidebarPanel?.quotas || [],
     panelConfig(config),
   )
@@ -113,7 +117,7 @@ async function loadSidebarPanel(
     enabled,
     width,
     usageLines,
-    quotaLines,
+    quotaGroups,
     compactTitle,
   }
 }
@@ -193,20 +197,83 @@ function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
   return panel
 }
 
-function sectionHeading(api: TuiPluginApi, value: string) {
-  return <text fg={api.theme.current.textMuted}>{value}</text>
+function SectionHeading(props: {
+  api: TuiPluginApi
+  value: string
+  collapsible?: boolean
+  open?: boolean
+  summary?: string
+  onToggle?: () => void
+}) {
+  const clickable = () => props.collapsible === true && props.onToggle
+
+  return (
+    <box
+      flexDirection="row"
+      gap={1}
+      onMouseDown={() => {
+        if (!clickable()) return
+        props.onToggle?.()
+      }}
+    >
+      <Show when={props.collapsible}>
+        <text fg={props.api.theme.current.text}>{props.open ? '▼' : '▶'}</text>
+      </Show>
+      <text fg={props.api.theme.current.text}>
+        <b>{props.value}</b>
+        <Show when={props.summary}>
+          <span style={{ fg: props.api.theme.current.textMuted }}>
+            {' '}
+            {props.summary}
+          </span>
+        </Show>
+      </text>
+    </box>
+  )
 }
 
-function fallbackQuotaLinesFromTitle(title: string, width: number) {
-  const parts = (title || '')
-    .split(' | ')
-    .map((part) => part.trim())
-    .filter(Boolean)
-  if (parts.length <= 1) return [] as string[]
-  return parts
-    .slice(1)
-    .filter((part) => !/^Cd\d/.test(part) && !/^Est\b/.test(part))
-    .map((part) => fitLine(part, width))
+function quotaToneColor(api: TuiPluginApi, tone: SidebarQuotaGroup['tone']) {
+  const theme = api.theme.current
+  if (tone === 'success') return theme.success
+  if (tone === 'warning') return theme.warning
+  if (tone === 'error') return theme.error
+  return theme.textMuted
+}
+
+function QuotaGroupBlock(props: {
+  api: TuiPluginApi
+  group: SidebarQuotaGroup
+  bullet: boolean
+}) {
+  const content = (
+    <box gap={0}>
+      <text>
+        <span style={{ fg: props.api.theme.current.text }}>
+          {props.group.shortLabel}
+        </span>
+        <Show when={props.group.detail}>
+          <span style={{ fg: props.api.theme.current.textMuted }}>
+            {' '}
+            {props.group.detail}
+          </span>
+        </Show>
+      </text>
+      <For each={props.group.continuationLines}>
+        {(line) => <text fg={props.api.theme.current.textMuted}>{line}</text>}
+      </For>
+    </box>
+  )
+
+  return (
+    <Show when={props.bullet} fallback={content}>
+      <box flexDirection="row" gap={1}>
+        <text flexShrink={0} fg={quotaToneColor(props.api, props.group.tone)}>
+          •
+        </text>
+        {content}
+      </box>
+    </Show>
+  )
 }
 
 function fallbackUsageCostLineFromTitle(title: string, width: number) {
@@ -220,6 +287,7 @@ function fallbackUsageCostLineFromTitle(title: string, width: number) {
 
 function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
   const panel = useSidebarPanelData(props.api, () => props.sessionID)
+  const [quotaOpen, setQuotaOpen] = createSignal(true)
   const width = createMemo(
     () => panel()?.width || DEFAULT_WIDTH - SECTION_INDENT,
   )
@@ -234,22 +302,32 @@ function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
     const costLine = fallbackUsageCostLineFromTitle(compactTitle(), width())
     return costLine ? [...liveLines, costLine] : liveLines
   })
-  const quotaLines = createMemo(() => {
-    const liveLines = panel()?.quotaLines || []
-    if (liveLines.length > 0) return liveLines
-    return fallbackQuotaLinesFromTitle(compactTitle(), width())
+  const quotaGroups = createMemo(() => {
+    const liveGroups = panel()?.quotaGroups || []
+    if (liveGroups.length > 0) return liveGroups
+    return fallbackQuotaGroupsFromTitle(compactTitle(), width())
   })
   const hasUsage = createMemo(() => usageLines().length > 0)
-  const hasQuota = createMemo(() => quotaLines().length > 0)
+  const hasQuota = createMemo(() => quotaGroups().length > 0)
+  const quotaBullets = createMemo(() => quotaGroupsUseBullets(quotaGroups()))
+  const quotaCollapsible = createMemo(() =>
+    quotaGroupsAreCollapsible(quotaGroups()),
+  )
+  const quotaSummary = createMemo(() => {
+    if (!quotaCollapsible() || quotaOpen()) return undefined
+    return quotaGroupsSummary(quotaGroups())
+  })
 
   return (
     <box gap={0}>
       <Show when={hasUsage()}>
         <box gap={0}>
-          {sectionHeading(props.api, 'USAGE')}
+          <SectionHeading api={props.api} value="Usage" />
           <box gap={0}>
             <For each={usageLines()}>
-              {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
+              {(line) => (
+                <text fg={props.api.theme.current.textMuted}>{line}</text>
+              )}
             </For>
           </box>
         </box>
@@ -257,12 +335,27 @@ function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
 
       <Show when={hasQuota()}>
         <box paddingTop={hasUsage() ? 1 : 0} gap={0}>
-          {sectionHeading(props.api, 'QUOTA')}
-          <box gap={0}>
-            <For each={quotaLines()}>
-              {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
-            </For>
-          </box>
+          <SectionHeading
+            api={props.api}
+            value="Quota"
+            collapsible={quotaCollapsible()}
+            open={quotaOpen()}
+            summary={quotaSummary()}
+            onToggle={() => setQuotaOpen((value) => !value)}
+          />
+          <Show when={!quotaCollapsible() || quotaOpen()}>
+            <box gap={0}>
+              <For each={quotaGroups()}>
+                {(group) => (
+                  <QuotaGroupBlock
+                    api={props.api}
+                    group={group}
+                    bullet={quotaBullets()}
+                  />
+                )}
+              </For>
+            </box>
+          </Show>
         </box>
       </Show>
     </box>
@@ -292,10 +385,13 @@ function SidebarTitleView(props: {
 
   return (
     <box gap={0} paddingRight={1}>
-      {sectionHeading(props.api, 'TITLE')}
       <box gap={0}>
         <For each={titleLines()}>
-          {(line) => <text fg={props.api.theme.current.text}>{line}</text>}
+          {(line) => (
+            <text fg={props.api.theme.current.text}>
+              <b>{line}</b>
+            </text>
+          )}
         </For>
         <Show when={shareLine()}>
           <text fg={props.api.theme.current.textMuted}>{shareLine()}</text>
