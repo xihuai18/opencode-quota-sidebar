@@ -12,7 +12,7 @@
     },
     "./tui": {
       "types": "./dist/tui.d.ts",
-      "default": "./dist/tui.js"
+      "default": "./dist/tui.tsx"
     }
   },
   "oc-plugin": [
@@ -21,6 +21,7 @@
   ],
   "files": [
     "dist/*.js",
+    "dist/tui.tsx",
     "dist/*.d.ts",
     "dist/providers/**/*.js",
     "dist/providers/**/*.d.ts",
@@ -33,7 +34,7 @@
   ],
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true}); fs.rmSync('tsconfig.tsbuildinfo',{force:true});\"",
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json && node ./scripts/prepare-tui-dist.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm run build && npm test",
