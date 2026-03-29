@@ -738,12 +738,13 @@ export function renderSidebarContextLine(
 export function renderSidebarUsageLines(
   usage: UsageSummary,
   config: QuotaSidebarConfig,
+  options?: { showCost?: boolean },
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
   const cacheMetrics = getCacheCoverageMetrics(usage)
   return usageDetailLines(usage, cacheMetrics, {
     width,
-    showCost: config.sidebar.showCost,
+    showCost: options?.showCost ?? config.sidebar.showCost,
     numberToken: panelNumber,
     costToken: (value) => `Est ${formatApiCostValue(value)}`,
     cacheReadFirst: true,
