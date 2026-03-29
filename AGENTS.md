@@ -116,10 +116,12 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
 - `sidebar.titleMode=auto` 时：当前活跃 TUI session 走 **compact multiline**，Desktop 与 Web UI / `serve` 客户端默认走 monitoring-style compact 单行 title；这一策略不再依赖 `sidebar.multilineTitle`
+- auto 模式只依赖三类信号：`OPENCODE_CLIENT=desktop`、`tui.session.select`、以及 `tui.command.execute` / `tui.prompt.append` 的活跃保活；后两者并不携带 client id，也不会单独切换 session owner
 - TUI usage 示例：`R12 I18.9k O53`、`CW300 CR31.4k Cd66%`、`Est$0.12`
 - Compact 单行 title 示例：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
 - Compact 单行模式仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
 - Compact 单行为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；单行模式省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`；multiline 仍保持 usage-first 布局，但每行都优先使用 compact token
+- 当前 auto 模式只追踪一个全局 TUI owner session，并带 `15m` freshness timeout；如果未来 OpenCode 事件名或事件语义变化，必须同步更新 docs + tests
 - toast 和 markdown report 同样使用 `shortNumber()`
 
 ### 4.2 Cache 显示
@@ -447,6 +449,13 @@ Anthropic 现已通过 `GET https://api.anthropic.com/api/oauth/usage` 接入 OA
 ### 9.4 OpenAI wham/usage 稳定性
 
 这是 ChatGPT 内部 API，未公开文档。响应结构可能随时变化。当前解析逻辑对缺失字段做了 graceful fallback。
+
+### 9.5 多客户端 title ownership
+
+- 当前实现没有 per-client / per-connection / per-window identity；只有一个全局 `tuiSessionID` 和一个全局 freshness timer。
+- 因此多 TUI 并发时，最近一次 `tui.session.select` 会成为 multiline owner；其他 session 会回落到 compact。
+- Web UI / `serve` 客户端也共享同一个 `session.title`，不能为同一 session 单独渲染另一套 title。
+- 需要稳定行为时，优先建议用户显式设置 `sidebar.titleMode=compact` 或 `multiline`。
 
 ---
 

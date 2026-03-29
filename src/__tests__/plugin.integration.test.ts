@@ -475,6 +475,137 @@ describe('plugin integration', () => {
     }
   })
 
+  it('lets the most recently selected TUI session own multiline mode', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    await fs.writeFile(
+      path.join(projectDir, 'quota-sidebar.config.json'),
+      JSON.stringify(
+        {
+          sidebar: { multilineTitle: true, showCost: false, showQuota: false },
+        },
+        null,
+        2,
+      ),
+    )
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    process.env.OPENCODE_CLIENT = 'cli'
+    try {
+      const titles = {
+        s1: 'Session One',
+        s2: 'Session Two',
+      }
+      const updates: Array<{ id: 's1' | 's2'; title: string }> = []
+
+      const messages = {
+        s1: {
+          id: 'm1',
+          role: 'assistant',
+          providerID: 'openai',
+          modelID: 'gpt-5',
+          sessionID: 's1',
+          time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+          tokens: {
+            input: 420,
+            output: 84,
+            reasoning: 0,
+            cache: { read: 21, write: 0 },
+          },
+          cost: 0.01,
+        },
+        s2: {
+          id: 'm2',
+          role: 'assistant',
+          providerID: 'openai',
+          modelID: 'gpt-5',
+          sessionID: 's2',
+          time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+          tokens: {
+            input: 520,
+            output: 94,
+            reasoning: 0,
+            cache: { read: 31, write: 0 },
+          },
+          cost: 0.01,
+        },
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async (args: { path: { id: 's1' | 's2' } }) => ({
+              data: {
+                id: args.path.id,
+                title: titles[args.path.id],
+                time: { created: Date.now() - 10_000 },
+              },
+            }),
+            update: async (args: {
+              path: { id: 's1' | 's2' }
+              body: { title: string }
+            }) => {
+              titles[args.path.id] = args.body.title
+              updates.push({ id: args.path.id, title: args.body.title })
+              return { data: { ok: true } }
+            },
+            messages: async (args: { path: { id: 's1' | 's2' } }) => ({
+              data: [{ info: messages[args.path.id] }],
+            }),
+            list: async () => ({ data: [{ id: 's1' }, { id: 's2' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: {
+          type: 'tui.session.select',
+          properties: { sessionID: 's1' },
+        },
+      } as never)
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: messages.s1 } },
+      } as never)
+      await waitFor(() => titles.s1.includes('\n'))
+
+      await hooks.event!({
+        event: {
+          type: 'tui.session.select',
+          properties: { sessionID: 's2' },
+        },
+      } as never)
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: messages.s2 } },
+      } as never)
+
+      await waitFor(() => titles.s2.includes('\n'))
+      await waitFor(() => !titles.s1.includes('\n'))
+
+      assert.match(titles.s2, /R1 I520 O94/)
+      assert.match(titles.s1, /Cd5%/)
+      assert.doesNotMatch(titles.s1, /R1 I420 O84/)
+      assert.ok(updates.some((item) => item.id === 's1'))
+      assert.ok(updates.some((item) => item.id === 's2'))
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
   it('renders compact single-line titles automatically on desktop', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()

@@ -67,6 +67,9 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - Desktop automatically switches to a compact monitoring-style single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes, expands all windows/balance for those selected providers in short form such as `OAI 5h80 R16:20 W70 R04-03` or `RC D88.9/60 B260`, and keeps only summary usage signals such as `Cd66%` and `Est$0.12`
 - Auto mode now prefers compact single-line titles everywhere except the actively selected TUI session. That means Desktop stays compact, Web UI / `serve` clients also use compact single-line titles, and the current TUI session keeps the compact multiline layout.
 - `sidebar.titleMode` can force `auto`, `multiline`, or `compact` if the heuristic does not match your workflow.
+- Auto-mode signals are intentionally minimal: Desktop is detected only from `OPENCODE_CLIENT=desktop`; TUI ownership comes from `tui.session.select`; `tui.command.execute` and `tui.prompt.append` only keep that last selected TUI session fresh.
+- Auto-mode freshness lasts `15` minutes. If no new TUI activity arrives in that window, the tracked TUI session is refreshed back to compact; the next TUI activity re-enables multiline for the last selected TUI session.
+- Multi-client caveat: the plugin tracks one global TUI-selected session and writes one shared `session.title`. In mixed TUI/Web or multi-TUI setups, the latest TUI selection wins for that session title. Use `sidebar.titleMode="compact"` or `"multiline"` if you need a stable forced policy.
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cached ratios are available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
@@ -326,7 +329,9 @@ Other defaults:
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
 - `sidebar.titleMode` defaults to `auto`: Desktop is compact, the actively selected TUI session stays multiline, and everything else (including Web UI / `serve` clients) uses the compact single-line layout. Use `multiline` or `compact` to force one style.
-- `auto` relies on positive TUI signals (`tui.session.select`, plus recent `tui.command.execute` / `tui.prompt.append` activity to keep that selection fresh). If your setup still picks the wrong style, force it with `sidebar.titleMode`.
+- `auto` relies on positive TUI signals: `tui.session.select` chooses the tracked TUI session, and recent `tui.command.execute` / `tui.prompt.append` activity only refreshes that tracked session. If no `tui.session.select` has been seen, command/prompt activity alone will not promote a session to multiline.
+- The TUI freshness window is `15` minutes. After that timeout, the tracked TUI session is refreshed back to compact; the next TUI activity re-promotes only the last selected TUI session.
+- The plugin tracks one global `tuiSessionID` and one shared session title per plugin process, not one title per window/tab/client. In multi-client or shared-server setups, different TUI/Web viewers can influence each other. If you need predictable rendering, force `sidebar.titleMode`.
 - `sidebar.multilineTitle` is kept for backward compatibility, but `sidebar.titleMode` now controls the active policy.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
@@ -334,6 +339,7 @@ Other defaults:
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
 - `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
 - `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` control which recently used providers remain visible in compact single-line titles.
+- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` only control provider filtering inside compact titles; they do not change TUI detection or the 15-minute freshness timeout.
 - `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - API cost is computed from OpenCode model pricing metadata, not from `message.cost`. This keeps subscription-backed providers such as OpenAI OAuth usable for API-equivalent cost estimation even when OpenCode's measured cost is `0`.
@@ -373,6 +379,26 @@ These examples show the quota block portion of the sidebar title.
 ### TUI layout
 
 This section describes the multiline TUI layout. Desktop and Web UI / `serve` clients use the compact single-line format unless you force `sidebar.titleMode = "multiline"`.
+
+### Force modes
+
+If you prefer a stable policy instead of the auto heuristic:
+
+```json
+{
+  "sidebar": {
+    "titleMode": "compact"
+  }
+}
+```
+
+```json
+{
+  "sidebar": {
+    "titleMode": "multiline"
+  }
+}
+```
 
 0 providers (no quota data):
 
