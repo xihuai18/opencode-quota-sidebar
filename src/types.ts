@@ -122,6 +122,12 @@ export type CachedSessionUsage = {
   providers: Record<string, CachedProviderUsage>
 }
 
+export type SidebarPanelState = {
+  updatedAt: number
+  usage?: CachedSessionUsage
+  quotas?: QuotaSnapshot[]
+}
+
 /** Tracks incremental aggregation cursor for a session (P1). */
 export type IncrementalCursor = {
   /** ID of the last processed assistant message. */
@@ -143,6 +149,8 @@ export type SessionState = SessionTitleState & {
   dirty?: boolean
   /** Incremental aggregation cursor (P1). */
   cursor?: IncrementalCursor
+  /** Cached TUI sidebar panel payload for the session. */
+  sidebarPanel?: SidebarPanelState
 }
 
 export type SessionDayChunk = {
@@ -167,8 +175,8 @@ export type QuotaSidebarConfig = {
     enabled: boolean
     width: number
     /**
-     * `auto`: compact by default, but keep the actively selected TUI session
-     * multiline when the plugin can positively identify it.
+     * `auto`: keep the shared session title compact and let the dedicated TUI
+     * sidebar plugin render the rich panel layout.
      */
     titleMode?: SidebarTitleMode
     /**

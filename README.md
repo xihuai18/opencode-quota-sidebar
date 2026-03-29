@@ -9,15 +9,27 @@ OpenCode plugin: show token usage and subscription quota in the session sidebar 
 
 ## Install
 
-Add the package name to `plugin` in your `opencode.json`. OpenCode uses Bun to install it automatically on startup:
+If you use the OpenCode installer flow, the package manifest now advertises both `server` and `tui` targets.
+
+If you configure files manually, add the server entry to `opencode.json` and the TUI entry to `tui.json`:
+
+`opencode.json`
 
 ```json
 {
-  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.1"]
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.23"]
 }
 ```
 
-Note for OpenCode `>=1.2.15`: TUI settings (`theme`/`keybinds`/`tui`) moved to `tui.json`, but plugin loading still stays in `opencode.json` (`plugin: []`).
+`tui.json`
+
+```json
+{
+  "plugin": ["@leo000001/opencode-quota-sidebar@2.0.23"]
+}
+```
+
+Note for OpenCode `>=1.2.15`: TUI settings and TUI plugins live in `tui.json`, while server plugins stay in `opencode.json`.
 This plugin also accepts both `config.providers` and older `provider.list` runtime shapes when discovering provider options.
 
 If you prefer automatic upgrades, you can still use `@latest`, but pinning an exact version makes behavior easier to reproduce when debugging.
@@ -29,7 +41,9 @@ npm install
 npm run build
 ```
 
-Add the built file to your `opencode.json`:
+Add the built server file to your `opencode.json` and the TUI file to your `tui.json`:
+
+`opencode.json`
 
 ```json
 {
@@ -37,7 +51,18 @@ Add the built file to your `opencode.json`:
 }
 ```
 
-On Windows, use forward slashes: `"file:///D:/Lab/opencode-quota-sidebar/dist/index.js"`
+`tui.json`
+
+```json
+{
+  "plugin": ["file:///ABSOLUTE/PATH/opencode-quota-sidebar/dist/tui.js"]
+}
+```
+
+On Windows, use forward slashes, for example:
+
+- `file:///D:/Lab/opencode-quota-sidebar/dist/index.js`
+- `file:///D:/Lab/opencode-quota-sidebar/dist/tui.js`
 
 ## Supported quota providers
 
@@ -55,21 +80,16 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 
 ## Features
 
-- TUI session title uses a compact multiline sidebar layout:
-  - line 1: original session title
-  - line 2: blank separator
-  - line 3: compact usage tokens such as `R3 I16.3k O916`
-  - line 4+: compact cache tokens such as `CW300 CR31.4k Cd66%`
-  - optional cost line: `Est$0.12`
-  - quota lines also use compact tokens, for example `XYAI D$31.3/$90 R22:39` or `OAI 5h80 R22:18 W70 R04-03`
-  - short windows (`5h`, `1d`, `Daily`) still show same-day resets as `HH:MM` and cross-day resets as `MM-DD HH:MM`; longer windows continue to show `MM-DD`
-  - long quota content wraps across extra compact lines instead of dropping fields from the sidebar, and continuation lines align to the quota content column
-- Desktop automatically switches to a compact monitoring-style single-line title. It keeps recently used providers from the last `50` requests or last `60` minutes, expands all windows/balance for those selected providers in short form such as `OAI 5h80 R16:20 W70 R04-03` or `RC D88.9/60 B260`, and keeps only summary usage signals such as `Cd66%` and `Est$0.12`
-- Auto mode now prefers compact single-line titles everywhere except the actively selected TUI session. That means Desktop stays compact, Web UI / `serve` clients also use compact single-line titles, and the current TUI session keeps the compact multiline layout.
+- TUI sidebar can render a dedicated block layout instead of stuffing telemetry into the shared title:
+  - `TITLE`: clean base session title
+  - `CONTEXT`: one compact line such as `242k tok 24% ctx`
+  - `USAGE`: compact request/input/output/cache lines such as `R184 I189k O53.2k`, `CR31.4k CW3.2k Cd66%`, `Est $12.8`
+  - `QUOTA`: one compact provider group per provider, with indented continuation lines for multi-window quotas or balances
+  - while active, the TUI plugin temporarily deactivates the built-in `internal:sidebar-context` block so the custom one-line context row does not duplicate it
+- Shared `session.title` now stays compact in `auto` mode. Desktop, Web UI / `serve`, and TUI all keep the shared title on a compact single line such as `<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`.
+- `sidebar.titleMode=multiline` is still available as a legacy fallback when you explicitly want the old multiline title decoration path.
 - `sidebar.titleMode` can force `auto`, `multiline`, or `compact` if the heuristic does not match your workflow.
-- Auto-mode signals are intentionally minimal: Desktop is detected only from `OPENCODE_CLIENT=desktop`; TUI ownership comes from `tui.session.select`; `tui.command.execute` and `tui.prompt.append` only keep that last selected TUI session fresh.
-- Auto-mode freshness lasts `15` minutes. If no new TUI activity arrives in that window, the tracked TUI session is refreshed back to compact; the next TUI activity re-enables multiline for the last selected TUI session.
-- Multi-client caveat: the plugin tracks one global TUI-selected session and writes one shared `session.title`. In mixed TUI/Web or multi-TUI setups, the latest TUI selection wins for that session title. Use `sidebar.titleMode="compact"` or `"multiline"` if you need a stable forced policy.
+- Multi-client caveat: the shared title is still one `session.title` for every client. The new TUI sidebar blocks avoid polluting that shared title, but Desktop/Web still see the compact shared title rather than a sidebar panel.
 - Session-scoped usage/quota can include descendant subagent sessions (enabled by default via `sidebar.includeChildren=true`). Traversal is bounded by `childrenMaxDepth` (default 6), `childrenMaxSessions` (default 128), and `childrenConcurrency` (default 5); truncation is logged when `OPENCODE_QUOTA_DEBUG=1`. Day/week/month ranges never merge children — only session scope does.
 - Toast message can include four sections: `Token Usage`, `Cost as API` (per provider), `Provider Cache` (when provider-level cached ratios are available), and `Quota`
 - Expiry reminders are shown in a separate `Expiry Soon` toast section only for providers with real subscription expiry timestamps, and each session shows that auto-reminder at most once
@@ -147,7 +167,7 @@ memory on startup. Chunk files remain on disk for historical range scans.
 ## Compatibility
 
 - Node.js: >= 18 (for `fetch` + `AbortController`)
-- OpenCode: plugin SDK `@opencode-ai/plugin` ^1.2.10
+- OpenCode: plugin SDK `@opencode-ai/plugin` ^1.3.5
 - OpenCode config split: if you are on `>=1.2.15`, keep this plugin in `opencode.json` and keep TUI-only keys in `tui.json`.
 
 ## Force refresh after npm update
@@ -156,7 +176,7 @@ If `npm view @leo000001/opencode-quota-sidebar version` shows a newer version bu
 
 Recommended recovery steps:
 
-1. Pin the target plugin version in `opencode.json`.
+1. Pin the target plugin version in every config file that loads it (`opencode.json` and, if used manually, `tui.json`).
 2. Fully exit OpenCode.
 3. Delete any cached installed copies of the plugin.
 4. Start OpenCode again so it reinstalls the package.
@@ -325,13 +345,12 @@ Other defaults:
 
 ### Notes
 
-- `sidebar.showCost` controls API-cost visibility in sidebar title, `quota_summary` markdown report, and toast message.
+- `sidebar.showCost` controls API-cost visibility in the TUI `USAGE` block, the compact shared title, `quota_summary` markdown report, and toast message.
 - `quota_summary` follows the same reset compaction rules for short windows in its subscription section (`5h` / `1d` / `Daily` show time, long windows show date, RightCode `Exp` stays date-only).
 - `sidebar.width` is measured in terminal cells. CJK/emoji truncation is best-effort to avoid sidebar overflow.
-- `sidebar.titleMode` defaults to `auto`: Desktop is compact, the actively selected TUI session stays multiline, and everything else (including Web UI / `serve` clients) uses the compact single-line layout. Use `multiline` or `compact` to force one style.
-- `auto` relies on positive TUI signals: `tui.session.select` chooses the tracked TUI session, and recent `tui.command.execute` / `tui.prompt.append` activity only refreshes that tracked session. If no `tui.session.select` has been seen, command/prompt activity alone will not promote a session to multiline.
-- The TUI freshness window is `15` minutes. After that timeout, the tracked TUI session is refreshed back to compact; the next TUI activity re-promotes only the last selected TUI session.
-- The plugin tracks one global `tuiSessionID` and one shared session title per plugin process, not one title per window/tab/client. In multi-client or shared-server setups, different TUI/Web viewers can influence each other. If you need predictable rendering, force `sidebar.titleMode`.
+- `sidebar.titleMode` defaults to `auto`: the shared `session.title` stays compact for Desktop, Web UI / `serve`, and TUI alike. The rich TUI layout comes from the dedicated TUI plugin slots instead of a multiline shared title. Use `multiline` only if you explicitly want the legacy decorated-title path, or `compact` to force compact titles everywhere.
+- The TUI plugin renders `TITLE`, `CONTEXT`, `USAGE`, and `QUOTA` blocks in the sidebar and temporarily disables the built-in `internal:sidebar-context` block while it is active.
+- The shared `session.title` is still one string per session for all clients. TUI sidebar blocks avoid polluting that title, but Desktop/Web still see the compact shared title rather than a TUI panel.
 - `sidebar.multilineTitle` is kept for backward compatibility, but `sidebar.titleMode` now controls the active policy.
 - `sidebar.wrapQuotaLines` controls quota line wrapping and continuation indentation (default: `true`).
 - `sidebar.includeChildren` controls whether session-scoped usage/quota includes descendant subagent sessions (default: `true`).
@@ -339,7 +358,7 @@ Other defaults:
 - `sidebar.childrenMaxSessions` caps the total number of descendant sessions aggregated (default: `128`, clamped 0–2000).
 - `sidebar.childrenConcurrency` controls parallel fetches for descendant session messages (default: `5`, clamped 1–10).
 - `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` control which recently used providers remain visible in compact single-line titles.
-- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` only control provider filtering inside compact titles; they do not change TUI detection or the 15-minute freshness timeout.
+- `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` only control provider filtering inside compact titles; they do not affect the dedicated TUI sidebar panel.
 - `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
 - API cost is computed from OpenCode model pricing metadata, not from `message.cost`. This keeps subscription-backed providers such as OpenAI OAuth usable for API-equivalent cost estimation even when OpenCode's measured cost is `0`.
@@ -378,7 +397,26 @@ These examples show the quota block portion of the sidebar title.
 
 ### TUI layout
 
-This section describes the multiline TUI layout. Desktop and Web UI / `serve` clients use the compact single-line format unless you force `sidebar.titleMode = "multiline"`.
+The default TUI layout is a real sidebar panel, not a multiline shared title. Desktop and Web UI / `serve` clients keep the compact shared title unless you force `sidebar.titleMode = "multiline"`.
+
+Typical layout:
+
+```text
+TITLE
+  Fix quota adapter matching
+CONTEXT
+  242k tok 24% ctx
+USAGE
+  R184 I189k O53.2k
+  CR31.4k CW3.2k Cd66%
+  Est $12.8
+QUOTA
+  OAI 5h80 R16:20
+      W70 R04-03
+  Cop M78 R04-01
+  RC D$88.9/$60 E02-27
+     B260
+```
 
 ### Force modes
 
@@ -479,9 +517,9 @@ Cop unavailable
 OAI ?
 ```
 
-### Desktop compact mode
+### Compact shared title mode
 
-Desktop always uses a compact monitoring-style single-line title. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand. To survive upstream Desktop truncation better, quota segments are emitted before usage summary signals:
+Desktop and Web UI / `serve` use a compact monitoring-style single-line shared title in `auto` mode. Recently used providers are selected from the last `50` assistant requests or last `60` minutes, and each selected provider expands all of its windows and balances in shorthand. To survive upstream truncation better, quota segments are emitted before usage summary signals:
 
 ```text
 <base> | OAI 5h80 R16:20 W70 R04-03 | Cop M78 R04-01 | RC D88.9/60 B260 | Buzz B￥10.2 | Cd66% | Est$0.12
@@ -496,8 +534,8 @@ Shorthand rules:
 - `B260` / `B￥10.2` = balance
 - `Cd66%` = cached ratio (`cache.read / (input + cache.read)`)
 - `Est$0.12` = equivalent API cost estimate
-- Desktop omits `R/I/O/CR/CW`; TUI keeps the full compact multiline breakdown.
-- Order is `base | quota... | usage-summary`, while TUI keeps its multiline usage-first layout.
+- Compact shared titles omit `R/I/O/CR/CW`; the dedicated TUI sidebar keeps the richer `CONTEXT / USAGE / QUOTA` breakdown.
+- Order is `base | quota... | usage-summary` for compact shared titles.
 
 `quota_summary` also supports an optional `includeChildren` flag (only effective for `period=session`) to override the config per call. For `day`/`week`/`month` periods, children are never merged — each session is counted independently.
 

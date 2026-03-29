@@ -13,6 +13,7 @@ import type {
   SessionState,
 } from './types.js'
 import type { UsageSummary } from './usage.js'
+import { toCachedSessionUsage } from './usage.js'
 import { swallow, debug, mapConcurrent } from './helpers.js'
 import {
   resolveTitleView,
@@ -65,6 +66,13 @@ export function createTitleApplicator(deps: {
     pendingAppliedTitle.delete(sessionID)
     recentRestore.delete(sessionID)
   }
+
+  const cloneQuotas = (quotas: QuotaSnapshot[]) =>
+    quotas.map((quota) => ({
+      ...quota,
+      balance: quota.balance ? { ...quota.balance } : undefined,
+      windows: quota.windows?.map((win) => ({ ...win })),
+    }))
 
   const applyTitle = async (sessionID: string) => {
     if (!deps.config.sidebar.enabled || !deps.state.titleEnabled) return false
@@ -162,6 +170,13 @@ export function createTitleApplicator(deps: {
       deps.config.sidebar.showQuota && quotaProviders.length > 0
         ? await deps.getQuotaSnapshots(quotaProviders)
         : ([] as QuotaSnapshot[])
+
+    sessionState.sidebarPanel = {
+      updatedAt: Date.now(),
+      usage: toCachedSessionUsage(usage),
+      quotas: cloneQuotas(quotas),
+    }
+    stateMutated = true
 
     const nextTitle = deps.renderSidebarTitle(
       sessionState.baseTitle,

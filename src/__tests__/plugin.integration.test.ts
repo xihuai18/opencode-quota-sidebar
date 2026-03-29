@@ -144,7 +144,7 @@ describe('plugin integration', () => {
     }
   })
 
-  it('keeps multiline titles for the actively selected TUI session', async () => {
+  it('keeps shared titles compact even for the actively selected TUI session', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -246,17 +246,16 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.ok(updates.length > 0)
-      assert.match(title, /R1 I18\.9k O53/)
-      assert.match(title, /Est\$0\.02/)
-      assert.match(title, /CR1\.5k/)
       assert.match(title, /Cd7%/)
+      assert.match(title, /Est\$0\.02/)
+      assert.equal(title.includes('\n'), false)
       assert.doesNotMatch(title, /\u001b/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
 
-  it('expires stale TUI selection and restores multiline on new TUI activity', async () => {
+  it('does not promote shared titles to multiline on stale or renewed TUI activity', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -294,15 +293,16 @@ describe('plugin integration', () => {
         }
         return realSetTimeout(fn, ms, ...args)
       }) as typeof setTimeout
-    ;(globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
-      ((value) => {
-        if (value === token) {
-          token = undefined
-          expiry = undefined
-          return
-        }
-        return realClearTimeout(value)
-      }) as typeof clearTimeout
+    ;(
+      globalThis as unknown as { clearTimeout: typeof clearTimeout }
+    ).clearTimeout = ((value) => {
+      if (value === token) {
+        token = undefined
+        expiry = undefined
+        return
+      }
+      return realClearTimeout(value)
+    }) as typeof clearTimeout
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     process.env.OPENCODE_CLIENT = 'cli'
     try {
@@ -365,12 +365,12 @@ describe('plugin integration', () => {
         event: { type: 'message.updated', properties: { info: msg } },
       } as never)
 
-      await waitFor(() => title.includes('\n'))
-      assert.match(title, /R1 I18\.9k O53/)
+      await waitFor(() => updates.length > 0)
+      assert.equal(title.includes('\n'), false)
       assert.ok(expiry)
 
       expiry()
-      await waitFor(() => !title.includes('\n'))
+      await waitFor(() => updates.length >= 1)
       assert.match(title, /Cd7%/)
       assert.doesNotMatch(title, /R1 I18\.9k O53/)
 
@@ -380,14 +380,15 @@ describe('plugin integration', () => {
           properties: { command: 'prompt.submit' },
         },
       } as never)
-      await waitFor(() => title.includes('\n'))
-      assert.match(title, /R1 I18\.9k O53/)
+      await waitFor(() => updates.length >= 1)
+      assert.equal(title.includes('\n'), false)
       assert.match(title, /Cd7%/)
     } finally {
       ;(globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
         realSetTimeout
-      ;(globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
-        realClearTimeout
+      ;(
+        globalThis as unknown as { clearTimeout: typeof clearTimeout }
+      ).clearTimeout = realClearTimeout
       process.env.OPENCODE_CLIENT = previousClient
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -475,7 +476,7 @@ describe('plugin integration', () => {
     }
   })
 
-  it('lets the most recently selected TUI session own multiline mode', async () => {
+  it('keeps shared titles compact when TUI switches between sessions', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -580,7 +581,7 @@ describe('plugin integration', () => {
       await hooks.event!({
         event: { type: 'message.updated', properties: { info: messages.s1 } },
       } as never)
-      await waitFor(() => titles.s1.includes('\n'))
+      await waitFor(() => updates.length > 0)
 
       await hooks.event!({
         event: {
@@ -592,12 +593,14 @@ describe('plugin integration', () => {
         event: { type: 'message.updated', properties: { info: messages.s2 } },
       } as never)
 
-      await waitFor(() => titles.s2.includes('\n'))
-      await waitFor(() => !titles.s1.includes('\n'))
+      await waitFor(() => updates.length >= 2)
 
-      assert.match(titles.s2, /R1 I520 O94/)
+      assert.equal(titles.s1.includes('\n'), false)
+      assert.equal(titles.s2.includes('\n'), false)
       assert.match(titles.s1, /Cd5%/)
       assert.doesNotMatch(titles.s1, /R1 I420 O84/)
+      assert.match(titles.s2, /Cd6%/)
+      assert.doesNotMatch(titles.s2, /R1 I520 O94/)
       assert.ok(updates.some((item) => item.id === 's1'))
       assert.ok(updates.some((item) => item.id === 's2'))
     } finally {

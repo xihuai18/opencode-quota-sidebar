@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import {
+  renderSidebarContextLine,
+  renderSidebarQuotaLines,
   renderMarkdownReport,
   renderSidebarTitle,
+  renderSidebarUsageLines,
   renderToastMessage,
   resolveTitleView,
-  TUI_ACTIVE_MS,
 } from '../format.js'
 import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
 import type { UsageSummary } from '../usage.js'
@@ -313,7 +315,10 @@ describe('renderSidebarTitle', () => {
     )
 
     assert.equal(title.includes('\n'), false)
-    assert.match(title, /Greeting and quick check-in \| OAI 5h80 \| Cd63% \| Est\$2\.34/)
+    assert.match(
+      title,
+      /Greeting and quick check-in \| OAI 5h80 \| Cd63% \| Est\$2\.34/,
+    )
   })
 
   it('uses adaptive k/m units for sidebar token lines', () => {
@@ -332,7 +337,7 @@ describe('renderSidebarTitle', () => {
     assert.match(title, /Est\$2\.34/)
   })
 
-  it('keeps auto mode compact unless a TUI session is positively identified', () => {
+  it('keeps auto mode compact even when a TUI session is identified', () => {
     const config = makeConfig(60)
     config.sidebar.titleMode = 'auto'
 
@@ -344,16 +349,6 @@ describe('renderSidebarTitle', () => {
         tuiSessionID: 's1',
         tuiActiveAt: 1000,
         now: 1000,
-      }),
-      'multiline',
-    )
-    assert.equal(
-      resolveTitleView({
-        config,
-        sessionID: 's1',
-        tuiSessionID: 's1',
-        tuiActiveAt: 1000,
-        now: 1000 + TUI_ACTIVE_MS + 1,
       }),
       'compact',
     )
@@ -396,6 +391,85 @@ describe('renderSidebarTitle', () => {
     assert.equal(lines[2], 'R3 I1.5k O1.2m')
     assert.equal(lines[3], 'CW300 CR2.5k Cd63%')
     assert.equal(lines[4], 'Est$2.34')
+  })
+
+  it('renders compact sidebar panel context, usage, and quota lines', () => {
+    const config = makeConfig(38)
+    const usage = makeUsage({
+      input: 189_000,
+      output: 53_200,
+      cacheRead: 31_400,
+      cacheWrite: 3_200,
+      apiCost: 12.8,
+      assistantMessages: 184,
+      cacheBuckets: {
+        readOnly: {
+          input: 120_000,
+          cacheRead: 31_400,
+          cacheWrite: 0,
+          assistantMessages: 90,
+        },
+        readWrite: {
+          input: 69_000,
+          cacheRead: 0,
+          cacheWrite: 3_200,
+          assistantMessages: 94,
+        },
+      },
+    })
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        adapterID: 'openai',
+        label: 'OpenAI',
+        shortLabel: 'OpenAI',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          {
+            label: '5h',
+            remainingPercent: 80,
+            resetAt: '2026-03-29T16:20:00.000Z',
+          },
+          {
+            label: 'Weekly',
+            remainingPercent: 70,
+            resetAt: '2026-04-03T00:00:00.000Z',
+          },
+        ],
+      },
+      {
+        providerID: 'rightcode-openai',
+        adapterID: 'rightcode',
+        label: 'RightCode',
+        shortLabel: 'RC',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          {
+            label: 'Daily $88.9/$60',
+            showPercent: false,
+            resetLabel: 'Exp',
+            resetAt: '2026-02-27T00:00:00.000Z',
+          },
+        ],
+        balance: { amount: 260, currency: '$' },
+      },
+    ]
+
+    assert.equal(renderSidebarContextLine(242_000, 24, 36), '242k tok 24% ctx')
+    assert.deepEqual(renderSidebarUsageLines(usage, config), [
+      'R184 I189k O53.2k',
+      'CR31.4k CW3.2k Cd14%',
+      'Est $12.8',
+    ])
+    const quotaLines = renderSidebarQuotaLines(quotas, config)
+    assert.equal(quotaLines.length, 2)
+    assert.match(
+      quotaLines[0] || '',
+      /^OAI 5h80 R(?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2}) W70 R04-03$/,
+    )
+    assert.equal(quotaLines[1], 'RC D$88.9/$60 E02-27 B260')
   })
 
   it('renders cached ratio line for mixed cache model types', () => {

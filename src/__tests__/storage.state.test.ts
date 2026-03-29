@@ -90,6 +90,62 @@ describe('storage state persistence', () => {
     assert.equal(loaded.sessions.child?.parentID, 'parent')
   })
 
+  it('round-trips sidebarPanel usage and quotas through saveState/loadState', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.sessions.s1 = {
+      ...makeSession(createdAt, 'Session'),
+      sidebarPanel: {
+        updatedAt: createdAt,
+        usage: {
+          billingVersion: 9,
+          input: 189_000,
+          output: 53_200,
+          reasoning: 0,
+          cacheRead: 31_400,
+          cacheWrite: 3_200,
+          total: 276_800,
+          cost: 0,
+          apiCost: 12.8,
+          assistantMessages: 184,
+          providers: {},
+        },
+        quotas: [
+          {
+            providerID: 'openai',
+            adapterID: 'openai',
+            label: 'OpenAI',
+            status: 'ok',
+            checkedAt: createdAt,
+            windows: [
+              { label: '5h', remainingPercent: 80 },
+              { label: 'Weekly', remainingPercent: 70 },
+            ],
+          },
+        ],
+      },
+    }
+    state.sessionDateMap.s1 = dateKey
+
+    await saveState(statePath, state, { writeAll: true })
+    const loaded = await loadState(statePath)
+
+    assert.equal(loaded.sessions.s1?.sidebarPanel?.usage?.input, 189_000)
+    assert.equal(loaded.sessions.s1?.sidebarPanel?.quotas?.length, 1)
+    assert.equal(
+      loaded.sessions.s1?.sidebarPanel?.quotas?.[0]?.providerID,
+      'openai',
+    )
+    assert.equal(
+      loaded.sessions.s1?.sidebarPanel?.quotas?.[0]?.windows?.[1]?.label,
+      'Weekly',
+    )
+  })
+
   it('does not resurrect deleted sessions from day chunks', async () => {
     const dir = await makeTempDir()
     const statePath = stateFilePath(dir)
@@ -114,7 +170,10 @@ describe('storage state persistence', () => {
     assert.equal(loaded.sessions.s1, undefined)
     assert.equal(loaded.sessionDateMap.s1, undefined)
 
-    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    const chunkPath = chunkFilePath(
+      chunkRootPathFromStateFile(statePath),
+      dateKey,
+    )
     const chunkStat = await fs.stat(chunkPath).catch(() => undefined)
     assert.equal(chunkStat, undefined)
   })
@@ -142,7 +201,10 @@ describe('storage state persistence', () => {
     assert.equal(loaded.sessionDateMap.s1, undefined)
     assert.equal(loaded.deletedSessionDateMap.s1, undefined)
 
-    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    const chunkPath = chunkFilePath(
+      chunkRootPathFromStateFile(statePath),
+      dateKey,
+    )
     const chunkStat = await fs.stat(chunkPath).catch(() => undefined)
     assert.equal(chunkStat, undefined)
   })
@@ -152,7 +214,10 @@ describe('storage state persistence', () => {
     const statePath = stateFilePath(dir)
     const createdAt = Date.now()
     const dateKey = dateKeyFromTimestamp(createdAt)
-    const chunkPath = chunkFilePath(chunkRootPathFromStateFile(statePath), dateKey)
+    const chunkPath = chunkFilePath(
+      chunkRootPathFromStateFile(statePath),
+      dateKey,
+    )
     await fs.mkdir(path.dirname(chunkPath), { recursive: true })
 
     await fs.writeFile(
@@ -224,8 +289,14 @@ describe('storage state persistence', () => {
       defaultState(),
     )
 
-    assert.deepEqual(scannedA.map((item) => item.sessionID), ['a1'])
-    assert.deepEqual(scannedB.map((item) => item.sessionID), ['b1'])
+    assert.deepEqual(
+      scannedA.map((item) => item.sessionID),
+      ['a1'],
+    )
+    assert.deepEqual(
+      scannedB.map((item) => item.sessionID),
+      ['b1'],
+    )
   })
 
   it('does not discover disk chunks when sessionDateMap exists but is empty', async () => {

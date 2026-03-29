@@ -140,7 +140,7 @@ function truncateToCellWidth(value: string, width: number) {
  * Truncate `value` to at most `width` terminal cells.
  * Keep plain text only (no ANSI) to avoid renderer corruption.
  */
-function fitLine(value: string, width: number) {
+export function fitLine(value: string, width: number) {
   if (width <= 0) return ''
   const safe = sanitizeLine(value)
   if (stringCellWidth(safe) <= width) return safe
@@ -181,6 +181,16 @@ function formatApiCostLine(value: number) {
   return `${formatApiCostValue(value)} as API cost`
 }
 
+function trimTrailingZeroUnit(value: string) {
+  return value
+    .replace(/(\d+)\.0(?=[km]\b)/i, '$1')
+    .replace(/(\d+)\.0(?=$)/, '$1')
+}
+
+function panelNumber(value: number) {
+  return trimTrailingZeroUnit(shortNumber(value, 1))
+}
+
 function formatRequestsLabel(value: number, short = false) {
   const count = shortNumber(value, 1)
   return short ? `Req ${count}` : `Requests ${count}`
@@ -200,13 +210,6 @@ export function resolveTitleView(opts: {
   if (opts.config.sidebar.titleMode === 'compact') return 'compact'
   if (opts.config.sidebar.titleMode === 'multiline') return 'multiline'
   if (isDesktopClient()) return 'compact'
-  if (
-    opts.sessionID &&
-    opts.sessionID === opts.tuiSessionID &&
-    (opts.now ?? Date.now()) - (opts.tuiActiveAt ?? 0) <= TUI_ACTIVE_MS
-  ) {
-    return 'multiline'
-  }
   return 'compact'
 }
 
@@ -460,6 +463,78 @@ function formatPercent(value: number, decimals = 1) {
   return `${pct.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
 }
 
+function fitsLine(value: string, width: number) {
+  return stringCellWidth(sanitizeLine(value)) <= width
+}
+
+function usageDetailLines(
+  usage: UsageSummary,
+  cacheMetrics: ReturnType<typeof getCacheCoverageMetrics>,
+  options: {
+    width: number
+    showCost: boolean
+    numberToken?: (value: number) => string
+    costToken?: (value: number) => string
+    cacheReadFirst?: boolean
+  },
+) {
+  const width = options.width
+  const numberToken = options.numberToken || sidebarNumber
+  const costToken =
+    options.costToken || ((value: number) => `Est${formatApiCostValue(value)}`)
+  const groups: string[][] = []
+
+  groups.push([
+    `R${shortNumber(usage.assistantMessages, 1)}`,
+    `I${numberToken(usage.input)}`,
+    `O${numberToken(usage.output)}`,
+  ])
+
+  const secondary: string[] = []
+  const pushCacheRead = () => {
+    if (usage.cacheRead > 0) {
+      secondary.push(`CR${numberToken(usage.cacheRead)}`)
+    }
+  }
+  const pushCacheWrite = () => {
+    if (usage.cacheWrite > 0) {
+      secondary.push(`CW${numberToken(usage.cacheWrite)}`)
+    }
+  }
+  if (options.cacheReadFirst) {
+    pushCacheRead()
+    pushCacheWrite()
+  } else {
+    pushCacheWrite()
+    pushCacheRead()
+  }
+  if (cacheMetrics.cachedRatio !== undefined) {
+    secondary.push(`Cd${formatPercent(cacheMetrics.cachedRatio, 0)}`)
+  }
+  if (secondary.length > 0) groups.push(secondary)
+
+  if (options.showCost && usage.apiCost > 0) {
+    groups.push([costToken(usage.apiCost)])
+  }
+
+  const packed: string[] = []
+  for (const group of groups) {
+    let current = ''
+    for (const token of group) {
+      const candidate = current ? `${current} ${token}` : token
+      if (!current || fitsLine(candidate, width)) {
+        current = candidate
+        continue
+      }
+      packed.push(current)
+      current = token
+    }
+    if (current) packed.push(current)
+  }
+
+  return packed
+}
+
 function formatQuotaPercent(
   value: number | undefined,
   options?: { decimals?: number; missing?: string; rounded?: boolean },
@@ -655,59 +730,60 @@ export function renderSidebarTitle(
     }
   }
 
-  function fitsLine(value: string, width: number) {
-    return stringCellWidth(sanitizeLine(value)) <= width
-  }
-
-  function usageDetailLines(
-    usage: UsageSummary,
-    cacheMetrics: ReturnType<typeof getCacheCoverageMetrics>,
-    options: { width: number; showCost: boolean },
-  ) {
-    const width = options.width
-    const groups: string[][] = []
-
-    groups.push([
-      `R${shortNumber(usage.assistantMessages, 1)}`,
-      `I${sidebarNumber(usage.input)}`,
-      `O${sidebarNumber(usage.output)}`,
-    ])
-
-    const secondary: string[] = []
-    if (usage.cacheWrite > 0) {
-      secondary.push(`CW${sidebarNumber(usage.cacheWrite)}`)
-    }
-    if (usage.cacheRead > 0) {
-      secondary.push(`CR${sidebarNumber(usage.cacheRead)}`)
-    }
-    if (cacheMetrics.cachedRatio !== undefined) {
-      secondary.push(`Cd${formatPercent(cacheMetrics.cachedRatio, 0)}`)
-    }
-    if (secondary.length > 0) groups.push(secondary)
-
-    if (options.showCost && usage.apiCost > 0) {
-      groups.push([`Est${formatApiCostValue(usage.apiCost)}`])
-    }
-
-    const packed: string[] = []
-    for (const group of groups) {
-      let current = ''
-      for (const token of group) {
-        const candidate = current ? `${current} ${token}` : token
-        if (!current || fitsLine(candidate, width)) {
-          current = candidate
-          continue
-        }
-        packed.push(current)
-        current = token
-      }
-      if (current) packed.push(current)
-    }
-
-    return packed
-  }
-
   return lines.join('\n')
+}
+
+export function renderSidebarContextLine(
+  tokens: number,
+  percent: number | undefined,
+  width: number,
+) {
+  const parts = [`${panelNumber(tokens)} tok`]
+  if (percent !== undefined && Number.isFinite(percent) && percent >= 0) {
+    parts.push(`${Math.round(percent)}% ctx`)
+  }
+  return fitLine(parts.join(' '), width)
+}
+
+export function renderSidebarUsageLines(
+  usage: UsageSummary,
+  config: QuotaSidebarConfig,
+) {
+  const width = Math.max(8, Math.floor(config.sidebar.width || 36))
+  const cacheMetrics = getCacheCoverageMetrics(usage)
+  return usageDetailLines(usage, cacheMetrics, {
+    width,
+    showCost: config.sidebar.showCost,
+    numberToken: panelNumber,
+    costToken: (value) => `Est ${formatApiCostValue(value)}`,
+    cacheReadFirst: true,
+  }).map((line) => fitLine(line, width))
+}
+
+export function renderSidebarQuotaLines(
+  quotas: QuotaSnapshot[],
+  config: QuotaSidebarConfig,
+) {
+  const width = Math.max(8, Math.floor(config.sidebar.width || 36))
+  const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
+    ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
+  )
+  const labelWidth = visibleQuotas.reduce((max, item) => {
+    const label = compactProviderLabel(item)
+    return Math.max(max, stringCellWidth(label))
+  }, 0)
+
+  return visibleQuotas
+    .flatMap((item) =>
+      compactQuotaWide(item, labelWidth, {
+        width,
+        wrapLines: config.sidebar.wrapQuotaLines,
+        forceWrapped: false,
+        compactDetails: true,
+      }),
+    )
+    .filter((line): line is string => Boolean(line))
+    .map((line) => fitLine(line, width))
 }
 
 /**

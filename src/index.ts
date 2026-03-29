@@ -1,5 +1,3 @@
-import path from 'node:path'
-
 import type { Session } from '@opencode-ai/sdk'
 import { type Hooks, type PluginInput } from '@opencode-ai/plugin'
 
@@ -19,7 +17,7 @@ import {
   loadConfig,
   loadState,
   normalizeTimestampMs,
-  resolveOpencodeConfigDir,
+  quotaConfigPaths,
   resolveOpencodeDataDir,
   saveState,
   stateFilePath,
@@ -37,20 +35,15 @@ import { createTitleApplicator } from './title_apply.js'
 import type { SessionState } from './types.js'
 
 const SHUTDOWN_HOOK_KEY = Symbol.for('opencode-quota-sidebar.shutdown-hook')
-const SHUTDOWN_CALLBACKS_KEY = Symbol.for('opencode-quota-sidebar.shutdown-callbacks')
+const SHUTDOWN_CALLBACKS_KEY = Symbol.for(
+  'opencode-quota-sidebar.shutdown-callbacks',
+)
 
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const quotaRuntime = createQuotaRuntime()
-  const configDir = resolveOpencodeConfigDir()
-  const configOverride = process.env.OPENCODE_QUOTA_CONFIG?.trim()
-  const config = await loadConfig([
-    path.join(configDir, 'quota-sidebar.config.json'),
-    path.join(input.worktree, 'quota-sidebar.config.json'),
-    path.join(input.directory, 'quota-sidebar.config.json'),
-    path.join(input.worktree, '.opencode', 'quota-sidebar.config.json'),
-    path.join(input.directory, '.opencode', 'quota-sidebar.config.json'),
-    ...(configOverride ? [path.resolve(configOverride)] : []),
-  ])
+  const config = await loadConfig(
+    quotaConfigPaths(input.worktree, input.directory),
+  )
 
   const dataDir = resolveOpencodeDataDir()
   const statePath = stateFilePath(dataDir)
@@ -291,7 +284,9 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       startupTitleWork,
       new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]).catch(swallow('shutdown:startupTitleWork'))
-    await titleRefresh.waitForQuiescence().catch(swallow('shutdown:titleQuiescence'))
+    await titleRefresh
+      .waitForQuiescence()
+      .catch(swallow('shutdown:titleQuiescence'))
     await flushSave().catch(swallow('shutdown:flushSave'))
   }
 
@@ -299,8 +294,8 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     [SHUTDOWN_HOOK_KEY]?: boolean
     [SHUTDOWN_CALLBACKS_KEY]?: Set<() => Promise<void>>
   }
-  const shutdownCallbacks =
-    (processWithHook[SHUTDOWN_CALLBACKS_KEY] ||= new Set<() => Promise<void>>())
+  const shutdownCallbacks = (processWithHook[SHUTDOWN_CALLBACKS_KEY] ||=
+    new Set<() => Promise<void>>())
   shutdownCallbacks.add(shutdown)
   if (!processWithHook[SHUTDOWN_HOOK_KEY]) {
     processWithHook[SHUTDOWN_HOOK_KEY] = true
@@ -375,15 +370,16 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
           label: item.shortLabel || item.label,
           value: expiryAlertText(item.expiresAt, nowMs),
         }))
-        .filter(
-          (item): item is { label: string; value: string } => Boolean(item.value),
+        .filter((item): item is { label: string; value: string } =>
+          Boolean(item.value),
         )
 
       if (expiryLines.length === 0) return
 
       sessionState.expiryToastShown = true
       const dateKey =
-        state.sessionDateMap[sessionID] || dateKeyFromTimestamp(sessionState.createdAt)
+        state.sessionDateMap[sessionID] ||
+        dateKeyFromTimestamp(sessionState.createdAt)
       state.sessionDateMap[sessionID] = dateKey
       markDirty(dateKey)
       scheduleSave()

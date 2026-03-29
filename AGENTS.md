@@ -10,7 +10,10 @@
 
 ## 1. 项目目的
 
-OpenCode 插件，通过 `@opencode-ai/plugin` API 在 TUI sidebar 的 session title 中显示 token 用量和订阅额度信息。不 fork OpenCode，纯插件实现。
+OpenCode 插件，通过 `@opencode-ai/plugin` API 显示 token 用量和订阅额度信息。不 fork OpenCode，纯插件实现。
+
+- server 目标：维护共享 `session.title`、usage/quota 聚合、tools、toast。
+- tui 目标：在 TUI sidebar 里渲染 `TITLE / CONTEXT / USAGE / QUOTA` 区块，并接管 `sidebar_title`。
 
 目标：
 
@@ -115,13 +118,12 @@ MCP 条目通过 JSX 结构实现两种字体：
 ### 4.1 Sidebar 中的 token 统计
 
 - 使用 `sidebarNumber()`（当前走 `shortNumber(..., 1)`），按数值自动显示 `k/m`
-- `sidebar.titleMode=auto` 时：当前活跃 TUI session 走 **compact multiline**，Desktop 与 Web UI / `serve` 客户端默认走 monitoring-style compact 单行 title；这一策略不再依赖 `sidebar.multilineTitle`
-- auto 模式只依赖三类信号：`OPENCODE_CLIENT=desktop`、`tui.session.select`、以及 `tui.command.execute` / `tui.prompt.append` 的活跃保活；后两者并不携带 client id，也不会单独切换 session owner
-- TUI usage 示例：`R12 I18.9k O53`、`CW300 CR31.4k Cd66%`、`Est$0.12`
+- `sidebar.titleMode=auto` 现在统一保持共享 `session.title` 为 compact 单行；TUI 的详细布局改由 `tui` 插件 slot 渲染，不再依赖“活跃 TUI session multiline title owner”
+- TUI sidebar 结构：`TITLE`（base title）、`CONTEXT`（如 `242k tok 24% ctx`）、`USAGE`（三行以内）、`QUOTA`（provider 分组 + 续行缩进）
+- TUI usage 示例：`R12 I18.9k O53`、`CR31.4k CW300 Cd66%`、`Est $0.12`
 - Compact 单行 title 示例：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
 - Compact 单行模式仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
-- Compact 单行为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；单行模式省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`；multiline 仍保持 usage-first 布局，但每行都优先使用 compact token
-- 当前 auto 模式只追踪一个全局 TUI owner session，并带 `15m` freshness timeout；如果未来 OpenCode 事件名或事件语义变化，必须同步更新 docs + tests
+- Compact 单行为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；单行模式省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`
 - toast 和 markdown report 同样使用 `shortNumber()`
 
 ### 4.2 Cache 显示
@@ -452,9 +454,10 @@ Anthropic 现已通过 `GET https://api.anthropic.com/api/oauth/usage` 接入 OA
 
 ### 9.5 多客户端 title ownership
 
-- 当前实现没有 per-client / per-connection / per-window identity；只有一个全局 `tuiSessionID` 和一个全局 freshness timer。
-- 因此多 TUI 并发时，最近一次 `tui.session.select` 会成为 multiline owner；其他 session 会回落到 compact。
-- Web UI / `serve` 客户端也共享同一个 `session.title`，不能为同一 session 单独渲染另一套 title。
+- 当前实现没有 per-client / per-connection / per-window identity；共享展示仍落在一个 `session.title` 上。
+- `sidebar.titleMode=auto` 现在始终保持共享 title 为 compact 单行，避免 TUI 把 multiline title 回写给 Desktop/Web。
+- TUI 自己的详细布局来自 `tui` plugin slot，因此同一 session 现在允许 “TUI 看 sidebar panel，Desktop/Web 看 compact title”。
+- Web UI / `serve` 客户端仍然共享同一个 compact `session.title`，不会消费 TUI sidebar slot。
 - 需要稳定行为时，优先建议用户显式设置 `sidebar.titleMode=compact` 或 `multiline`。
 
 ---

@@ -7,7 +7,9 @@ import type {
   CachedSessionUsage,
   IncrementalCursor,
   QuotaSidebarState,
+  QuotaSnapshot,
   RecentProviderEvent,
+  SidebarPanelState,
   SessionState,
   SessionTitleState,
 } from './types.js'
@@ -125,6 +127,111 @@ function parseCachedUsage(value: unknown): CachedSessionUsage | undefined {
   }
 }
 
+function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
+  if (!isRecord(value)) return undefined
+
+  const checkedAt = asNumber(value.checkedAt, 0)
+  if (!checkedAt) return undefined
+
+  const status = value.status
+  if (
+    status !== 'ok' &&
+    status !== 'unavailable' &&
+    status !== 'unsupported' &&
+    status !== 'error'
+  ) {
+    return undefined
+  }
+
+  const label = typeof value.label === 'string' ? value.label : ''
+  const adapterID =
+    typeof value.adapterID === 'string' ? value.adapterID : undefined
+  const shortLabel =
+    typeof value.shortLabel === 'string' ? value.shortLabel : undefined
+  const sortOrder =
+    typeof value.sortOrder === 'number' ? value.sortOrder : undefined
+  const balance = isRecord(value.balance)
+    ? {
+        amount:
+          typeof value.balance.amount === 'number' ? value.balance.amount : 0,
+        currency:
+          typeof value.balance.currency === 'string'
+            ? value.balance.currency
+            : '$',
+      }
+    : undefined
+  const windows = Array.isArray(value.windows)
+    ? value.windows
+        .filter((window): window is Record<string, unknown> => isRecord(window))
+        .map((window) => ({
+          label: typeof window.label === 'string' ? window.label : '',
+          showPercent:
+            typeof window.showPercent === 'boolean'
+              ? window.showPercent
+              : undefined,
+          resetLabel:
+            typeof window.resetLabel === 'string'
+              ? window.resetLabel
+              : undefined,
+          note: typeof window.note === 'string' ? window.note : undefined,
+          remainingPercent:
+            typeof window.remainingPercent === 'number'
+              ? window.remainingPercent
+              : undefined,
+          usedPercent:
+            typeof window.usedPercent === 'number'
+              ? window.usedPercent
+              : undefined,
+          resetAt:
+            typeof window.resetAt === 'string' ? window.resetAt : undefined,
+        }))
+        .filter(
+          (window) => window.label || window.remainingPercent !== undefined,
+        )
+    : undefined
+
+  return {
+    providerID: typeof value.providerID === 'string' ? value.providerID : label,
+    adapterID,
+    label,
+    shortLabel,
+    sortOrder,
+    status,
+    checkedAt,
+    remainingPercent:
+      typeof value.remainingPercent === 'number'
+        ? value.remainingPercent
+        : undefined,
+    usedPercent:
+      typeof value.usedPercent === 'number' ? value.usedPercent : undefined,
+    resetAt: typeof value.resetAt === 'string' ? value.resetAt : undefined,
+    expiresAt:
+      typeof value.expiresAt === 'string' ? value.expiresAt : undefined,
+    balance,
+    note: typeof value.note === 'string' ? value.note : undefined,
+    windows,
+  }
+}
+
+function parseQuotaSnapshots(value: unknown): QuotaSnapshot[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const parsed = value
+    .map((item) => parseQuotaSnapshot(item))
+    .filter((item): item is QuotaSnapshot => Boolean(item))
+  return parsed.length > 0 ? parsed : []
+}
+
+function parseSidebarPanel(value: unknown): SidebarPanelState | undefined {
+  if (!isRecord(value)) return undefined
+  const updatedAt = asNumber(value.updatedAt, 0)
+  if (!updatedAt) return undefined
+  return {
+    updatedAt,
+    usage: parseCachedUsage(value.usage),
+    quotas: parseQuotaSnapshots(value.quotas),
+  }
+}
+
 function parseCursor(value: unknown): IncrementalCursor | undefined {
   if (!isRecord(value)) return undefined
   const idsRaw = value.lastMessageIdsAtTime
@@ -160,6 +267,7 @@ export function parseSessionState(value: unknown): SessionState | undefined {
     usage: parseCachedUsage(value.usage),
     dirty: value.dirty === true,
     cursor: parseCursor(value.cursor),
+    sidebarPanel: parseSidebarPanel(value.sidebarPanel),
   }
 }
 
@@ -167,88 +275,9 @@ export function parseQuotaCache(value: unknown) {
   const raw = isRecord(value) ? value : {}
   return Object.entries(raw).reduce<QuotaSidebarState['quotaCache']>(
     (acc, [key, item]) => {
-      if (!isRecord(item)) return acc
-
-      const checkedAt = asNumber(item.checkedAt, 0)
-      if (!checkedAt) return acc
-      const status = item.status
-      if (
-        status !== 'ok' &&
-        status !== 'unavailable' &&
-        status !== 'unsupported' &&
-        status !== 'error'
-      ) {
-        return acc
-      }
-      const label = typeof item.label === 'string' ? item.label : key
-      const adapterID =
-        typeof item.adapterID === 'string' ? item.adapterID : undefined
-      const shortLabel =
-        typeof item.shortLabel === 'string' ? item.shortLabel : undefined
-      const sortOrder =
-        typeof item.sortOrder === 'number' ? item.sortOrder : undefined
-      const balance = isRecord(item.balance)
-        ? {
-            amount:
-              typeof item.balance.amount === 'number' ? item.balance.amount : 0,
-            currency:
-              typeof item.balance.currency === 'string'
-                ? item.balance.currency
-                : '$',
-          }
-        : undefined
-      const windows = Array.isArray(item.windows)
-        ? item.windows
-            .filter((window): window is Record<string, unknown> =>
-              isRecord(window),
-            )
-            .map((window) => ({
-              label: typeof window.label === 'string' ? window.label : '',
-              showPercent:
-                typeof window.showPercent === 'boolean'
-                  ? window.showPercent
-                  : undefined,
-              resetLabel:
-                typeof window.resetLabel === 'string'
-                  ? window.resetLabel
-                  : undefined,
-              note: typeof window.note === 'string' ? window.note : undefined,
-              remainingPercent:
-                typeof window.remainingPercent === 'number'
-                  ? window.remainingPercent
-                  : undefined,
-              usedPercent:
-                typeof window.usedPercent === 'number'
-                  ? window.usedPercent
-                  : undefined,
-              resetAt:
-                typeof window.resetAt === 'string' ? window.resetAt : undefined,
-            }))
-            .filter(
-              (window) => window.label || window.remainingPercent !== undefined,
-            )
-        : undefined
-      acc[key] = {
-        providerID: typeof item.providerID === 'string' ? item.providerID : key,
-        adapterID,
-        label,
-        shortLabel,
-        sortOrder,
-        status,
-        checkedAt,
-        remainingPercent:
-          typeof item.remainingPercent === 'number'
-            ? item.remainingPercent
-            : undefined,
-        usedPercent:
-          typeof item.usedPercent === 'number' ? item.usedPercent : undefined,
-        resetAt: typeof item.resetAt === 'string' ? item.resetAt : undefined,
-        expiresAt:
-          typeof item.expiresAt === 'string' ? item.expiresAt : undefined,
-        balance,
-        note: typeof item.note === 'string' ? item.note : undefined,
-        windows,
-      }
+      const parsed = parseQuotaSnapshot(item)
+      if (!parsed) return acc
+      acc[key] = parsed.label ? parsed : { ...parsed, label: key }
       return acc
     },
     {},

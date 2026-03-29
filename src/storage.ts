@@ -47,6 +47,19 @@ export {
   stateFilePath,
 }
 
+export function quotaConfigPaths(worktree: string, directory: string) {
+  const configDir = resolveOpencodeConfigDir()
+  const configOverride = process.env.OPENCODE_QUOTA_CONFIG?.trim()
+  return [
+    path.join(configDir, 'quota-sidebar.config.json'),
+    path.join(worktree, 'quota-sidebar.config.json'),
+    path.join(directory, 'quota-sidebar.config.json'),
+    path.join(worktree, '.opencode', 'quota-sidebar.config.json'),
+    path.join(directory, '.opencode', 'quota-sidebar.config.json'),
+    ...(configOverride ? [path.resolve(configOverride)] : []),
+  ]
+}
+
 // ─── Default config ──────────────────────────────────────────────────────────
 
 export const defaultConfig: QuotaSidebarConfig = {
