@@ -216,7 +216,7 @@ describe('title apply', () => {
     assert.equal(dirtyKey, dateKey)
   })
 
-  it('uses compact-provider selection when title view is compact', async () => {
+  it('stores all used providers in sidebar panel when title view is compact', async () => {
     const config = makeConfig()
     const state = defaultState()
     state.titleEnabled = true
@@ -232,7 +232,23 @@ describe('title apply', () => {
     }
     state.sessionDateMap[sessionID] = dateKey
 
-    let seen: string[] = []
+    const calls: string[][] = []
+    let renderedQuotaProviderIDs: string[] = []
+
+    const quotas = [
+      {
+        providerID: 'openai',
+        label: 'OpenAI',
+        status: 'ok' as const,
+        checkedAt: createdAt,
+      },
+      {
+        providerID: 'anthropic',
+        label: 'Anthropic',
+        status: 'ok' as const,
+        checkedAt: createdAt,
+      },
+    ]
 
     const applicator = createTitleApplicator({
       state,
@@ -256,11 +272,14 @@ describe('title apply', () => {
       ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
       markDirty: () => {},
       scheduleSave: () => {},
-      renderSidebarTitle: () => 'Session | Cd0%',
+      renderSidebarTitle: (_baseTitle, _usage, nextQuotas) => {
+        renderedQuotaProviderIDs = nextQuotas.map((quota) => quota.providerID)
+        return 'Session | Cd0%'
+      },
       getTitleView: () => 'compact',
       getQuotaSnapshots: async (providerIDs) => {
-        seen = providerIDs
-        return []
+        calls.push([...providerIDs])
+        return quotas.filter((quota) => providerIDs.includes(quota.providerID))
       },
       summarizeSessionUsageForDisplay: async () => makeCompactUsage(),
       scheduleParentRefreshIfSafe: () => {},
@@ -269,7 +288,20 @@ describe('title apply', () => {
 
     await applicator.applyTitle(sessionID)
 
-    assert.deepEqual(seen, ['openai'])
+    assert.deepEqual(calls, [['openai'], ['openai', 'anthropic']])
+    assert.deepEqual(renderedQuotaProviderIDs, ['openai'])
+    assert.deepEqual(
+      state.sessions[sessionID].sidebarPanel?.panelQuotas?.map(
+        (quota) => quota.providerID,
+      ),
+      ['openai', 'anthropic'],
+    )
+    assert.deepEqual(
+      state.sessions[sessionID].sidebarPanel?.quotas?.map(
+        (quota) => quota.providerID,
+      ),
+      ['openai'],
+    )
   })
 
   it('accepts user titles that mention cache coverage as plain text', async () => {

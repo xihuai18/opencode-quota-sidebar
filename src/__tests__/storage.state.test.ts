@@ -128,6 +128,27 @@ describe('storage state persistence', () => {
             ],
           },
         ],
+        panelQuotas: [
+          {
+            providerID: 'openai',
+            adapterID: 'openai',
+            label: 'OpenAI',
+            status: 'ok',
+            checkedAt: createdAt,
+            windows: [
+              { label: '5h', remainingPercent: 80 },
+              { label: 'Weekly', remainingPercent: 70 },
+            ],
+          },
+          {
+            providerID: 'anthropic',
+            adapterID: 'anthropic',
+            label: 'Anthropic',
+            status: 'ok',
+            checkedAt: createdAt,
+            windows: [{ label: '1d', remainingPercent: 64 }],
+          },
+        ],
       },
     }
     state.sessionDateMap.s1 = dateKey
@@ -137,9 +158,14 @@ describe('storage state persistence', () => {
 
     assert.equal(loaded.sessions.s1?.sidebarPanel?.usage?.input, 189_000)
     assert.equal(loaded.sessions.s1?.sidebarPanel?.quotas?.length, 1)
+    assert.equal(loaded.sessions.s1?.sidebarPanel?.panelQuotas?.length, 2)
     assert.equal(
       loaded.sessions.s1?.sidebarPanel?.quotas?.[0]?.providerID,
       'openai',
+    )
+    assert.equal(
+      loaded.sessions.s1?.sidebarPanel?.panelQuotas?.[1]?.providerID,
+      'anthropic',
     )
     assert.equal(
       loaded.sessions.s1?.sidebarPanel?.quotas?.[0]?.windows?.[1]?.label,
@@ -258,6 +284,20 @@ describe('storage state persistence', () => {
                     checkedAt: createdAt + 1000,
                   },
                 ],
+                panelQuotas: [
+                  {
+                    providerID: 'openai',
+                    label: 'OpenAI',
+                    status: 'ok',
+                    checkedAt: createdAt + 1000,
+                  },
+                  {
+                    providerID: 'anthropic',
+                    label: 'Anthropic',
+                    status: 'ok',
+                    checkedAt: createdAt + 1000,
+                  },
+                ],
               },
             },
           },
@@ -273,6 +313,10 @@ describe('storage state persistence', () => {
     assert.equal(
       second.sessions.s1?.sidebarPanel?.quotas?.[0]?.providerID,
       'openai',
+    )
+    assert.equal(
+      second.sessions.s1?.sidebarPanel?.panelQuotas?.[1]?.providerID,
+      'anthropic',
     )
   })
 

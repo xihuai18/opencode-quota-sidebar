@@ -75,6 +75,15 @@ export function createTitleApplicator(deps: {
       windows: quota.windows?.map((win) => ({ ...win })),
     }))
 
+  const sameProviderIDs = (left: string[], right: string[]) => {
+    if (left.length !== right.length) return false
+    const rightSet = new Set(right)
+    for (const value of left) {
+      if (!rightSet.has(value)) return false
+    }
+    return true
+  }
+
   const applyTitle = async (sessionID: string) => {
     if (!deps.config.sidebar.enabled) return false
 
@@ -159,11 +168,14 @@ export function createTitleApplicator(deps: {
     const view =
       deps.getTitleView?.(sessionID) ??
       resolveTitleView({ config: deps.config })
-    const quotaProviders = Array.from(
+    const panelQuotaProviders: string[] = Array.from(
+      new Set(Object.keys(usage.providers)),
+    )
+    const quotaProviders: string[] = Array.from(
       new Set(
         view === 'compact'
           ? selectDesktopCompactProviderIDs(usage, deps.config)
-          : Object.keys(usage.providers),
+          : panelQuotaProviders,
       ),
     )
 
@@ -171,11 +183,18 @@ export function createTitleApplicator(deps: {
       deps.config.sidebar.showQuota && quotaProviders.length > 0
         ? await deps.getQuotaSnapshots(quotaProviders)
         : ([] as QuotaSnapshot[])
+    const panelQuotas =
+      deps.config.sidebar.showQuota && panelQuotaProviders.length > 0
+        ? sameProviderIDs(quotaProviders, panelQuotaProviders)
+          ? quotas
+          : await deps.getQuotaSnapshots(panelQuotaProviders)
+        : ([] as QuotaSnapshot[])
 
     sessionState.sidebarPanel = {
       version: 1,
       updatedAt: Date.now(),
       usage: toCachedSessionUsage(usage),
+      panelQuotas: cloneQuotas(collapseQuotaSnapshots(panelQuotas)),
       quotas: cloneQuotas(collapseQuotaSnapshots(quotas)),
     }
     stateMutated = true

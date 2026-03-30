@@ -13,6 +13,7 @@ import {
   quotaGroupsSummary,
   quotaGroupsUseBullets,
   renderSidebarQuotaGroups,
+  sidebarPanelQuotaSnapshots,
   type SidebarQuotaGroup,
 } from './tui_helpers.js'
 import {
@@ -109,7 +110,7 @@ async function loadSidebarPanel(
     ? renderSidebarUsageLines(usage, panelConfig(config))
     : []
   const quotaGroups = renderSidebarQuotaGroups(
-    session?.sidebarPanel?.quotas || [],
+    sidebarPanelQuotaSnapshots(session?.sidebarPanel),
     panelConfig(config),
   )
 

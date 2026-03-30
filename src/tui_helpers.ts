@@ -1,6 +1,10 @@
 import { fitLine, renderSidebarQuotaLineGroups } from './format.js'
 import { collapseQuotaSnapshots } from './quota_render.js'
-import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
+import type {
+  QuotaSidebarConfig,
+  QuotaSnapshot,
+  SidebarPanelState,
+} from './types.js'
 
 const VISIBLE_QUOTA_STATUSES = new Set<QuotaSnapshot['status']>([
   'ok',
@@ -125,6 +129,10 @@ export function renderSidebarQuotaGroups(
       continuationLines: parsed.continuationLines,
     }
   })
+}
+
+export function sidebarPanelQuotaSnapshots(panel?: SidebarPanelState) {
+  return panel?.panelQuotas || panel?.quotas || []
 }
 
 export function fallbackQuotaGroupsFromTitle(title: string, width: number) {

@@ -126,6 +126,8 @@ export type SidebarPanelState = {
   version: 1
   updatedAt: number
   usage?: CachedSessionUsage
+  /** Full TUI sidebar provider list for this session. */
+  panelQuotas?: QuotaSnapshot[]
   quotas?: QuotaSnapshot[]
 }
 

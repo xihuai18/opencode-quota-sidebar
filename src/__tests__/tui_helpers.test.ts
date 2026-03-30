@@ -7,6 +7,7 @@ import {
   quotaGroupsSummary,
   quotaGroupsUseBullets,
   renderSidebarQuotaGroups,
+  sidebarPanelQuotaSnapshots,
 } from '../tui_helpers.js'
 import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
 
@@ -248,5 +249,53 @@ describe('tui quota helpers', () => {
     )
 
     assert.equal(groups[0]?.tone, 'error')
+  })
+
+  it('prefers panelQuotas over legacy sidebarPanel quotas', () => {
+    const quotas = sidebarPanelQuotaSnapshots({
+      version: 1,
+      updatedAt: Date.now(),
+      quotas: [
+        {
+          providerID: 'openai',
+          label: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+        },
+      ],
+      panelQuotas: [
+        {
+          providerID: 'anthropic',
+          label: 'Anthropic',
+          status: 'ok',
+          checkedAt: Date.now(),
+        },
+      ],
+    })
+
+    assert.deepEqual(
+      quotas.map((quota) => quota.providerID),
+      ['anthropic'],
+    )
+  })
+
+  it('falls back to legacy sidebarPanel quotas when panelQuotas are missing', () => {
+    const quotas = sidebarPanelQuotaSnapshots({
+      version: 1,
+      updatedAt: Date.now(),
+      quotas: [
+        {
+          providerID: 'openai',
+          label: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+        },
+      ],
+    })
+
+    assert.deepEqual(
+      quotas.map((quota) => quota.providerID),
+      ['openai'],
+    )
   })
 })

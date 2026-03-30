@@ -231,6 +231,7 @@ function parseSidebarPanel(value: unknown): SidebarPanelState | undefined {
     version: 1,
     updatedAt,
     usage: parseCachedUsage(value.usage),
+    panelQuotas: parseQuotaSnapshots(value.panelQuotas),
     quotas: parseQuotaSnapshots(value.quotas),
   }
 }
