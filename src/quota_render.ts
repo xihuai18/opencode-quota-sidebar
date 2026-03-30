@@ -1,84 +1,88 @@
-import type { QuotaSnapshot } from './types.js'
+import type { QuotaSnapshot } from "./types.js";
 
 const PROVIDER_SHORT_LABELS: Record<string, string> = {
-  openai: 'OpenAI',
-  'kimi-for-coding': 'Kimi',
-  'zhipuai-coding-plan': 'Zhipu',
-  'github-copilot': 'Copilot',
-  anthropic: 'Anthropic',
-  rightcode: 'RC',
-}
+  openai: "OpenAI",
+  "kimi-for-coding": "Kimi",
+  "zhipuai-coding-plan": "Zhipu",
+  "minimax-cn-coding-plan": "MiniMax",
+  "github-copilot": "Copilot",
+  anthropic: "Anthropic",
+  rightcode: "RC",
+  xyai: "XYAI",
+};
 
 export function canonicalProviderID(providerID: string) {
-  if (providerID.startsWith('github-copilot')) return 'github-copilot'
-  if (providerID === 'zhipuai-coding-plan') return 'zhipuai-coding-plan'
-  return providerID
+  if (providerID.startsWith("github-copilot")) return "github-copilot";
+  if (providerID === "zhipuai-coding-plan") return "zhipuai-coding-plan";
+  if (providerID === "minimax-cn-coding-plan") return "minimax-cn-coding-plan";
+  if (providerID === "xyai-vibe") return "xyai";
+  return providerID;
 }
 
 export function displayShortLabel(providerID: string) {
-  const canonical = canonicalProviderID(providerID)
-  const direct = PROVIDER_SHORT_LABELS[canonical]
-  if (direct) return direct
-  if (canonical.startsWith('rightcode-')) {
-    return `RC-${canonical.slice('rightcode-'.length)}`
+  const canonical = canonicalProviderID(providerID);
+  const direct = PROVIDER_SHORT_LABELS[canonical];
+  if (direct) return direct;
+  if (canonical.startsWith("rightcode-")) {
+    return `RC-${canonical.slice("rightcode-".length)}`;
   }
-  return providerID
+  return providerID;
 }
 
 export function quotaDisplayLabel(quota: QuotaSnapshot) {
-  if (quota.shortLabel) return quota.shortLabel
+  if (quota.shortLabel) return quota.shortLabel;
   if (quota.adapterID) {
-    const adapterLabel = displayShortLabel(quota.adapterID)
-    if (adapterLabel !== quota.adapterID) return adapterLabel
+    const adapterLabel = displayShortLabel(quota.adapterID);
+    if (adapterLabel !== quota.adapterID) return adapterLabel;
   }
-  return displayShortLabel(quota.providerID)
+  return displayShortLabel(quota.providerID);
 }
 
 function quotaKey(quota: QuotaSnapshot) {
-  if (quota.adapterID === 'rightcode') return `rightcode:${quota.providerID}`
-  return `${quota.adapterID || quota.providerID}:${quota.providerID}`
+  if (quota.adapterID === "rightcode") return `rightcode:${quota.providerID}`;
+  return `${quota.adapterID || quota.providerID}:${quota.providerID}`;
 }
 
 function quotaScore(quota: QuotaSnapshot) {
-  let score = 0
-  if (quota.status === 'ok') score += 10
+  let score = 0;
+  if (quota.status === "ok") score += 10;
   if (quota.windows && quota.windows.length > 0) {
-    score += 5 + quota.windows.length
+    score += 5 + quota.windows.length;
   }
-  if (quota.balance) score += 3
-  if (quota.remainingPercent !== undefined) score += 1
-  return score
+  if (quota.balance) score += 3;
+  if (quota.remainingPercent !== undefined) score += 1;
+  return score;
 }
 
 export function collapseQuotaSnapshots(quotas: QuotaSnapshot[]) {
-  const grouped = new Map<string, QuotaSnapshot>()
+  const grouped = new Map<string, QuotaSnapshot>();
   const hasRightCodeBase = quotas.some(
     (quota) =>
-      quota.adapterID === 'rightcode' && quotaDisplayLabel(quota) === 'RC',
-  )
+      quota.adapterID === "rightcode" && quotaDisplayLabel(quota) === "RC",
+  );
 
   for (const quota of quotas) {
     // If both RC (balance) and RC-variant (subscription) exist,
     // treat balance as owned by RC.
     const normalizedQuota =
       hasRightCodeBase &&
-      quota.adapterID === 'rightcode' &&
-      quotaDisplayLabel(quota).startsWith('RC-')
+      quota.adapterID === "rightcode" &&
+      quotaDisplayLabel(quota).startsWith("RC-")
         ? { ...quota, balance: undefined }
-        : quota
+        : quota;
 
-    const key = quotaKey(normalizedQuota)
-    const existing = grouped.get(key)
+    const key = quotaKey(normalizedQuota);
+    const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, normalizedQuota)
-      continue
+      grouped.set(key, normalizedQuota);
+      continue;
     }
 
     const primary =
       quotaScore(normalizedQuota) >= quotaScore(existing)
         ? normalizedQuota
-        : existing
-    const secondary = primary === normalizedQuota ? existing : normalizedQuota
+        : existing;
+    const secondary = primary === normalizedQuota ? existing : normalizedQuota;
 
     grouped.set(key, {
       ...primary,
@@ -93,8 +97,8 @@ export function collapseQuotaSnapshots(quotas: QuotaSnapshot[]) {
           : secondary.remainingPercent,
       resetAt: primary.resetAt || secondary.resetAt,
       note: primary.note || secondary.note,
-    })
+    });
   }
 
-  return [...grouped.values()]
+  return [...grouped.values()];
 }

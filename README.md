@@ -68,15 +68,17 @@ On Windows, use forward slashes, for example:
 
 ## Supported quota providers
 
-| Provider        | Endpoint                               | Auth                  | Status                                  |
-| --------------- | -------------------------------------- | --------------------- | --------------------------------------- |
-| OpenAI Codex    | `chatgpt.com/backend-api/wham/usage`   | OAuth (ChatGPT)       | Multi-window (short-term + weekly)      |
-| GitHub Copilot  | `api.github.com/copilot_internal/user` | OAuth                 | Monthly quota                           |
-| Kimi For Coding | `api.kimi.com/coding/v1/usages`        | API key               | Multi-window subscription (5h + weekly) |
-| RightCode       | `www.right.codes/account/summary`      | API key               | Subscription or balance (by prefix)     |
-| Buzz            | `buzzai.cc/v1/dashboard/billing/*`     | API key               | Balance only (computed from total-used) |
-| Anthropic       | `api.anthropic.com/api/oauth/usage`    | OAuth                 | Multi-window (5h + weekly / plan-based) |
-| XYAI Vibe       | `new.xychatai.com/frontend-api/*`      | Login -> session auth | Daily balance quota with reset time     |
+| Provider            | Endpoint                                                   | Auth                  | Status                                  |
+| ------------------- | ---------------------------------------------------------- | --------------------- | --------------------------------------- |
+| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth (ChatGPT)       | Multi-window (short-term + weekly)      |
+| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth                 | Monthly quota                           |
+| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key               | Multi-window subscription (5h + weekly) |
+| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key               | 5h coding-plan quota                    |
+| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key               | Multi-window subscription (5h + weekly) |
+| RightCode           | `www.right.codes/account/summary`                          | API key               | Subscription or balance (by prefix)     |
+| Buzz                | `buzzai.cc/v1/dashboard/billing/*`                         | API key               | Balance only (computed from total-used) |
+| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth                 | Multi-window (5h + weekly / plan-based) |
+| XYAI                | `new.xychatai.com/frontend-api/*`                          | Login -> session auth | Daily balance quota with reset time     |
 
 Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware AI, etc.)? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -105,12 +107,14 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
   - OpenAI Codex OAuth (`/backend-api/wham/usage`)
   - GitHub Copilot OAuth (`/copilot_internal/user`)
   - Kimi For Coding API key (`/usages`, built-in `kimi-for-coding` provider)
+  - Zhipu Coding Plan API key (`/api/monitor/usage/quota/limit`)
+  - MiniMax Coding Plan API key (`/v1/api/openplatform/coding_plan/remains`)
   - RightCode API key (`/account/summary`)
   - Buzz API key (`/v1/dashboard/billing/subscription` + `/v1/dashboard/billing/usage`)
   - Anthropic Claude OAuth (`/api/oauth/usage`, with beta header)
-  - XYAI Vibe account login (`/frontend-api/login` -> cached `share-session` -> `/frontend-api/vibe-code/quota`)
+  - XYAI account login (`/frontend-api/login` -> cached `share-session` -> `/frontend-api/vibe-code/quota`)
 - OpenAI OAuth quota checks auto-refresh expired access token (using refresh token)
-- Generic API key providers without quota endpoints still show usage aggregation only; built-in adapters such as Kimi For Coding, RightCode, Buzz, and XYAI Vibe also show quota or balance details.
+- Generic API key providers without quota endpoints still show usage aggregation only; built-in adapters such as Kimi For Coding, Zhipu Coding Plan, MiniMax Coding Plan, RightCode, Buzz, and XYAI also show quota or balance details.
 - Incremental usage aggregation — only processes new messages since last cursor
 - Sidebar token units are adaptive (`k`/`m` with one decimal where applicable)
 
@@ -122,9 +126,9 @@ Want to add support for another provider (Google Antigravity, Zhipu AI, Firmware
 - The current implementation maps the short rolling window in `limits[]` to `5h` and the top-level `usage` block to `Weekly`.
 - Rendering follows the same compact reset formatting as OpenAI: short windows show `Rst MM-DD HH:MM` when they cross days, and longer windows show `Rst MM-DD`.
 
-### XYAI Vibe notes
+### XYAI notes
 
-- Enable it explicitly under `quota.providers.xyai-vibe.enabled`; it is not enabled by default.
+- Enable it explicitly under `quota.providers.xyai.enabled`; it is not enabled by default. The old `xyai-vibe` key is still accepted for compatibility.
 - Configure login credentials in `quota-sidebar.config.json`, not in source code.
 - The adapter logs in via `POST https://new.xychatai.com/frontend-api/login`, caches the returned `share-session`, and retries quota fetches with that session.
 - Quota data is read from `GET https://new.xychatai.com/frontend-api/vibe-code/quota`.
@@ -293,7 +297,7 @@ Quota defaults:
 - `quota.includeOpenAI`: `true`
 - `quota.includeCopilot`: `true`
 - `quota.includeAnthropic`: `true`
-- `quota.providers`: `{}` (per-adapter switches and adapter-specific config, for example `rightcode.enabled` or `xyai-vibe.login.username/password`)
+- `quota.providers`: `{}` (per-adapter switches and adapter-specific config, for example `rightcode.enabled` or `xyai.login.username/password`)
 - `quota.refreshAccessToken`: `false`
 - `quota.requestTimeoutMs`: `8000` (clamped to `>=1000`)
 
@@ -362,13 +366,13 @@ Keep the shared title compact and let TUI render the structured panel:
 }
 ```
 
-Enable XYAI Vibe quota with account login:
+Enable XYAI quota with account login:
 
 ```json
 {
   "quota": {
     "providers": {
-      "xyai-vibe": {
+      "xyai": {
         "enabled": true,
         "login": {
           "username": "your-account",
@@ -398,7 +402,9 @@ Enable XYAI Vibe quota with account login:
 - `sidebar.desktopCompact.recentRequests` and `sidebar.desktopCompact.recentMinutes` only control provider filtering inside compact titles; they do not affect the dedicated TUI sidebar panel.
 - `output` includes reasoning tokens (`output = tokens.output + tokens.reasoning`). Reasoning is not rendered as a separate line.
 - API cost bills reasoning tokens at the output rate (same as completion tokens).
-- API cost is computed from OpenCode model pricing metadata, not from `message.cost`. This keeps subscription-backed providers such as OpenAI OAuth usable for API-equivalent cost estimation even when OpenCode's measured cost is `0`.
+- API cost is the API-equivalent spend for the same model usage under a subscription-backed provider, not the subscription fee itself.
+- The plugin uses OpenCode's provider metadata first for model pricing. OpenCode serves that metadata from `models.dev` via its `provider.list` route, and the plugin falls back to a bundled reference pricing table only when OpenCode returns no usable rates. That bundled table prefers official docs, but may mirror OpenCode's own `models.dev` source when that is the shared authoritative baseline for a provider.
+- Today API-equivalent cost is expected to work for OpenAI, Anthropic, Kimi, Zhipu, and MiniMax. Copilot is still excluded because its pricing metadata is not stable enough.
 - When OpenCode exposes a long-context tier like `context_over_200k`, the plugin uses that premium rate for the whole request once `input > 200000`, matching OpenCode's current pricing schema.
 - `quota.providers` is the extensible per-adapter switch map.
 - If API Cost is `$0.00`, it usually means the model/provider has no pricing mapping in OpenCode at the moment, so equivalent API cost cannot be estimated.
@@ -597,9 +603,12 @@ Set `OPENCODE_QUOTA_DEBUG=1` to enable debug logging to stderr. This logs:
   - OpenAI Codex: `https://chatgpt.com/backend-api/wham/usage`
   - GitHub Copilot: `https://api.github.com/copilot_internal/user`
   - Kimi For Coding: `https://api.kimi.com/coding/v1/usages`
+  - Zhipu Coding Plan: `https://bigmodel.cn/api/monitor/usage/quota/limit`
+  - MiniMax Coding Plan: `https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains`
   - RightCode: `https://www.right.codes/account/summary`
   - Buzz: `https://buzzai.cc/v1/dashboard/billing/subscription` and `https://buzzai.cc/v1/dashboard/billing/usage`
   - Anthropic: `https://api.anthropic.com/api/oauth/usage`
+  - XYAI: `https://new.xychatai.com/frontend-api/login` and `https://new.xychatai.com/frontend-api/vibe-code/quota`
 - **Screen-sharing warning**: Session titles and toasts surface usage/quota
   information. If you are screen-sharing or recording, consider toggling the
   sidebar display off (`/qtoggle` or `quota_show` tool) to avoid leaking

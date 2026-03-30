@@ -1,60 +1,41 @@
-import { isRecord, swallow } from '../../helpers.js'
-import type { QuotaSnapshot } from '../../types.js'
+import { isRecord, swallow } from "../../helpers.js";
+import type { QuotaSnapshot } from "../../types.js";
 import {
   asNumber,
   configuredProviderEnabled,
   fetchWithTimeout,
+  resolveApiKey,
   sanitizeBaseURL,
   toIso,
-} from '../common.js'
+} from "../common.js";
 import type {
   AuthValue,
   QuotaFetchContext,
   QuotaProviderAdapter,
-} from '../types.js'
+} from "../types.js";
 
 function isBuzzBaseURL(value: unknown) {
-  const normalized = sanitizeBaseURL(value)
-  if (!normalized) return false
+  const normalized = sanitizeBaseURL(value);
+  if (!normalized) return false;
   try {
-    const parsed = new URL(normalized)
-    if (parsed.protocol !== 'https:') return false
-    return parsed.host === 'buzzai.cc' || parsed.host === 'www.buzzai.cc'
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:") return false;
+    return parsed.host === "buzzai.cc" || parsed.host === "www.buzzai.cc";
   } catch {
-    return false
+    return false;
   }
-}
-
-function resolveApiKey(
-  auth: AuthValue | undefined,
-  providerOptions: Record<string, unknown> | undefined,
-) {
-  const optionKey = providerOptions?.apiKey
-  if (typeof optionKey === 'string' && optionKey) return optionKey
-  if (!auth) return undefined
-  if (auth.type === 'api' && typeof auth.key === 'string' && auth.key) {
-    return auth.key
-  }
-  if (auth.type === 'wellknown') {
-    if (typeof auth.key === 'string' && auth.key) return auth.key
-    if (typeof auth.token === 'string' && auth.token) return auth.token
-  }
-  if (auth.type === 'oauth' && typeof auth.access === 'string' && auth.access) {
-    return auth.access
-  }
-  return undefined
 }
 
 function dashboardUrl(baseURL: unknown, pathname: string) {
-  const normalized = sanitizeBaseURL(baseURL)
+  const normalized = sanitizeBaseURL(baseURL);
   if (normalized) {
     try {
-      return new URL(pathname, normalized).toString()
+      return new URL(pathname, normalized).toString();
     } catch {
       // Fall through to the stable default host below.
     }
   }
-  return `https://buzzai.cc${pathname}`
+  return `https://buzzai.cc${pathname}`;
 }
 
 async function fetchBuzzQuota({
@@ -64,70 +45,70 @@ async function fetchBuzzQuota({
   auth,
   config,
 }: QuotaFetchContext): Promise<QuotaSnapshot> {
-  const checkedAt = Date.now()
+  const checkedAt = Date.now();
   const runtimeProviderID =
-    typeof sourceProviderID === 'string' && sourceProviderID
+    typeof sourceProviderID === "string" && sourceProviderID
       ? sourceProviderID
-      : providerID
+      : providerID;
 
   const base: Pick<
     QuotaSnapshot,
-    'providerID' | 'adapterID' | 'label' | 'shortLabel' | 'sortOrder'
+    "providerID" | "adapterID" | "label" | "shortLabel" | "sortOrder"
   > = {
     providerID: runtimeProviderID,
-    adapterID: 'buzz',
-    label: 'Buzz',
-    shortLabel: 'Buzz',
+    adapterID: "buzz",
+    label: "Buzz",
+    shortLabel: "Buzz",
     sortOrder: 6,
-  }
+  };
 
-  const apiKey = resolveApiKey(auth, providerOptions)
+  const apiKey = resolveApiKey(auth, providerOptions);
   if (!apiKey) {
     return {
       ...base,
-      status: 'unavailable',
+      status: "unavailable",
       checkedAt,
-      note: 'missing api key',
-    }
+      note: "missing api key",
+    };
   }
 
   const subscriptionEndpoint = dashboardUrl(
     providerOptions?.baseURL,
-    '/v1/dashboard/billing/subscription',
-  )
+    "/v1/dashboard/billing/subscription",
+  );
   const usageEndpoint = dashboardUrl(
     providerOptions?.baseURL,
-    '/v1/dashboard/billing/usage',
-  )
+    "/v1/dashboard/billing/usage",
+  );
 
   const requestInit = {
     headers: {
-      Accept: 'application/json',
+      Accept: "application/json",
       Authorization: `Bearer ${apiKey}`,
-      'User-Agent': 'opencode-quota-sidebar',
+      "User-Agent": "opencode-quota-sidebar",
     },
-  }
+  };
 
   const [subscriptionResponse, usageResponse] = await Promise.all([
     fetchWithTimeout(
       subscriptionEndpoint,
       requestInit,
       config.quota.requestTimeoutMs,
-    ).catch(swallow('fetchBuzzQuota:subscription')),
+    ).catch(swallow("fetchBuzzQuota:subscription")),
     fetchWithTimeout(
       usageEndpoint,
       requestInit,
       config.quota.requestTimeoutMs,
-    ).catch(swallow('fetchBuzzQuota:usage')),
-  ])
+    ).catch(swallow("fetchBuzzQuota:usage")),
+  ]);
 
   if (!subscriptionResponse || !usageResponse) {
     return {
       ...base,
-      status: 'error',
+      status: "error",
       checkedAt,
-      note: 'network request failed',
-    }
+      note: "network request failed",
+    };
   }
 
   if (!subscriptionResponse.ok || !usageResponse.ok) {
@@ -138,70 +119,70 @@ async function fetchBuzzQuota({
       !usageResponse.ok ? `usage http ${usageResponse.status}` : undefined,
     ]
       .filter((value): value is string => Boolean(value))
-      .join(', ')
+      .join(", ");
 
     return {
       ...base,
-      status: 'error',
+      status: "error",
       checkedAt,
       note,
-    }
+    };
   }
 
   const [subscriptionPayload, usagePayload] = await Promise.all([
     subscriptionResponse
       .json()
-      .catch(swallow('fetchBuzzQuota:subscriptionJson')),
-    usageResponse.json().catch(swallow('fetchBuzzQuota:usageJson')),
-  ])
+      .catch(swallow("fetchBuzzQuota:subscriptionJson")),
+    usageResponse.json().catch(swallow("fetchBuzzQuota:usageJson")),
+  ]);
 
   if (!isRecord(subscriptionPayload) || !isRecord(usagePayload)) {
     return {
       ...base,
-      status: 'error',
+      status: "error",
       checkedAt,
-      note: 'invalid response',
-    }
+      note: "invalid response",
+    };
   }
 
-  const totalQuota = asNumber(subscriptionPayload.soft_limit_usd)
-  const totalUsage = asNumber(usagePayload.total_usage)
+  const totalQuota = asNumber(subscriptionPayload.soft_limit_usd);
+  const totalUsage = asNumber(usagePayload.total_usage);
   if (totalQuota === undefined || totalUsage === undefined) {
     return {
       ...base,
-      status: 'error',
+      status: "error",
       checkedAt,
-      note: 'missing billing fields',
-    }
+      note: "missing billing fields",
+    };
   }
 
-  const accessUntil = asNumber(subscriptionPayload.access_until)
+  const accessUntil = asNumber(subscriptionPayload.access_until);
   const resetAt =
     accessUntil !== undefined && accessUntil > 0
       ? toIso(accessUntil)
-      : undefined
-  const balance = totalQuota - totalUsage / 100
+      : undefined;
+  const balance = totalQuota - totalUsage / 100;
 
   return {
     ...base,
-    status: 'ok',
+    status: "ok",
     checkedAt,
     resetAt,
     balance: {
       amount: balance,
-      currency: '￥',
+      currency: "$",
     },
-    note: 'remaining balance = soft_limit_usd - total_usage / 100',
-  }
+    note: "remaining balance = soft_limit_usd - total_usage / 100",
+  };
 }
 
 export const buzzAdapter: QuotaProviderAdapter = {
-  id: 'buzz',
-  label: 'Buzz',
-  shortLabel: 'Buzz',
+  id: "buzz",
+  label: "Buzz",
+  shortLabel: "Buzz",
   sortOrder: 6,
   matchScore: ({ providerOptions }) =>
     isBuzzBaseURL(providerOptions?.baseURL) ? 100 : 0,
-  isEnabled: (config) => configuredProviderEnabled(config.quota, 'buzz', true),
+  isEnabled: (config) => configuredProviderEnabled(config.quota, "buzz", true),
   fetch: fetchBuzzQuota,
-}
+};
