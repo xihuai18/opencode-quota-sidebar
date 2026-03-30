@@ -1,48 +1,48 @@
-import { asNumber as asNumberShared, isRecord } from '../helpers.js'
+import { asNumber as asNumberShared, isRecord } from "../helpers.js";
 
 // Public OAuth client ID embedded in the ChatGPT web app (not a private secret).
 // Source: https://github.com/vbgate/opencode-mystatus (reverse-engineered from browser client).
 // If OpenAI rotates this value, update it here or expose it via quota-sidebar.config.json.
-export const OPENAI_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
+export const OPENAI_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 export async function fetchWithTimeout(
   url: string,
   init: RequestInit | undefined,
   timeoutMs: number,
 ) {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal })
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
   }
 }
 
 export function asNumber(value: unknown) {
-  return asNumberShared(value)
+  return asNumberShared(value);
 }
 
 export function normalizePercent(value: unknown) {
-  const numeric = asNumber(value)
-  if (numeric === undefined) return undefined
-  const expanded = numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric
-  if (Number.isNaN(expanded)) return undefined
-  if (expanded < 0) return 0
-  if (expanded > 100) return 100
-  return expanded
+  const numeric = asNumber(value);
+  if (numeric === undefined) return undefined;
+  const expanded = numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric;
+  if (Number.isNaN(expanded)) return undefined;
+  if (expanded < 0) return 0;
+  if (expanded > 100) return 100;
+  return expanded;
 }
 
 export function toIso(value: unknown) {
-  if (typeof value === 'string') {
-    const time = Date.parse(value)
-    if (!Number.isNaN(time)) return new Date(time).toISOString()
-    return value
+  if (typeof value === "string") {
+    const time = Date.parse(value);
+    if (!Number.isNaN(time)) return new Date(time).toISOString();
+    return value;
   }
-  const number = asNumber(value)
-  if (number === undefined) return undefined
-  const milliseconds = number > 10_000_000_000 ? number : number * 1000
-  return new Date(milliseconds).toISOString()
+  const number = asNumber(value);
+  if (number === undefined) return undefined;
+  const milliseconds = number > 10_000_000_000 ? number : number * 1000;
+  return new Date(milliseconds).toISOString();
 }
 
 /**
@@ -51,75 +51,104 @@ export function toIso(value: unknown) {
  */
 export function windowLabel(
   win: Record<string, unknown>,
-  fallback = '',
+  fallback = "",
 ): string {
-  const limitSec = asNumber(win.limit_window_seconds)
+  const limitSec = asNumber(win.limit_window_seconds);
   if (limitSec !== undefined && limitSec > 0) {
-    const hours = limitSec / 3600
-    if (hours <= 24) return `${Math.round(hours)}h`
-    const days = hours / 24
-    if (days <= 6) return `${Math.round(days)}d`
-    return 'Weekly'
+    const hours = limitSec / 3600;
+    if (hours <= 24) return `${Math.round(hours)}h`;
+    const days = hours / 24;
+    if (days <= 6) return `${Math.round(days)}d`;
+    return "Weekly";
   }
 
-  return fallback || 'Window'
+  return fallback || "Window";
 }
 
 export function parseRateLimitWindow(
   win: Record<string, unknown>,
   fallbackLabel: string,
 ) {
-  const usedPercent = normalizePercent(win.used_percent)
+  const usedPercent = normalizePercent(win.used_percent);
   const remainingPercent =
     normalizePercent(win.remaining_percent) ??
-    (usedPercent === undefined ? undefined : 100 - usedPercent)
-  if (remainingPercent === undefined) return undefined
+    (usedPercent === undefined ? undefined : 100 - usedPercent);
+  if (remainingPercent === undefined) return undefined;
   return {
     label: windowLabel(win, fallbackLabel),
     remainingPercent,
     usedPercent,
     resetAt: toIso(win.reset_at),
-  }
+  };
 }
 
 export function asRecord(value: unknown) {
-  return isRecord(value) ? value : undefined
+  return isRecord(value) ? value : undefined;
 }
 
 export function configuredProviderEnabled(
-  config: { providers?: Record<string, { enabled?: boolean; [key: string]: unknown }> },
+  config: {
+    providers?: Record<string, { enabled?: boolean; [key: string]: unknown }>;
+  },
   adapterID: string,
   fallback = true,
 ) {
-  const enabled = config.providers?.[adapterID]?.enabled
-  if (typeof enabled === 'boolean') return enabled
-  return fallback
+  const enabled = config.providers?.[adapterID]?.enabled;
+  if (typeof enabled === "boolean") return enabled;
+  return fallback;
+}
+
+export function resolveApiKey(
+  auth:
+    | {
+        type: "oauth" | "api" | "wellknown";
+        access?: string;
+        key?: string;
+        token?: string;
+      }
+    | undefined,
+  providerOptions: Record<string, unknown> | undefined,
+) {
+  const optionKey = providerOptions?.apiKey;
+  if (typeof optionKey === "string" && optionKey) return optionKey;
+  if (!auth) return undefined;
+  if (auth.type === "api" && typeof auth.key === "string" && auth.key) {
+    return auth.key;
+  }
+  if (auth.type === "wellknown") {
+    if (typeof auth.key === "string" && auth.key) return auth.key;
+    if (typeof auth.token === "string" && auth.token) return auth.token;
+  }
+  if (auth.type === "oauth" && typeof auth.access === "string" && auth.access) {
+    return auth.access;
+  }
+  return undefined;
 }
 
 export function sanitizeBaseURL(value: unknown) {
-  if (typeof value !== 'string' || !value) return undefined
+  if (typeof value !== "string" || !value) return undefined;
   try {
-    const parsed = new URL(value)
-    const pathname = parsed.pathname.replace(/\/+$/, '') || '/'
-    return `${parsed.origin}${pathname}`
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.origin}${pathname}`;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
 export function basePathPrefixes(value: unknown) {
-  const sanitized = sanitizeBaseURL(value)
-  if (!sanitized) return [] as string[]
+  const sanitized = sanitizeBaseURL(value);
+  if (!sanitized) return [] as string[];
   try {
-    const parsed = new URL(sanitized)
-    const parts = parsed.pathname.split('/').filter(Boolean)
-    const prefixes: string[] = []
+    const parsed = new URL(sanitized);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const prefixes: string[] = [];
     for (let i = parts.length; i >= 1; i--) {
-      prefixes.push(`/${parts.slice(0, i).join('/')}`)
+      prefixes.push(`/${parts.slice(0, i).join("/")}`);
     }
-    if (prefixes.length === 0) prefixes.push('/')
-    return prefixes
+    if (prefixes.length === 0) prefixes.push("/");
+    return prefixes;
   } catch {
-    return [] as string[]
+    return [] as string[];
   }
 }

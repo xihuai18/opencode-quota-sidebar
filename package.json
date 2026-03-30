@@ -30,6 +30,7 @@
     "CONTRIBUTING.md",
     "SECURITY.md",
     "README.md",
+    "README.zh-CN.md",
     "quota-sidebar.config.example.json"
   ],
   "scripts": {

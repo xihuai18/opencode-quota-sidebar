@@ -92,16 +92,17 @@ describe('tui quota helpers', () => {
 
   it('extracts only quota tokens from compact titles', () => {
     const groups = fallbackQuotaGroupsFromTitle(
-      'Session | OAI 5h80 W70 | RC D$88.9/$60 B260 | Cd63% | Est$2.34',
+      'Session | OAI 5h80 W70 | Ant 5h100 W77 O7d60 | RC D$88.9/$60 B260 | Cd63% | Est$2.34',
       36,
     )
 
     assert.deepEqual(
       groups.map((group) => `${group.shortLabel} ${group.detail}`.trim()),
-      ['OAI 5h80 W70', 'RC D$88.9/$60 B260'],
+      ['OAI 5h80 W70', 'Ant 5h100 W77 O7d60', 'RC D$88.9/$60 B260'],
     )
     assert.equal(groups[0]?.tone, 'success')
-    assert.equal(groups[1]?.tone, 'muted')
+    assert.equal(groups[1]?.tone, 'success')
+    assert.equal(groups[2]?.tone, 'muted')
   })
 
   it('marks low quota groups with warning tone', () => {
@@ -233,7 +234,7 @@ describe('tui quota helpers', () => {
           shortLabel: 'Buzz',
           status: 'ok',
           checkedAt: Date.now(),
-          balance: { amount: 10.2, currency: '￥' },
+          balance: { amount: 10.2, currency: '$' },
         },
       ],
       config,
@@ -244,7 +245,7 @@ describe('tui quota helpers', () => {
 
   it('uses error tone for negative balance fallback groups', () => {
     const groups = fallbackQuotaGroupsFromTitle(
-      'Session | Buzz B-￥3.2 | Cd63% | Est$2.34',
+      'Session | Buzz B-$3.2 | Cd63% | Est$2.34',
       36,
     )
 
