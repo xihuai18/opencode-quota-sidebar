@@ -31,6 +31,7 @@
     "SECURITY.md",
     "README.md",
     "README.zh-CN.md",
+    "assets/OpenCode-Quota-Sidebar.png",
     "quota-sidebar.config.example.json"
   ],
   "scripts": {
@@ -44,10 +45,15 @@
   },
   "keywords": [
     "opencode",
+    "opencode-plugin",
     "plugin",
     "quota",
     "sidebar",
-    "token-usage"
+    "token-usage",
+    "tui",
+    "openai",
+    "copilot",
+    "anthropic"
   ],
   "license": "MIT",
   "repository": {

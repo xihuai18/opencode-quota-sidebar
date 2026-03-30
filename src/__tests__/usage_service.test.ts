@@ -1,15 +1,15 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 
-import { createUsageService } from "../usage_service.js";
+import { createUsageService } from '../usage_service.js'
 import {
   USAGE_BILLING_CACHE_VERSION,
   getCacheCoverageMetrics,
-} from "../usage.js";
-import type { QuotaSidebarConfig, QuotaSidebarState } from "../types.js";
+} from '../usage.js'
+import type { QuotaSidebarConfig, QuotaSidebarState } from '../types.js'
 
 function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function makeConfig(): QuotaSidebarConfig {
@@ -36,7 +36,7 @@ function makeConfig(): QuotaSidebarConfig {
     },
     toast: { durationMs: 12_000 },
     retentionDays: 730,
-  };
+  }
 }
 
 function makeState(): QuotaSidebarState {
@@ -47,18 +47,18 @@ function makeState(): QuotaSidebarState {
     sessions: {},
     deletedSessionDateMap: {},
     quotaCache: {},
-  };
+  }
 }
 
 function entry(sessionID: string, messageID: string, input: number) {
-  const now = Date.now();
+  const now = Date.now()
   return {
     info: {
       id: messageID,
       sessionID,
-      role: "assistant",
-      providerID: "openai",
-      modelID: "gpt-5",
+      role: 'assistant',
+      providerID: 'openai',
+      modelID: 'gpt-5',
       time: { created: now - 10, completed: now },
       tokens: {
         input,
@@ -68,52 +68,52 @@ function entry(sessionID: string, messageID: string, input: number) {
       },
       cost: 0,
     },
-  };
+  }
 }
 
-describe("usage service", () => {
-  it("keeps session measured cost root-only while apiCost includes children", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    config.sidebar.includeChildren = true;
+describe('usage service', () => {
+  it('keeps session measured cost root-only while apiCost includes children', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    config.sidebar.includeChildren = true
 
     state.sessions.root = {
       createdAt: Date.now() - 2_000,
-      baseTitle: "Root",
+      baseTitle: 'Root',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
+    }
     state.sessions.child = {
       createdAt: Date.now() - 1_000,
-      baseTitle: "Child",
+      baseTitle: 'Child',
       lastAppliedTitle: undefined,
-      parentID: "root",
+      parentID: 'root',
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap.root = "2026-01-01";
-    state.sessionDateMap.child = "2026-01-01";
+    }
+    state.sessionDateMap.root = '2026-01-01'
+    state.sessionDateMap.child = '2026-01-01'
 
-    const now = Date.now();
+    const now = Date.now()
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async (args: { path: { id: string } }) => {
-            if (args.path.id === "root") {
+            if (args.path.id === 'root') {
               return {
                 data: [
                   {
                     info: {
-                      id: "m-root",
-                      sessionID: "root",
-                      role: "assistant",
-                      providerID: "openai",
-                      modelID: "gpt-5",
+                      id: 'm-root',
+                      sessionID: 'root',
+                      role: 'assistant',
+                      providerID: 'openai',
+                      modelID: 'gpt-5',
                       time: { created: now - 100, completed: now - 90 },
                       tokens: {
                         input: 100,
@@ -125,17 +125,17 @@ describe("usage service", () => {
                     },
                   },
                 ],
-              };
+              }
             }
             return {
               data: [
                 {
                   info: {
-                    id: "m-child",
-                    sessionID: "child",
-                    role: "assistant",
-                    providerID: "openai",
-                    modelID: "gpt-5",
+                    id: 'm-child',
+                    sessionID: 'child',
+                    role: 'assistant',
+                    providerID: 'openai',
+                    modelID: 'gpt-5',
                     time: { created: now - 50, completed: now - 40 },
                     tokens: {
                       input: 50,
@@ -147,7 +147,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -155,10 +155,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "openai",
+                  id: 'openai',
                   models: {
-                    "gpt-5": {
-                      id: "gpt-5",
+                    'gpt-5': {
+                      id: 'gpt-5',
                       cost: {
                         input: 0.0005,
                         output: 0.001,
@@ -173,63 +173,63 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
         flushSave: async () => {},
       },
       descendantsResolver: {
-        listDescendantSessionIDs: async () => ["child"],
+        listDescendantSessionIDs: async () => ['child'],
       },
-    });
+    })
 
-    const usage = await service.summarizeSessionUsageForDisplay("root", true);
+    const usage = await service.summarizeSessionUsageForDisplay('root', true)
 
-    assert.equal(usage.input, 150);
-    assert.equal(usage.output, 35);
-    assert.equal(usage.total, 285);
-    assert.equal(usage.sessionCount, 2);
-    assert.equal(usage.cost, 1.25);
-    assert.equal(usage.providers.openai.cost, 1.25);
-    assert.ok(Math.abs(usage.apiCost - 0.12875) < 1e-9);
-    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.12875) < 1e-9);
+    assert.equal(usage.input, 150)
+    assert.equal(usage.output, 35)
+    assert.equal(usage.total, 285)
+    assert.equal(usage.sessionCount, 2)
+    assert.equal(usage.cost, 1.25)
+    assert.equal(usage.providers.openai.cost, 1.25)
+    assert.ok(Math.abs(usage.apiCost - 0.12875) < 1e-9)
+    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.12875) < 1e-9)
 
-    const metrics = getCacheCoverageMetrics(usage);
-    assert.ok(Math.abs((metrics.cachedRatio || 0) - 0.3333333333333333) < 1e-9);
-  });
+    const metrics = getCacheCoverageMetrics(usage)
+    assert.ok(Math.abs((metrics.cachedRatio || 0) - 0.3333333333333333) < 1e-9)
+  })
 
-  it("maps openai-compatible third-party providers to OpenAI pricing", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "openai-compatible-session";
-    const completedAt = Date.now() - 100;
+  it('maps openai-compatible third-party providers to OpenAI pricing', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'openai-compatible-session'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "OpenAI compatible",
+      baseTitle: 'OpenAI compatible',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-rc-openai",
+                  id: 'm-rc-openai',
                   sessionID,
-                  role: "assistant",
-                  providerID: "rightcode-openai",
-                  modelID: "gpt-5",
+                  role: 'assistant',
+                  providerID: 'rightcode-openai',
+                  modelID: 'gpt-5',
                   time: {
                     created: completedAt - 20,
                     completed: completedAt - 10,
@@ -245,11 +245,11 @@ describe("usage service", () => {
               },
               {
                 info: {
-                  id: "m-xyai-openai",
+                  id: 'm-xyai-openai',
                   sessionID,
-                  role: "assistant",
-                  providerID: "xyai-openai",
-                  modelID: "gpt-5",
+                  role: 'assistant',
+                  providerID: 'xyai-openai',
+                  modelID: 'gpt-5',
                   time: { created: completedAt - 5, completed: completedAt },
                   tokens: {
                     input: 50,
@@ -268,10 +268,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "openai",
+                  id: 'openai',
                   models: {
-                    "gpt-5": {
-                      id: "gpt-5",
+                    'gpt-5': {
+                      id: 'gpt-5',
                       cost: {
                         input: 0.0005,
                         output: 0.001,
@@ -286,7 +286,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -295,83 +295,78 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.ok(Math.abs(usage.apiCost - 0.12375) < 1e-9);
+    assert.ok(Math.abs(usage.apiCost - 0.12375) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers["rightcode-openai"].apiCost - 0.0825) < 1e-9,
-    );
-    assert.ok(
-      Math.abs(usage.providers["xyai-openai"].apiCost - 0.04125) < 1e-9,
-    );
-  });
+      Math.abs(usage.providers['rightcode-openai'].apiCost - 0.0825) < 1e-9,
+    )
+    assert.ok(Math.abs(usage.providers['xyai-openai'].apiCost - 0.04125) < 1e-9)
+  })
 
-  it("schedules save for refreshed root usage even when includeChildren has no descendants", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    config.sidebar.includeChildren = true;
-    const sessionID = "solo";
+  it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    config.sidebar.includeChildren = true
+    const sessionID = 'solo'
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1_000,
-      baseTitle: "Solo",
+      baseTitle: 'Solo',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let saveCalls = 0;
+    let saveCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
-          messages: async () => ({ data: [entry(sessionID, "m1", 10)] }),
+          messages: async () => ({ data: [entry(sessionID, 'm1', 10)] }),
         },
         provider: {
           list: async () => ({ data: { all: [] } }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {
-          saveCalls++;
+          saveCalls++
         },
         flushSave: async () => {},
       },
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
-    const usage = await service.summarizeSessionUsageForDisplay(
-      sessionID,
-      true,
-    );
+    const usage = await service.summarizeSessionUsageForDisplay(sessionID, true)
 
-    assert.equal(usage.input, 10);
-    assert.equal(saveCalls, 1);
-    assert.ok(state.sessions[sessionID].usage);
-  });
+    assert.equal(usage.input, 10)
+    assert.equal(saveCalls, 1)
+    assert.ok(state.sessions[sessionID].usage)
+  })
 
-  it("forces a full rescan when cached billing version is stale", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "s1";
-    const completedAt = Date.now() - 100;
+  it('forces a full rescan when cached billing version is stale', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Session",
+      baseTitle: 'Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -400,28 +395,28 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "m1",
+        lastMessageId: 'm1',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["m1"],
+        lastMessageIdsAtTime: ['m1'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m1",
+                  id: 'm1',
                   sessionID,
-                  role: "assistant",
-                  providerID: "openai",
-                  modelID: "gpt-5",
+                  role: 'assistant',
+                  providerID: 'openai',
+                  modelID: 'gpt-5',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 10,
@@ -436,7 +431,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -445,53 +440,53 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(usage.input, 10);
-    assert.equal(usage.output, 5);
-    assert.equal(usage.cost, 0.2);
+    assert.equal(usage.input, 10)
+    assert.equal(usage.output, 5)
+    assert.equal(usage.cost, 0.2)
     assert.equal(
       state.sessions[sessionID].usage?.billingVersion,
       USAGE_BILLING_CACHE_VERSION,
-    );
-  });
+    )
+  })
 
-  it("prefers explicit read-only providers over claude model heuristic", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "s1";
-    const completedAt = Date.now() - 100;
+  it('prefers explicit read-only providers over claude model heuristic', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Session",
+      baseTitle: 'Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m1",
+                  id: 'm1',
                   sessionID,
-                  role: "assistant",
-                  providerID: "openrouter",
-                  modelID: "claude-3.7-sonnet",
+                  role: 'assistant',
+                  providerID: 'openrouter',
+                  modelID: 'claude-3.7-sonnet',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100,
@@ -509,7 +504,7 @@ describe("usage service", () => {
           list: async () => ({ data: { all: [] } }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -518,26 +513,26 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
-    const metrics = getCacheCoverageMetrics(usage);
+    )
+    const metrics = getCacheCoverageMetrics(usage)
 
-    assert.equal(metrics.cachedRatio, 50 / 150);
-  });
+    assert.equal(metrics.cachedRatio, 50 / 150)
+  })
 
-  it("recomputes stale-version cached usage when apiCost was previously zero", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "s1";
-    const completedAt = Date.now() - 100;
+  it('recomputes stale-version cached usage when apiCost was previously zero', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Session",
+      baseTitle: 'Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -566,31 +561,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "old",
+        lastMessageId: 'old',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["old"],
+        lastMessageIdsAtTime: ['old'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "old",
+                    id: 'old',
                     sessionID,
-                    role: "assistant",
-                    providerID: "openai",
-                    modelID: "gpt-5",
+                    role: 'assistant',
+                    providerID: 'openai',
+                    modelID: 'gpt-5',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 100,
@@ -602,7 +597,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -610,10 +605,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "openai",
+                  id: 'openai',
                   models: {
-                    "gpt-5": {
-                      id: "gpt-5",
+                    'gpt-5': {
+                      id: 'gpt-5',
                       cost: {
                         input: 0.0005,
                         output: 0.001,
@@ -628,7 +623,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -637,49 +632,49 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(usage.apiCost > 0);
-    assert.ok(state.sessions[sessionID].usage?.apiCost);
-  });
+    assert.equal(messageCalls, 1)
+    assert.ok(usage.apiCost > 0)
+    assert.ok(state.sessions[sessionID].usage?.apiCost)
+  })
 
-  it("matches anthropic api cost when message and pricing use different claude IDs", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "anthropic-session";
-    const completedAt = Date.now() - 100;
+  it('matches anthropic api cost when message and pricing use different claude IDs', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-session'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Anthropic Session",
+      baseTitle: 'Anthropic Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-anthropic",
+                  id: 'm-anthropic',
                   sessionID,
-                  role: "assistant",
-                  providerID: "anthropic",
-                  modelID: "claude-3.7-sonnet",
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-3.7-sonnet',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -698,10 +693,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "anthropic",
+                  id: 'anthropic',
                   models: {
-                    "claude-3-7-sonnet-20250219": {
-                      id: "claude-3-7-sonnet-20250219",
+                    'claude-3-7-sonnet-20250219': {
+                      id: 'claude-3-7-sonnet-20250219',
                       cost: {
                         input: 3,
                         output: 15,
@@ -716,7 +711,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -725,51 +720,51 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(usage.providers.anthropic?.assistantMessages, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9);
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
     assert.ok(
       Math.abs((usage.providers.anthropic?.apiCost || 0) - 0.7275) < 1e-9,
-    );
-  });
+    )
+  })
 
-  it("matches current opencode anthropic names with prefix and thinking suffix", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "anthropic-current";
-    const completedAt = Date.now() - 100;
+  it('matches current opencode anthropic names with prefix and thinking suffix', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-current'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Anthropic Current",
+      baseTitle: 'Anthropic Current',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-anthropic-current",
+                  id: 'm-anthropic-current',
                   sessionID,
-                  role: "assistant",
-                  providerID: "anthropic",
-                  modelID: "anthropic/claude-sonnet-4-5-20250929-thinking",
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'anthropic/claude-sonnet-4-5-20250929-thinking',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -788,10 +783,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "anthropic",
+                  id: 'anthropic',
                   models: {
-                    "claude-sonnet-4-5": {
-                      id: "claude-sonnet-4-5",
+                    'claude-sonnet-4-5': {
+                      id: 'claude-sonnet-4-5',
                       cost: {
                         input: 3,
                         output: 15,
@@ -806,7 +801,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -815,51 +810,51 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(usage.providers.anthropic?.assistantMessages, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9);
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
     assert.ok(
       Math.abs((usage.providers.anthropic?.apiCost || 0) - 0.7275) < 1e-9,
-    );
-  });
+    )
+  })
 
-  it("matches current opencode anthropic vertex and bedrock style IDs", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "anthropic-platforms";
-    const completedAt = Date.now() - 100;
+  it('matches current opencode anthropic vertex and bedrock style IDs', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-platforms'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Anthropic Platforms",
+      baseTitle: 'Anthropic Platforms',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-vertex",
+                  id: 'm-vertex',
                   sessionID,
-                  role: "assistant",
-                  providerID: "anthropic",
-                  modelID: "claude-sonnet-4-5@20250929",
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-sonnet-4-5@20250929',
                   time: {
                     created: completedAt - 20,
                     completed: completedAt - 10,
@@ -875,11 +870,11 @@ describe("usage service", () => {
               },
               {
                 info: {
-                  id: "m-bedrock",
+                  id: 'm-bedrock',
                   sessionID,
-                  role: "assistant",
-                  providerID: "anthropic",
-                  modelID: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
                   time: { created: completedAt - 9, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -898,10 +893,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "anthropic",
+                  id: 'anthropic',
                   models: {
-                    "claude-sonnet-4-5": {
-                      id: "claude-sonnet-4-5",
+                    'claude-sonnet-4-5': {
+                      id: 'claude-sonnet-4-5',
                       cost: {
                         input: 3,
                         output: 15,
@@ -916,7 +911,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -925,51 +920,51 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(usage.providers.anthropic?.assistantMessages, 2);
-    assert.ok(Math.abs(usage.apiCost - 1.455) < 1e-9);
+    assert.equal(usage.providers.anthropic?.assistantMessages, 2)
+    assert.ok(Math.abs(usage.apiCost - 1.455) < 1e-9)
     assert.ok(
       Math.abs((usage.providers.anthropic?.apiCost || 0) - 1.455) < 1e-9,
-    );
-  });
+    )
+  })
 
-  it("falls back to bundled Anthropic pricing when runtime metadata reports zero cost", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "anthropic-zero-cost";
-    const completedAt = Date.now() - 100;
+  it('falls back to bundled Anthropic pricing when runtime metadata reports zero cost', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'anthropic-zero-cost'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Anthropic Zero Cost",
+      baseTitle: 'Anthropic Zero Cost',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-anthropic-zero",
+                  id: 'm-anthropic-zero',
                   sessionID,
-                  role: "assistant",
-                  providerID: "anthropic",
-                  modelID: "claude-opus-4-6",
+                  role: 'assistant',
+                  providerID: 'anthropic',
+                  modelID: 'claude-opus-4-6',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -988,10 +983,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "anthropic",
+                  id: 'anthropic',
                   models: {
-                    "claude-opus-4-6": {
-                      id: "claude-opus-4-6",
+                    'claude-opus-4-6': {
+                      id: 'claude-opus-4-6',
                       cost: {
                         input: 0,
                         output: 0,
@@ -1005,7 +1000,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1014,51 +1009,51 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(usage.providers.anthropic?.assistantMessages, 1);
-    assert.ok(Math.abs(usage.apiCost - 1.2125) < 1e-9);
+    assert.equal(usage.providers.anthropic?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 1.2125) < 1e-9)
     assert.ok(
       Math.abs((usage.providers.anthropic?.apiCost || 0) - 1.2125) < 1e-9,
-    );
-  });
+    )
+  })
 
-  it("reuses bundled Anthropic pricing for anthropic-compatible third-party providers", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "buzz-anthropic-fallback";
-    const completedAt = Date.now() - 100;
+  it('reuses bundled Anthropic pricing for anthropic-compatible third-party providers', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'relay-anthropic-fallback'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Buzz Anthropic Fallback",
+      baseTitle: 'Relay Anthropic Fallback',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-buzz-anthropic-zero",
+                  id: 'm-relay-anthropic-zero',
                   sessionID,
-                  role: "assistant",
-                  providerID: "buzz-anthropic",
-                  modelID: "claude-sonnet-4-6",
+                  role: 'assistant',
+                  providerID: 'relay-anthropic',
+                  modelID: 'claude-sonnet-4-6',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -1077,10 +1072,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "anthropic",
+                  id: 'anthropic',
                   models: {
-                    "claude-sonnet-4-6": {
-                      id: "claude-sonnet-4-6",
+                    'claude-sonnet-4-6': {
+                      id: 'claude-sonnet-4-6',
                       cost: {
                         input: 0,
                         output: 0,
@@ -1094,7 +1089,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1103,50 +1098,50 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    const buzzUsage = usage.providers["buzz-anthropic"];
-    assert.ok(buzzUsage);
-    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9);
-    assert.ok(Math.abs(buzzUsage.apiCost - 0.7275) < 1e-9);
-  });
+    const relayUsage = usage.providers['relay-anthropic']
+    assert.ok(relayUsage)
+    assert.ok(Math.abs(usage.apiCost - 0.7275) < 1e-9)
+    assert.ok(Math.abs(relayUsage.apiCost - 0.7275) < 1e-9)
+  })
 
-  it("maps kimi-for-coding k2p5 usage to Moonshot international pricing first", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "kimi-session";
-    const completedAt = Date.now() - 100;
+  it('maps kimi-for-coding k2p5 usage to Moonshot international pricing first', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-session'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Kimi Session",
+      baseTitle: 'Kimi Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => ({
             data: [
               {
                 info: {
-                  id: "m-kimi",
+                  id: 'm-kimi',
                   sessionID,
-                  role: "assistant",
-                  providerID: "kimi-for-coding",
-                  modelID: "k2p5",
+                  role: 'assistant',
+                  providerID: 'kimi-for-coding',
+                  modelID: 'k2p5',
                   time: { created: completedAt - 10, completed: completedAt },
                   tokens: {
                     input: 100_000,
@@ -1165,10 +1160,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "moonshotai",
+                  id: 'moonshotai',
                   models: {
-                    "kimi-k2.5": {
-                      id: "kimi-k2.5",
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
                       cost: {
                         input: 0.6,
                         output: 3,
@@ -1182,7 +1177,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1191,33 +1186,33 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
-    const kimiUsage = usage.providers["kimi-for-coding"];
+    )
+    const kimiUsage = usage.providers['kimi-for-coding']
 
-    assert.ok(kimiUsage);
-    assert.equal(usage.cost, 0);
-    assert.equal(kimiUsage.cost, 0);
-    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9);
-    assert.ok(Math.abs(kimiUsage.apiCost - 0.14) < 1e-9);
+    assert.ok(kimiUsage)
+    assert.equal(usage.cost, 0)
+    assert.equal(kimiUsage.cost, 0)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
+    assert.ok(Math.abs(kimiUsage.apiCost - 0.14) < 1e-9)
 
-    const metrics = getCacheCoverageMetrics(usage);
-    assert.equal(metrics.cachedRatio, 1 / 3);
-  });
+    const metrics = getCacheCoverageMetrics(usage)
+    assert.equal(metrics.cachedRatio, 1 / 3)
+  })
 
-  it("recomputes stale kimi-for-coding usage when pricing is available via Moonshot alias", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "kimi-stale";
-    const completedAt = Date.now() - 100;
+  it('recomputes stale kimi-for-coding usage when pricing is available via Moonshot alias', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-stale'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Kimi stale",
+      baseTitle: 'Kimi stale',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -1232,7 +1227,7 @@ describe("usage service", () => {
         apiCost: 0,
         assistantMessages: 1,
         providers: {
-          "kimi-for-coding": {
+          'kimi-for-coding': {
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -1246,31 +1241,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "old-kimi",
+        lastMessageId: 'old-kimi',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["old-kimi"],
+        lastMessageIdsAtTime: ['old-kimi'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "old-kimi",
+                    id: 'old-kimi',
                     sessionID,
-                    role: "assistant",
-                    providerID: "kimi-for-coding",
-                    modelID: "k2p5",
+                    role: 'assistant',
+                    providerID: 'kimi-for-coding',
+                    modelID: 'k2p5',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 100_000,
@@ -1282,7 +1277,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -1290,10 +1285,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "moonshotai",
+                  id: 'moonshotai',
                   models: {
-                    "kimi-k2.5": {
-                      id: "kimi-k2.5",
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
                       cost: {
                         input: 0.6,
                         output: 3,
@@ -1307,7 +1302,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1316,29 +1311,29 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9);
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers["kimi-for-coding"].apiCost - 0.14) < 1e-9,
-    );
-  });
+      Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9,
+    )
+  })
 
-  it("recomputes stale kimi-for-coding usage from bundled international fallback pricing", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "kimi-bundled-stale";
-    const completedAt = Date.now() - 100;
+  it('recomputes stale kimi-for-coding usage from bundled international fallback pricing', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'kimi-bundled-stale'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Kimi bundled stale",
+      baseTitle: 'Kimi bundled stale',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -1353,7 +1348,7 @@ describe("usage service", () => {
         apiCost: 0,
         assistantMessages: 1,
         providers: {
-          "kimi-for-coding": {
+          'kimi-for-coding': {
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -1367,31 +1362,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "old-kimi-bundled",
+        lastMessageId: 'old-kimi-bundled',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["old-kimi-bundled"],
+        lastMessageIdsAtTime: ['old-kimi-bundled'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "old-kimi-bundled",
+                    id: 'old-kimi-bundled',
                     sessionID,
-                    role: "assistant",
-                    providerID: "kimi-for-coding",
-                    modelID: "k2p5",
+                    role: 'assistant',
+                    providerID: 'kimi-for-coding',
+                    modelID: 'k2p5',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 100_000,
@@ -1403,7 +1398,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -1411,10 +1406,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "moonshotai",
+                  id: 'moonshotai',
                   models: {
-                    "kimi-k2.5": {
-                      id: "kimi-k2.5",
+                    'kimi-k2.5': {
+                      id: 'kimi-k2.5',
                       cost: {
                         input: 0,
                         output: 0,
@@ -1428,7 +1423,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1437,29 +1432,29 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9);
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.14) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers["kimi-for-coding"].apiCost - 0.14) < 1e-9,
-    );
-  });
+      Math.abs(usage.providers['kimi-for-coding'].apiCost - 0.14) < 1e-9,
+    )
+  })
 
-  it("recomputes stale zhipu coding-plan usage when bundled fallback pricing is available", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "zhipu-stale";
-    const completedAt = Date.now() - 100;
+  it('recomputes stale zhipu coding-plan usage when bundled fallback pricing is available', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'zhipu-stale'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Zhipu stale",
+      baseTitle: 'Zhipu stale',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -1474,7 +1469,7 @@ describe("usage service", () => {
         apiCost: 0,
         assistantMessages: 3,
         providers: {
-          "zhipuai-coding-plan": {
+          'zhipuai-coding-plan': {
             input: 28_629,
             output: 3_852,
             reasoning: 0,
@@ -1488,31 +1483,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "old-zhipu",
+        lastMessageId: 'old-zhipu',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["old-zhipu"],
+        lastMessageIdsAtTime: ['old-zhipu'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "old-zhipu",
+                    id: 'old-zhipu',
                     sessionID,
-                    role: "assistant",
-                    providerID: "zhipuai-coding-plan",
-                    modelID: "glm-5.1",
+                    role: 'assistant',
+                    providerID: 'zhipuai-coding-plan',
+                    modelID: 'glm-5.1',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 28_629,
@@ -1524,7 +1519,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -1532,10 +1527,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "zhipuai-coding-plan",
+                  id: 'zhipuai-coding-plan',
                   models: {
-                    "glm-5.1": {
-                      id: "glm-5.1",
+                    'glm-5.1': {
+                      id: 'glm-5.1',
                       cost: {
                         input: 0,
                         output: 0,
@@ -1549,7 +1544,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1558,30 +1553,30 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9);
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers["zhipuai-coding-plan"].apiCost - 0.0471506) <
+      Math.abs(usage.providers['zhipuai-coding-plan'].apiCost - 0.0471506) <
         1e-9,
-    );
-  });
+    )
+  })
 
-  it("recomputes stale minimax coding-plan usage when bundled fallback pricing is available", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "minimax-stale";
-    const completedAt = Date.now() - 100;
+  it('recomputes stale minimax coding-plan usage when bundled fallback pricing is available', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'minimax-stale'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "MiniMax stale",
+      baseTitle: 'MiniMax stale',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -1596,7 +1591,7 @@ describe("usage service", () => {
         apiCost: 0,
         assistantMessages: 1,
         providers: {
-          "minimax-cn-coding-plan": {
+          'minimax-cn-coding-plan': {
             input: 50_000,
             output: 10_000,
             reasoning: 0,
@@ -1610,31 +1605,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "old-minimax",
+        lastMessageId: 'old-minimax',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["old-minimax"],
+        lastMessageIdsAtTime: ['old-minimax'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "old-minimax",
+                    id: 'old-minimax',
                     sessionID,
-                    role: "assistant",
-                    providerID: "minimax-cn-coding-plan",
-                    modelID: "MiniMax-M2.5",
+                    role: 'assistant',
+                    providerID: 'minimax-cn-coding-plan',
+                    modelID: 'MiniMax-M2.5',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 50_000,
@@ -1646,7 +1641,7 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
@@ -1654,10 +1649,10 @@ describe("usage service", () => {
             data: {
               all: [
                 {
-                  id: "minimax-cn-coding-plan",
+                  id: 'minimax-cn-coding-plan',
                   models: {
-                    "MiniMax-M2.5": {
-                      id: "MiniMax-M2.5",
+                    'MiniMax-M2.5': {
+                      id: 'MiniMax-M2.5',
                       cost: {
                         input: 0,
                         output: 0,
@@ -1672,7 +1667,7 @@ describe("usage service", () => {
           }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1681,30 +1676,30 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.029475) < 1e-9);
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.029475) < 1e-9)
     assert.ok(
-      Math.abs(usage.providers["minimax-cn-coding-plan"].apiCost - 0.029475) <
+      Math.abs(usage.providers['minimax-cn-coding-plan'].apiCost - 0.029475) <
         1e-9,
-    );
-  });
+    )
+  })
 
-  it("recomputes current-version zhipu usage when bundled fallback pricing becomes available", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "z-ai-current";
-    const completedAt = Date.now() - 100;
+  it('recomputes current-version zhipu usage when bundled fallback pricing becomes available', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'z-ai-current'
+    const completedAt = Date.now() - 100
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1000,
-      baseTitle: "Z-AI current",
+      baseTitle: 'Z-AI current',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: {
@@ -1719,7 +1714,7 @@ describe("usage service", () => {
         apiCost: 0,
         assistantMessages: 1,
         providers: {
-          "z-ai": {
+          'z-ai': {
             input: 28_629,
             output: 3_852,
             reasoning: 0,
@@ -1733,31 +1728,31 @@ describe("usage service", () => {
         },
       },
       cursor: {
-        lastMessageId: "m-zai-current",
+        lastMessageId: 'm-zai-current',
         lastMessageTime: completedAt,
-        lastMessageIdsAtTime: ["m-zai-current"],
+        lastMessageIdsAtTime: ['m-zai-current'],
       },
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let messageCalls = 0;
+    let messageCalls = 0
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            messageCalls++;
+            messageCalls++
             return {
               data: [
                 {
                   info: {
-                    id: "m-zai-current",
+                    id: 'm-zai-current',
                     sessionID,
-                    role: "assistant",
-                    providerID: "z-ai",
-                    modelID: "glm-5.1",
+                    role: 'assistant',
+                    providerID: 'z-ai',
+                    modelID: 'glm-5.1',
                     time: { created: completedAt - 10, completed: completedAt },
                     tokens: {
                       input: 28_629,
@@ -1769,14 +1764,14 @@ describe("usage service", () => {
                   },
                 },
               ],
-            };
+            }
           },
         },
         provider: {
           list: async () => ({ data: { all: [] } }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1785,48 +1780,48 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     const usage = await service.summarizeSessionUsageForDisplay(
       sessionID,
       false,
-    );
+    )
 
-    assert.equal(messageCalls, 1);
-    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9);
-    assert.ok(Math.abs(usage.providers["z-ai"].apiCost - 0.0471506) < 1e-9);
-  });
+    assert.equal(messageCalls, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.0471506) < 1e-9)
+    assert.ok(Math.abs(usage.providers['z-ai'].apiCost - 0.0471506) < 1e-9)
+  })
 
-  it("fails session-only tool summary when messages cannot load and no cache exists", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "s1";
+  it('fails session-only tool summary when messages cannot load and no cache exists', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
 
     state.sessions[sessionID] = {
       createdAt: Date.now() - 1_000,
-      baseTitle: "Session",
+      baseTitle: 'Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            throw new Error("load failed");
+            throw new Error('load failed')
           },
         },
         provider: {
           list: async () => ({ data: { all: [] } }),
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1835,52 +1830,52 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
     await assert.rejects(
-      service.summarizeForTool("session", sessionID, false),
+      service.summarizeForTool('session', sessionID, false),
       /session usage unavailable: failed to load messages for s1/,
-    );
-  });
+    )
+  })
 
-  it("does not reuse an in-flight computation after session becomes dirty", async () => {
-    const state = makeState();
-    const config = makeConfig();
-    const sessionID = "s1";
-    const createdAt = Date.now() - 1000;
+  it('does not reuse an in-flight computation after session becomes dirty', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 's1'
+    const createdAt = Date.now() - 1000
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: "Session",
+      baseTitle: 'Session',
       lastAppliedTitle: undefined,
       parentID: undefined,
       usage: undefined,
       cursor: undefined,
-    };
-    state.sessionDateMap[sessionID] = "2026-01-01";
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
 
-    let calls = 0;
-    let unblockFirst: (() => void) | undefined;
+    let calls = 0
+    let unblockFirst: (() => void) | undefined
     const firstBlocked = new Promise<void>((resolve) => {
-      unblockFirst = resolve;
-    });
+      unblockFirst = resolve
+    })
 
     const service = createUsageService({
       state,
       config,
-      statePath: "ignored",
+      statePath: 'ignored',
       client: {
         session: {
           messages: async () => {
-            calls++;
+            calls++
             if (calls === 1) {
-              await firstBlocked;
-              return { data: [entry(sessionID, "m1", 10)] };
+              await firstBlocked
+              return { data: [entry(sessionID, 'm1', 10)] }
             }
-            return { data: [entry(sessionID, "m2", 20)] };
+            return { data: [entry(sessionID, 'm2', 20)] }
           },
         },
       } as any,
-      directory: "ignored",
+      directory: 'ignored',
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -1889,17 +1884,17 @@ describe("usage service", () => {
       descendantsResolver: {
         listDescendantSessionIDs: async () => [],
       },
-    });
+    })
 
-    const p1 = service.summarizeSessionUsageForDisplay(sessionID, false);
-    await delay(10);
-    assert.equal(calls, 1);
+    const p1 = service.summarizeSessionUsageForDisplay(sessionID, false)
+    await delay(10)
+    assert.equal(calls, 1)
 
-    service.markSessionDirty(sessionID);
-    const u2 = await service.summarizeSessionUsageForDisplay(sessionID, false);
-    assert.equal(u2.input, 20);
+    service.markSessionDirty(sessionID)
+    const u2 = await service.summarizeSessionUsageForDisplay(sessionID, false)
+    assert.equal(u2.input, 20)
 
-    unblockFirst?.();
-    await p1;
-  });
-});
+    unblockFirst?.()
+    await p1
+  })
+})

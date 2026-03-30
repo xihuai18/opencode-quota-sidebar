@@ -1,14 +1,14 @@
-import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import assert from 'node:assert/strict'
+import { afterEach, describe, it } from 'node:test'
 
-import { createQuotaRuntime } from "../quota.js";
-import { toIso } from "../providers/common.js";
-import type { QuotaSidebarConfig } from "../types.js";
+import { createQuotaRuntime } from '../quota.js'
+import { toIso } from '../providers/common.js'
+import type { QuotaSidebarConfig } from '../types.js'
 
-const quota = createQuotaRuntime();
+const quota = createQuotaRuntime()
 
 function makeConfig(
-  overrides: Partial<QuotaSidebarConfig["quota"]> = {},
+  overrides: Partial<QuotaSidebarConfig['quota']> = {},
 ): QuotaSidebarConfig {
   return {
     sidebar: {
@@ -33,40 +33,40 @@ function makeConfig(
     },
     toast: { durationMs: 12_000 },
     retentionDays: 730,
-  };
+  }
 }
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { "Content-Type": "application/json" },
-  });
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
-const originalFetch = globalThis.fetch;
+const originalFetch = globalThis.fetch
 const setFetch = (next: typeof fetch) => {
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = next;
-};
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = next
+}
 
 afterEach(() => {
-  setFetch(originalFetch);
-});
+  setFetch(originalFetch)
+})
 
-describe("normalizeProviderID", () => {
-  it("normalizes copilot variants", () => {
+describe('normalizeProviderID', () => {
+  it('normalizes copilot variants', () => {
     assert.equal(
-      quota.normalizeProviderID("github-copilot-enterprise"),
-      "github-copilot",
-    );
-    assert.equal(quota.normalizeProviderID("github-copilot"), "github-copilot");
-    assert.equal(quota.normalizeProviderID("openai"), "openai");
-  });
-});
+      quota.normalizeProviderID('github-copilot-enterprise'),
+      'github-copilot',
+    )
+    assert.equal(quota.normalizeProviderID('github-copilot'), 'github-copilot')
+    assert.equal(quota.normalizeProviderID('openai'), 'openai')
+  })
+})
 
-describe("fetchQuotaSnapshot", () => {
-  it("parses OpenAI multi-window quota correctly", async () => {
+describe('fetchQuotaSnapshot', () => {
+  it('parses OpenAI multi-window quota correctly', async () => {
     setFetch(async (input) => {
-      assert.equal(String(input), "https://chatgpt.com/backend-api/wham/usage");
+      assert.equal(String(input), 'https://chatgpt.com/backend-api/wham/usage')
       return jsonResponse({
         rate_limit: {
           primary_window: {
@@ -80,42 +80,42 @@ describe("fetchQuotaSnapshot", () => {
             reset_at: Math.floor(Date.now() / 1000) + 86_400,
           },
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
-        openai: { type: "oauth", access: "access-token" },
+        openai: { type: 'oauth', access: 'access-token' },
       },
       makeConfig(),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.providerID, "openai");
-    assert.equal(snapshot!.remainingPercent, 80);
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 2);
-    assert.equal(snapshot!.windows![0].label, "5h");
-    assert.equal(snapshot!.windows![0].remainingPercent, 80);
-    assert.equal(snapshot!.windows![1].label, "Weekly");
-    assert.equal(snapshot!.windows![1].remainingPercent, 70);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.providerID, 'openai')
+    assert.equal(snapshot!.remainingPercent, 80)
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 80)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 70)
+  })
 
-  it("keeps OpenAI quota fetch working when token refresh persistence fails", async () => {
-    let calls = 0;
+  it('keeps OpenAI quota fetch working when token refresh persistence fails', async () => {
+    let calls = 0
     setFetch(async (input) => {
-      calls += 1;
-      const url = String(input);
-      if (url === "https://auth.openai.com/oauth/token") {
+      calls += 1
+      const url = String(input)
+      if (url === 'https://auth.openai.com/oauth/token') {
         return jsonResponse({
-          access_token: "new-access",
-          refresh_token: "new-refresh",
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
           expires_in: 3600,
-        });
+        })
       }
-      if (url === "https://chatgpt.com/backend-api/wham/usage") {
+      if (url === 'https://chatgpt.com/backend-api/wham/usage') {
         return jsonResponse({
           rate_limit: {
             primary_window: {
@@ -124,151 +124,151 @@ describe("fetchQuotaSnapshot", () => {
               reset_at: Math.floor(Date.now() / 1000) + 1800,
             },
           },
-        });
+        })
       }
-      throw new Error(`unexpected url: ${url}`);
-    });
+      throw new Error(`unexpected url: ${url}`)
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
         openai: {
-          type: "oauth",
-          access: "expired-access",
-          refresh: "refresh-token",
+          type: 'oauth',
+          access: 'expired-access',
+          refresh: 'refresh-token',
           expires: Date.now() - 1,
         },
       },
       makeConfig({ refreshAccessToken: true }),
       async () => {
-        throw new Error("persist failed");
+        throw new Error('persist failed')
       },
-    );
+    )
 
-    assert.equal(calls, 2);
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 60);
-    assert.match(snapshot!.note || "", /using in-memory token/);
-  });
+    assert.equal(calls, 2)
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 60)
+    assert.match(snapshot!.note || '', /using in-memory token/)
+  })
 
-  it("derives Copilot percent from entitlement/remaining when percent is missing", async () => {
+  it('derives Copilot percent from entitlement/remaining when percent is missing', async () => {
     setFetch(async (input) => {
       assert.equal(
         String(input),
-        "https://api.github.com/copilot_internal/user",
-      );
+        'https://api.github.com/copilot_internal/user',
+      )
       return jsonResponse({
         quota_snapshots: {
           premium_interactions: {
             entitlement: 300,
             remaining: 150,
-            quota_reset_date_utc: "2026-03-01T00:00:00Z",
+            quota_reset_date_utc: '2026-03-01T00:00:00Z',
           },
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "github-copilot",
+      'github-copilot',
       {
-        "github-copilot": { type: "oauth", access: "copilot-token" },
+        'github-copilot': { type: 'oauth', access: 'copilot-token' },
       },
       makeConfig(),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 50);
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows![0].label, "Monthly");
-    assert.equal(snapshot!.windows![0].remainingPercent, 50);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 50)
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows![0].label, 'Monthly')
+    assert.equal(snapshot!.windows![0].remainingPercent, 50)
+  })
 
-  it("uses built-in kimi-for-coding adapter and parses 5h + weekly windows", async () => {
+  it('uses built-in kimi-for-coding adapter and parses 5h + weekly windows', async () => {
     setFetch(async (input, init) => {
-      assert.equal(String(input), "https://api.kimi.com/coding/v1/usages");
-      const headers = new Headers(init?.headers);
-      assert.equal(headers.get("authorization"), "Bearer kimi-key");
+      assert.equal(String(input), 'https://api.kimi.com/coding/v1/usages')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'Bearer kimi-key')
       return jsonResponse({
         usage: {
-          limit: "100",
-          remaining: "74",
-          resetTime: "2026-03-26T00:00:00Z",
+          limit: '100',
+          remaining: '74',
+          resetTime: '2026-03-26T00:00:00Z',
         },
         limits: [
           {
             window: {
               duration: 300,
-              timeUnit: "TIME_UNIT_MINUTE",
+              timeUnit: 'TIME_UNIT_MINUTE',
             },
             detail: {
-              limit: "100",
-              remaining: "85",
-              resetTime: "2026-03-20T16:20:00Z",
+              limit: '100',
+              remaining: '85',
+              resetTime: '2026-03-20T16:20:00Z',
             },
           },
         ],
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "kimi-for-coding",
+      'kimi-for-coding',
       {
-        "kimi-for-coding": { type: "api", key: "kimi-key" },
+        'kimi-for-coding': { type: 'api', key: 'kimi-key' },
       },
       makeConfig(),
       undefined,
-      { apiKey: "kimi-key" },
-    );
+      { apiKey: 'kimi-key' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "kimi-for-coding");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.label, "Kimi For Coding");
-    assert.equal(snapshot!.shortLabel, "Kimi");
-    assert.equal(snapshot!.remainingPercent, 85);
-    assert.equal(snapshot!.resetAt, "2026-03-20T16:20:00.000Z");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 2);
-    assert.equal(snapshot!.windows![0].label, "5h");
-    assert.equal(snapshot!.windows![0].remainingPercent, 85);
-    assert.equal(snapshot!.windows![1].label, "Weekly");
-    assert.equal(snapshot!.windows![1].remainingPercent, 74);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'kimi-for-coding')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'Kimi For Coding')
+    assert.equal(snapshot!.shortLabel, 'Kimi')
+    assert.equal(snapshot!.remainingPercent, 85)
+    assert.equal(snapshot!.resetAt, '2026-03-20T16:20:00.000Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 85)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 74)
+  })
 
-  it("returns unavailable for kimi-for-coding when api key is missing", async () => {
+  it('returns unavailable for kimi-for-coding when api key is missing', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
-      "kimi-for-coding",
+      'kimi-for-coding',
       {},
       makeConfig(),
       undefined,
       {},
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "kimi-for-coding");
-    assert.equal(snapshot!.status, "unavailable");
-    assert.equal(snapshot!.note, "missing api key");
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'kimi-for-coding')
+    assert.equal(snapshot!.status, 'unavailable')
+    assert.equal(snapshot!.note, 'missing api key')
+  })
 
-  it("uses built-in zhipu coding plan adapter and ignores mcp limits", async () => {
+  it('uses built-in zhipu coding plan adapter and ignores mcp limits', async () => {
     setFetch(async (input, init) => {
       assert.equal(
         String(input),
-        "https://bigmodel.cn/api/monitor/usage/quota/limit",
-      );
-      const headers = new Headers(init?.headers);
-      assert.equal(headers.get("authorization"), "zhipu-key");
+        'https://bigmodel.cn/api/monitor/usage/quota/limit',
+      )
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'zhipu-key')
       return jsonResponse({
         code: 200,
-        msg: "ok",
+        msg: 'ok',
         success: true,
         data: {
-          level: "max",
+          level: 'max',
           limits: [
             {
-              type: "TIME_LIMIT",
+              type: 'TIME_LIMIT',
               unit: 5,
               number: 1,
               usage: 4000,
@@ -277,7 +277,7 @@ describe("fetchQuotaSnapshot", () => {
               nextResetTime: 1776607898998,
             },
             {
-              type: "TOKENS_LIMIT",
+              type: 'TOKENS_LIMIT',
               unit: 3,
               number: 5,
               percentage: 1,
@@ -285,181 +285,181 @@ describe("fetchQuotaSnapshot", () => {
             },
           ],
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "zhipuai-coding-plan",
+      'zhipuai-coding-plan',
       {
-        "zhipuai-coding-plan": { type: "api", key: "zhipu-key" },
+        'zhipuai-coding-plan': { type: 'api', key: 'zhipu-key' },
       },
       makeConfig(),
       undefined,
-      { apiKey: "zhipu-key" },
-    );
+      { apiKey: 'zhipu-key' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "zhipuai-coding-plan");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.label, "Zhipu Coding Plan");
-    assert.equal(snapshot!.shortLabel, "Zhipu");
-    assert.equal(snapshot!.remainingPercent, 99);
-    assert.equal(snapshot!.note, "MAX plan");
-    assert.equal(snapshot!.resetAt, "2026-03-28T17:51:57.673Z");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 1);
-    assert.equal(snapshot!.windows![0].label, "5h");
-    assert.equal(snapshot!.windows![0].remainingPercent, 99);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'zhipuai-coding-plan')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'Zhipu Coding Plan')
+    assert.equal(snapshot!.shortLabel, 'Zhipu')
+    assert.equal(snapshot!.remainingPercent, 99)
+    assert.equal(snapshot!.note, 'MAX plan')
+    assert.equal(snapshot!.resetAt, '2026-03-28T17:51:57.673Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 1)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 99)
+  })
 
-  it("uses z.ai quota endpoint when zhipu coding plan baseURL is international", async () => {
+  it('uses z.ai quota endpoint when zhipu coding plan baseURL is international', async () => {
     setFetch(async (input) => {
       assert.equal(
         String(input),
-        "https://api.z.ai/api/monitor/usage/quota/limit",
-      );
+        'https://api.z.ai/api/monitor/usage/quota/limit',
+      )
       return jsonResponse({
         code: 200,
-        msg: "ok",
+        msg: 'ok',
         success: true,
         data: {
           limits: [
             {
-              type: "TOKENS_LIMIT",
+              type: 'TOKENS_LIMIT',
               unit: 3,
               number: 5,
               percentage: 10,
-              nextResetTime: "2026-03-29T01:51:57+08:00",
+              nextResetTime: '2026-03-29T01:51:57+08:00',
             },
           ],
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      { openai: { type: "api", key: "zhipu-key" } },
+      'openai',
+      { openai: { type: 'api', key: 'zhipu-key' } },
       makeConfig(),
       undefined,
       {
-        apiKey: "zhipu-key",
-        baseURL: "https://api.z.ai/api/anthropic",
+        apiKey: 'zhipu-key',
+        baseURL: 'https://api.z.ai/api/anthropic',
       },
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "zhipuai-coding-plan");
-    assert.equal(snapshot!.remainingPercent, 90);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'zhipuai-coding-plan')
+    assert.equal(snapshot!.remainingPercent, 90)
+  })
 
-  it("uses built-in minimax coding plan adapter and parses 5h + weekly windows", async () => {
+  it('uses built-in minimax coding plan adapter and parses 5h + weekly windows', async () => {
     setFetch(async (input, init) => {
       assert.equal(
         String(input),
-        "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains",
-      );
-      const headers = new Headers(init?.headers);
-      assert.equal(headers.get("authorization"), "Bearer minimax-key");
+        'https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains',
+      )
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'Bearer minimax-key')
       return jsonResponse({
-        base_resp: { status_code: 0, status_msg: "ok" },
+        base_resp: { status_code: 0, status_msg: 'ok' },
         data: {
-          current_subscribe_title: "Max-极速版",
+          current_subscribe_title: 'Max-极速版',
           model_remains: [
             {
               current_interval_total_count: 100,
               current_interval_usage_count: 84,
-              start_time: "2026-03-20T11:20:00Z",
-              end_time: "2026-03-20T16:20:00Z",
+              start_time: '2026-03-20T11:20:00Z',
+              end_time: '2026-03-20T16:20:00Z',
               current_weekly_total_count: 500,
               current_weekly_usage_count: 320,
-              weekly_start_time: "2026-03-17T00:00:00Z",
-              weekly_end_time: "2026-03-24T00:00:00Z",
+              weekly_start_time: '2026-03-17T00:00:00Z',
+              weekly_end_time: '2026-03-24T00:00:00Z',
             },
           ],
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "minimax-cn-coding-plan",
+      'minimax-cn-coding-plan',
       {
-        "minimax-cn-coding-plan": { type: "api", key: "minimax-key" },
+        'minimax-cn-coding-plan': { type: 'api', key: 'minimax-key' },
       },
       makeConfig(),
       undefined,
-      { apiKey: "minimax-key" },
-    );
+      { apiKey: 'minimax-key' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "minimax-cn-coding-plan");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.label, "MiniMax Coding Plan");
-    assert.equal(snapshot!.shortLabel, "MiniMax");
-    assert.equal(snapshot!.remainingPercent, 84);
-    assert.equal(snapshot!.note, "Max-极速版");
-    assert.equal(snapshot!.resetAt, "2026-03-20T16:20:00.000Z");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 2);
-    assert.equal(snapshot!.windows![0].label, "5h");
-    assert.equal(snapshot!.windows![0].remainingPercent, 84);
-    assert.equal(snapshot!.windows![1].label, "Weekly");
-    assert.equal(snapshot!.windows![1].remainingPercent, 64);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'minimax-cn-coding-plan')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.label, 'MiniMax Coding Plan')
+    assert.equal(snapshot!.shortLabel, 'MiniMax')
+    assert.equal(snapshot!.remainingPercent, 84)
+    assert.equal(snapshot!.note, 'Max-极速版')
+    assert.equal(snapshot!.resetAt, '2026-03-20T16:20:00.000Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 2)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 84)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 64)
+  })
 
-  it("uses minimax international quota endpoint when baseURL is global", async () => {
+  it('uses minimax international quota endpoint when baseURL is global', async () => {
     setFetch(async (input) => {
       assert.equal(
         String(input),
-        "https://www.minimax.io/v1/api/openplatform/coding_plan/remains",
-      );
+        'https://www.minimax.io/v1/api/openplatform/coding_plan/remains',
+      )
       return jsonResponse({
         data: {
           model_remains: [
             {
               current_interval_total_count: 100,
               current_interval_usage_count: 75,
-              start_time: "2026-03-20T11:20:00Z",
-              end_time: "2026-03-20T16:20:00Z",
+              start_time: '2026-03-20T11:20:00Z',
+              end_time: '2026-03-20T16:20:00Z',
             },
           ],
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      { openai: { type: "api", key: "minimax-key" } },
+      'openai',
+      { openai: { type: 'api', key: 'minimax-key' } },
       makeConfig(),
       undefined,
       {
-        apiKey: "minimax-key",
-        baseURL: "https://api.minimax.io/v1",
+        apiKey: 'minimax-key',
+        baseURL: 'https://api.minimax.io/v1',
       },
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "minimax-cn-coding-plan");
-    assert.equal(snapshot!.remainingPercent, 75);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'minimax-cn-coding-plan')
+    assert.equal(snapshot!.remainingPercent, 75)
+  })
 
-  it("uses xyai login config to fetch and persist share-session", async () => {
-    const seenBodies: string[] = [];
-    let updateAuthCalls = 0;
+  it('uses xyai login config to fetch and persist share-session', async () => {
+    const seenBodies: string[] = []
+    let updateAuthCalls = 0
     setFetch(async (input, init) => {
-      const url = String(input);
-      if (url === "https://new.xychatai.com/frontend-api/login") {
-        seenBodies.push(String(init?.body || ""));
-        return new Response(JSON.stringify({ code: 1, msg: "登陆成功" }), {
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        seenBodies.push(String(init?.body || ''))
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "set-cookie": "share-session=session-123; Path=/; HttpOnly",
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=session-123; Path=/; HttpOnly',
           },
-        });
+        })
       }
-      if (url === "https://new.xychatai.com/frontend-api/vibe-code/quota") {
-        const headers = new Headers(init?.headers);
-        assert.equal(headers.get("cookie"), "share-session=session-123");
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
+        const headers = new Headers(init?.headers)
+        assert.equal(headers.get('cookie'), 'share-session=session-123')
         return jsonResponse({
           code: 1,
           data: {
@@ -471,69 +471,69 @@ describe("fetchQuotaSnapshot", () => {
                 amountLimit: 90,
                 remainingAmount: 70.2,
                 usedAmount: 19.8,
-                periodResetTime: "2026-03-21 22:18:43",
-                expireTime: "2026-04-15T15:40:43.636+08:00",
-                subTypeName: "codex+gpt 重度型",
+                periodResetTime: '2026-03-21 22:18:43',
+                expireTime: '2026-04-15T15:40:43.636+08:00',
+                subTypeName: 'codex+gpt 重度型',
               },
             },
           },
-        });
+        })
       }
-      throw new Error(`unexpected url: ${url}`);
-    });
+      throw new Error(`unexpected url: ${url}`)
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "xyai",
+      'xyai',
       {},
       makeConfig({
         providers: {
           xyai: {
             enabled: true,
-            baseURL: "https://new.xychatai.com",
-            serviceType: "codex",
+            baseURL: 'https://new.xychatai.com',
+            serviceType: 'codex',
             login: {
-              username: "user@example.com",
-              password: "secret",
+              username: 'user@example.com',
+              password: 'secret',
             },
           },
         },
       }),
       async (_providerID, auth) => {
-        updateAuthCalls += 1;
-        assert.deepEqual(auth, { type: "wellknown", token: "session-123" });
+        updateAuthCalls += 1
+        assert.deepEqual(auth, { type: 'wellknown', token: 'session-123' })
       },
-    );
+    )
 
     assert.deepEqual(seenBodies, [
       JSON.stringify({
-        userToken: "user@example.com",
-        password: "secret",
-        token: "",
+        userToken: 'user@example.com',
+        password: 'secret',
+        token: '',
       }),
-    ]);
-    assert.equal(updateAuthCalls, 1);
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "xyai");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 78);
-    assert.equal(snapshot!.windows?.[0].label, "Daily $70.2/$90");
-    assert.equal(snapshot!.resetAt, toIso("2026-03-21 22:18:43"));
-    assert.equal(snapshot!.note, "exp 04-15");
-  });
+    ])
+    assert.equal(updateAuthCalls, 1)
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 78)
+    assert.equal(snapshot!.windows?.[0].label, 'Daily $70.2/$90')
+    assert.equal(snapshot!.resetAt, toIso('2026-03-21 22:18:43'))
+    assert.equal(snapshot!.note, 'exp 04-15')
+  })
 
-  it("retries xyai quota after auth failure with configured login", async () => {
-    let quotaCalls = 0;
+  it('retries xyai quota after auth failure with configured login', async () => {
+    let quotaCalls = 0
     setFetch(async (input, init) => {
-      const url = String(input);
-      if (url === "https://new.xychatai.com/frontend-api/vibe-code/quota") {
-        quotaCalls += 1;
-        const headers = new Headers(init?.headers);
-        const cookie = headers.get("cookie");
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
+        quotaCalls += 1
+        const headers = new Headers(init?.headers)
+        const cookie = headers.get('cookie')
         if (quotaCalls === 1) {
-          assert.equal(cookie, "share-session=expired-session");
-          return jsonResponse({ code: -1, msg: "认证失败，请重新登录" });
+          assert.equal(cookie, 'share-session=expired-session')
+          return jsonResponse({ code: -1, msg: '认证失败，请重新登录' })
         }
-        assert.equal(cookie, "share-session=fresh-session");
+        assert.equal(cookie, 'share-session=fresh-session')
         return jsonResponse({
           code: 1,
           data: {
@@ -541,57 +541,57 @@ describe("fetchQuotaSnapshot", () => {
               subscriptions: {
                 amountLimit: 100,
                 remainingAmount: 88,
-                periodResetTime: "2026-03-21 23:00:00",
+                periodResetTime: '2026-03-21 23:00:00',
               },
             },
           },
-        });
+        })
       }
-      if (url === "https://new.xychatai.com/frontend-api/login") {
-        return new Response(JSON.stringify({ code: 1, msg: "登陆成功" }), {
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "set-cookie": "share-session=fresh-session; Path=/; HttpOnly",
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=fresh-session; Path=/; HttpOnly',
           },
-        });
+        })
       }
-      throw new Error(`unexpected url: ${url}`);
-    });
+      throw new Error(`unexpected url: ${url}`)
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "xyai-openai",
+      'xyai-openai',
       {
-        "xyai-openai": { type: "wellknown", token: "expired-session" },
+        'xyai-openai': { type: 'wellknown', token: 'expired-session' },
       },
       makeConfig({
         providers: {
           xyai: {
             enabled: true,
             login: {
-              username: "user@example.com",
-              password: "secret",
+              username: 'user@example.com',
+              password: 'secret',
             },
           },
         },
       }),
       async () => {},
-      { baseURL: "https://new.xychatai.com/v1" },
-    );
+      { baseURL: 'https://new.xychatai.com/v1' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "xyai");
-    assert.equal(snapshot!.providerID, "xyai-openai");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 88);
-    assert.equal(quotaCalls, 2);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai')
+    assert.equal(snapshot!.providerID, 'xyai-openai')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 88)
+    assert.equal(quotaCalls, 2)
+  })
 
-  it("does not treat api-key auth as xyai share-session cookie", async () => {
+  it('does not treat api-key auth as xyai share-session cookie', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
-      "xyai",
+      'xyai',
       {
-        xyai: { type: "api", key: "not-a-cookie" },
+        xyai: { type: 'api', key: 'not-a-cookie' },
       },
       makeConfig({
         providers: {
@@ -600,27 +600,27 @@ describe("fetchQuotaSnapshot", () => {
           },
         },
       }),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "xyai");
-    assert.equal(snapshot!.status, "unavailable");
-    assert.equal(snapshot!.note, "missing share-session or login credentials");
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai')
+    assert.equal(snapshot!.status, 'unavailable')
+    assert.equal(snapshot!.note, 'missing share-session or login credentials')
+  })
 
-  it("keeps legacy xyai-vibe provider id working as an alias", async () => {
+  it('keeps legacy xyai-vibe provider id working as an alias', async () => {
     setFetch(async (input) => {
-      const url = String(input);
-      if (url === "https://new.xychatai.com/frontend-api/login") {
-        return new Response(JSON.stringify({ code: 1, msg: "登陆成功" }), {
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "set-cookie": "share-session=legacy-session; Path=/; HttpOnly",
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=legacy-session; Path=/; HttpOnly',
           },
-        });
+        })
       }
-      if (url === "https://new.xychatai.com/frontend-api/vibe-code/quota") {
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
         return jsonResponse({
           code: 1,
           data: {
@@ -628,54 +628,54 @@ describe("fetchQuotaSnapshot", () => {
               subscriptions: {
                 amountLimit: 100,
                 remainingAmount: 88,
-                periodResetTime: "2026-03-21 23:00:00",
+                periodResetTime: '2026-03-21 23:00:00',
               },
             },
           },
-        });
+        })
       }
-      throw new Error(`unexpected url: ${url}`);
-    });
+      throw new Error(`unexpected url: ${url}`)
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "xyai-vibe",
+      'xyai-vibe',
       {},
       makeConfig({
         providers: {
-          "xyai-vibe": {
+          'xyai-vibe': {
             enabled: true,
             login: {
-              username: "legacy@example.com",
-              password: "secret",
+              username: 'legacy@example.com',
+              password: 'secret',
             },
           },
         },
       }),
       async () => {},
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "xyai");
-    assert.equal(snapshot!.providerID, "xyai-vibe");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 88);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'xyai')
+    assert.equal(snapshot!.providerID, 'xyai-vibe')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 88)
+  })
 
-  it("prefers canonical xyai config over legacy alias config when both exist", async () => {
-    const seenBodies: string[] = [];
+  it('prefers canonical xyai config over legacy alias config when both exist', async () => {
+    const seenBodies: string[] = []
     setFetch(async (input, init) => {
-      const url = String(input);
-      if (url === "https://new.xychatai.com/frontend-api/login") {
-        seenBodies.push(String(init?.body || ""));
-        return new Response(JSON.stringify({ code: 1, msg: "登陆成功" }), {
+      const url = String(input)
+      if (url === 'https://new.xychatai.com/frontend-api/login') {
+        seenBodies.push(String(init?.body || ''))
+        return new Response(JSON.stringify({ code: 1, msg: '登陆成功' }), {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "set-cookie": "share-session=preferred-session; Path=/; HttpOnly",
+            'Content-Type': 'application/json',
+            'set-cookie': 'share-session=preferred-session; Path=/; HttpOnly',
           },
-        });
+        })
       }
-      if (url === "https://new.xychatai.com/frontend-api/vibe-code/quota") {
+      if (url === 'https://new.xychatai.com/frontend-api/vibe-code/quota') {
         return jsonResponse({
           code: 1,
           data: {
@@ -683,145 +683,145 @@ describe("fetchQuotaSnapshot", () => {
               subscriptions: {
                 amountLimit: 100,
                 remainingAmount: 76,
-                periodResetTime: "2026-03-21 23:00:00",
+                periodResetTime: '2026-03-21 23:00:00',
               },
             },
           },
-        });
+        })
       }
-      throw new Error(`unexpected url: ${url}`);
-    });
+      throw new Error(`unexpected url: ${url}`)
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "xyai-vibe",
+      'xyai-vibe',
       {},
       makeConfig({
         providers: {
           xyai: {
             enabled: true,
             login: {
-              username: "new@example.com",
-              password: "secret",
+              username: 'new@example.com',
+              password: 'secret',
             },
           },
-          "xyai-vibe": {
+          'xyai-vibe': {
             enabled: true,
             login: {
-              username: "old@example.com",
-              password: "stale",
+              username: 'old@example.com',
+              password: 'stale',
             },
           },
         },
       }),
       async () => {},
-    );
+    )
 
-    assert.ok(snapshot);
+    assert.ok(snapshot)
     assert.deepEqual(seenBodies, [
       JSON.stringify({
-        userToken: "new@example.com",
-        password: "secret",
-        token: "",
+        userToken: 'new@example.com',
+        password: 'secret',
+        token: '',
       }),
-    ]);
-    assert.equal(snapshot!.remainingPercent, 76);
-  });
+    ])
+    assert.equal(snapshot!.remainingPercent, 76)
+  })
 
-  it("preserves Copilot enterprise provider identity in snapshots", async () => {
+  it('preserves Copilot enterprise provider identity in snapshots', async () => {
     setFetch(async (input) => {
       assert.equal(
         String(input),
-        "https://api.github.com/copilot_internal/user",
-      );
+        'https://api.github.com/copilot_internal/user',
+      )
       return jsonResponse({
         quota_snapshots: {
           premium_interactions: {
             percent_remaining: 66,
-            quota_reset_date_utc: "2026-03-01T00:00:00Z",
+            quota_reset_date_utc: '2026-03-01T00:00:00Z',
           },
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "github-copilot-enterprise",
+      'github-copilot-enterprise',
       {
-        "github-copilot-enterprise": { type: "oauth", access: "copilot-token" },
+        'github-copilot-enterprise': { type: 'oauth', access: 'copilot-token' },
       },
       makeConfig(),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.providerID, "github-copilot-enterprise");
-    assert.equal(snapshot!.label, "GitHub Copilot Enterprise");
-    assert.equal(snapshot!.shortLabel, "Copilot Ent");
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.providerID, 'github-copilot-enterprise')
+    assert.equal(snapshot!.label, 'GitHub Copilot Enterprise')
+    assert.equal(snapshot!.shortLabel, 'Copilot Ent')
+  })
 
-  it("parses Anthropic oauth quota windows correctly", async () => {
+  it('parses Anthropic oauth quota windows correctly', async () => {
     setFetch(async (input, init) => {
-      assert.equal(String(input), "https://api.anthropic.com/api/oauth/usage");
-      const headers = new Headers(init?.headers);
-      assert.equal(headers.get("authorization"), "Bearer token");
-      assert.equal(headers.get("anthropic-beta"), "oauth-2025-04-20");
+      assert.equal(String(input), 'https://api.anthropic.com/api/oauth/usage')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('authorization'), 'Bearer token')
+      assert.equal(headers.get('anthropic-beta'), 'oauth-2025-04-20')
       return jsonResponse({
         five_hour: {
           utilization: 20,
-          resets_at: "2026-03-09T16:20:00Z",
+          resets_at: '2026-03-09T16:20:00Z',
         },
         seven_day: {
           utilization: 35,
-          resets_at: "2026-03-15T00:00:00Z",
+          resets_at: '2026-03-15T00:00:00Z',
         },
         seven_day_sonnet: {
           utilization: 55,
-          resets_at: "2026-03-16T00:00:00Z",
+          resets_at: '2026-03-16T00:00:00Z',
         },
         seven_day_opus: {
           utilization: 40,
-          resets_at: "2026-03-17T00:00:00Z",
+          resets_at: '2026-03-17T00:00:00Z',
         },
         seven_day_oauth_apps: {
           utilization: 30,
-          resets_at: "2026-03-18T00:00:00Z",
+          resets_at: '2026-03-18T00:00:00Z',
         },
         seven_day_cowork: {
           utilization: 15,
-          resets_at: "2026-03-19T00:00:00Z",
+          resets_at: '2026-03-19T00:00:00Z',
         },
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "anthropic",
+      'anthropic',
       {
-        anthropic: { type: "oauth", access: "token" },
+        anthropic: { type: 'oauth', access: 'token' },
       },
       makeConfig(),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.providerID, "anthropic");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 80);
-    assert.equal(snapshot!.resetAt, "2026-03-09T16:20:00.000Z");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 6);
-    assert.equal(snapshot!.windows![0].label, "5h");
-    assert.equal(snapshot!.windows![0].remainingPercent, 80);
-    assert.equal(snapshot!.windows![1].label, "Weekly");
-    assert.equal(snapshot!.windows![1].remainingPercent, 65);
-    assert.equal(snapshot!.windows![2].label, "Sonnet 7d");
-    assert.equal(snapshot!.windows![2].remainingPercent, 45);
-    assert.equal(snapshot!.windows![3].label, "Opus 7d");
-    assert.equal(snapshot!.windows![3].remainingPercent, 60);
-    assert.equal(snapshot!.windows![4].label, "OAuth Apps 7d");
-    assert.equal(snapshot!.windows![4].remainingPercent, 70);
-    assert.equal(snapshot!.windows![5].label, "Cowork 7d");
-    assert.equal(snapshot!.windows![5].remainingPercent, 85);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.providerID, 'anthropic')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 80)
+    assert.equal(snapshot!.resetAt, '2026-03-09T16:20:00.000Z')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 6)
+    assert.equal(snapshot!.windows![0].label, '5h')
+    assert.equal(snapshot!.windows![0].remainingPercent, 80)
+    assert.equal(snapshot!.windows![1].label, 'Weekly')
+    assert.equal(snapshot!.windows![1].remainingPercent, 65)
+    assert.equal(snapshot!.windows![2].label, 'Sonnet 7d')
+    assert.equal(snapshot!.windows![2].remainingPercent, 45)
+    assert.equal(snapshot!.windows![3].label, 'Opus 7d')
+    assert.equal(snapshot!.windows![3].remainingPercent, 60)
+    assert.equal(snapshot!.windows![4].label, 'OAuth Apps 7d')
+    assert.equal(snapshot!.windows![4].remainingPercent, 70)
+    assert.equal(snapshot!.windows![5].label, 'Cowork 7d')
+    assert.equal(snapshot!.windows![5].remainingPercent, 85)
+  })
 
-  it("ignores null Anthropic model-specific windows when the account does not have them", async () => {
+  it('ignores null Anthropic model-specific windows when the account does not have them', async () => {
     setFetch(async () =>
       jsonResponse({
         five_hour: {
@@ -830,377 +830,313 @@ describe("fetchQuotaSnapshot", () => {
         },
         seven_day: {
           utilization: 23,
-          resets_at: "2026-04-05T12:00:00.465121+00:00",
+          resets_at: '2026-04-05T12:00:00.465121+00:00',
         },
         seven_day_oauth_apps: null,
         seven_day_opus: null,
         seven_day_sonnet: null,
         seven_day_cowork: null,
       }),
-    );
+    )
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "anthropic",
+      'anthropic',
       {
-        anthropic: { type: "oauth", access: "token" },
+        anthropic: { type: 'oauth', access: 'token' },
       },
       makeConfig(),
-    );
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.ok(snapshot!.windows);
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.ok(snapshot!.windows)
     assert.deepEqual(
       snapshot!.windows!.map((window) => window.label),
-      ["5h", "Weekly"],
-    );
-    assert.equal(snapshot!.windows![0].remainingPercent, 100);
-    assert.equal(snapshot!.windows![0].resetAt, undefined);
-    assert.equal(snapshot!.windows![1].remainingPercent, 77);
-  });
+      ['5h', 'Weekly'],
+    )
+    assert.equal(snapshot!.windows![0].remainingPercent, 100)
+    assert.equal(snapshot!.windows![0].resetAt, undefined)
+    assert.equal(snapshot!.windows![1].remainingPercent, 77)
+  })
 
-  it("returns unsupported for anthropic api-key auth", async () => {
+  it('returns unsupported for anthropic api-key auth', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
-      "anthropic",
+      'anthropic',
       {
-        anthropic: { type: "api", key: "token" },
+        anthropic: { type: 'api', key: 'token' },
       },
       makeConfig(),
-    );
-    assert.ok(snapshot);
-    assert.equal(snapshot!.providerID, "anthropic");
-    assert.equal(snapshot!.status, "unsupported");
-  });
+    )
+    assert.ok(snapshot)
+    assert.equal(snapshot!.providerID, 'anthropic')
+    assert.equal(snapshot!.status, 'unsupported')
+  })
 
-  it("honors includeOpenAI=false", async () => {
+  it('honors includeOpenAI=false', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      { openai: { type: "oauth", access: "token" } },
+      'openai',
+      { openai: { type: 'oauth', access: 'token' } },
       makeConfig({ includeOpenAI: false }),
-    );
-    assert.equal(snapshot, undefined);
-  });
+    )
+    assert.equal(snapshot, undefined)
+  })
 
-  it("returns error on OpenAI non-2xx response", async () => {
-    setFetch(async () => jsonResponse({ message: "forbidden" }, 403));
+  it('returns error on OpenAI non-2xx response', async () => {
+    setFetch(async () => jsonResponse({ message: 'forbidden' }, 403))
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      { openai: { type: "oauth", access: "token" } },
+      'openai',
+      { openai: { type: 'oauth', access: 'token' } },
       makeConfig(),
-    );
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "error");
-    assert.equal(snapshot!.note, "http 403");
-  });
+    )
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'error')
+    assert.equal(snapshot!.note, 'http 403')
+  })
 
-  it("returns undefined for unknown provider", async () => {
+  it('returns undefined for unknown provider', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
-      "unknown-provider",
+      'unknown-provider',
       {},
       makeConfig(),
-    );
-    assert.equal(snapshot, undefined);
-  });
+    )
+    assert.equal(snapshot, undefined)
+  })
 
-  it("builds stable quota cache keys", () => {
-    assert.equal(quota.quotaCacheKey("openai"), "openai");
+  it('builds stable quota cache keys', () => {
+    assert.equal(quota.quotaCacheKey('openai'), 'openai')
     assert.equal(
-      quota.quotaCacheKey("openai", { baseURL: "https://api.openai.com/v1/" }),
-      "openai@https://api.openai.com/v1",
-    );
+      quota.quotaCacheKey('openai', { baseURL: 'https://api.openai.com/v1/' }),
+      'openai@https://api.openai.com/v1',
+    )
     assert.equal(
-      quota.quotaCacheKey("openai", {
-        baseURL: "https://www.right.codes/codex/v1",
+      quota.quotaCacheKey('openai', {
+        baseURL: 'https://www.right.codes/codex/v1',
       }),
-      "rightcode@https://www.right.codes/codex/v1",
-    );
+      'rightcode@https://www.right.codes/codex/v1',
+    )
 
     assert.equal(
-      quota.quotaCacheKey("rightcode-openai", {
-        baseURL: "https://www.right.codes/codex/v1",
+      quota.quotaCacheKey('rightcode-openai', {
+        baseURL: 'https://www.right.codes/codex/v1',
       }),
-      "rightcode-openai@https://www.right.codes/codex/v1",
-    );
+      'rightcode-openai@https://www.right.codes/codex/v1',
+    )
+
+    assert.equal(quota.quotaCacheKey('kimi-for-coding'), 'kimi-for-coding')
 
     assert.equal(
-      quota.quotaCacheKey("openai", {
-        baseURL: "https://buzzai.cc/v1",
+      quota.quotaCacheKey('github-copilot-enterprise'),
+      'github-copilot:github-copilot-enterprise',
+    )
+
+    assert.equal(
+      quota.quotaCacheKey('xyai-openai', {
+        baseURL: 'https://new.xychatai.com/v1',
       }),
-      "buzz@https://buzzai.cc/v1",
-    );
-
-    assert.equal(quota.quotaCacheKey("kimi-for-coding"), "kimi-for-coding");
+      'xyai-openai@https://new.xychatai.com/v1',
+    )
 
     assert.equal(
-      quota.quotaCacheKey("github-copilot-enterprise"),
-      "github-copilot:github-copilot-enterprise",
-    );
-
-    assert.equal(
-      quota.quotaCacheKey("xyai-openai", {
-        baseURL: "https://new.xychatai.com/v1",
+      quota.quotaCacheKey('openai', {
+        baseURL: 'https://new.xychatai.com/v1',
       }),
-      "xyai-openai@https://new.xychatai.com/v1",
-    );
+      'openai@https://new.xychatai.com/v1',
+    )
+  })
 
-    assert.equal(
-      quota.quotaCacheKey("openai", {
-        baseURL: "https://new.xychatai.com/v1",
-      }),
-      "openai@https://new.xychatai.com/v1",
-    );
-  });
-
-  it("uses Buzz adapter when baseURL points to buzzai.cc and computes remaining balance", async () => {
+  it('uses RightCode adapter when baseURL points to right.codes and matches subscription prefixes', async () => {
     setFetch(async (input) => {
-      const url = String(input);
-      if (url === "https://buzzai.cc/v1/dashboard/billing/subscription") {
-        return jsonResponse({
-          object: "billing_subscription",
-          has_payment_method: true,
-          soft_limit_usd: 45,
-          hard_limit_usd: 45,
-          system_hard_limit_usd: 45,
-          access_until: 0,
-        });
-      }
-      if (url === "https://buzzai.cc/v1/dashboard/billing/usage") {
-        return jsonResponse({
-          object: "list",
-          total_usage: 3482.564,
-        });
-      }
-      throw new Error(`unexpected url: ${url}`);
-    });
-
-    const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      {
-        openai: { type: "api", key: "buzz-key" },
-      },
-      makeConfig({ includeOpenAI: false }),
-      undefined,
-      { baseURL: "https://buzzai.cc/v1", apiKey: "buzz-key" },
-    );
-
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "buzz");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.label, "Buzz");
-    assert.equal(snapshot!.shortLabel, "Buzz");
-    assert.equal(snapshot!.windows, undefined);
-    assert.equal(snapshot!.balance?.currency, "$");
-    assert.ok(Math.abs((snapshot!.balance?.amount || 0) - 10.17436) < 1e-9);
-  });
-
-  it("returns unavailable for Buzz when api key is missing", async () => {
-    const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
-      {},
-      makeConfig({ includeOpenAI: false }),
-      undefined,
-      { baseURL: "https://buzzai.cc/v1" },
-    );
-
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "buzz");
-    assert.equal(snapshot!.status, "unavailable");
-    assert.equal(snapshot!.note, "missing api key");
-  });
-
-  it("uses RightCode adapter when baseURL points to right.codes and matches subscription prefixes", async () => {
-    setFetch(async (input) => {
-      assert.equal(String(input), "https://www.right.codes/account/summary");
+      assert.equal(String(input), 'https://www.right.codes/account/summary')
       return jsonResponse({
         balance: 258.31,
         subscriptions: [
           {
-            name: "Tiny Badge",
+            name: 'Tiny Badge',
             total_quota: 0.01,
             remaining_quota: 0.01,
             reset_today: false,
-            available_prefixes: ["/codex"],
+            available_prefixes: ['/codex'],
           },
           {
-            name: "Codex Plan",
+            name: 'Codex Plan',
             total_quota: 60,
             remaining_quota: 45,
             reset_today: false,
-            expired_at: "2026-02-27T02:50:08Z",
-            available_prefixes: ["/codex"],
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
           },
         ],
-      });
-    });
+      })
+    })
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
-        openai: { type: "api", key: "rc-key" },
+        openai: { type: 'api', key: 'rc-key' },
       },
       makeConfig({ includeOpenAI: false }),
       undefined,
-      { baseURL: "https://www.right.codes/codex/v1", apiKey: "rc-key" },
-    );
+      { baseURL: 'https://www.right.codes/codex/v1', apiKey: 'rc-key' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "rightcode");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.shortLabel, "RC");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 1);
-    assert.equal(snapshot!.windows![0].label, "Daily $105/$60");
-    assert.equal(snapshot!.windows![0].showPercent, false);
-    assert.equal(snapshot!.windows![0].resetLabel, undefined);
-    assert.equal(snapshot!.windows![0].resetAt, undefined);
-    assert.equal(snapshot!.windows![0].remainingPercent, 175);
-    assert.equal(snapshot!.balance?.amount, 258.31);
-    assert.equal(snapshot!.expiresAt, "2026-02-27T02:50:08.000Z");
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.shortLabel, 'RC')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 1)
+    assert.equal(snapshot!.windows![0].label, 'Daily $105/$60')
+    assert.equal(snapshot!.windows![0].showPercent, false)
+    assert.equal(snapshot!.windows![0].resetLabel, undefined)
+    assert.equal(snapshot!.windows![0].resetAt, undefined)
+    assert.equal(snapshot!.windows![0].remainingPercent, 175)
+    assert.equal(snapshot!.balance?.amount, 258.31)
+    assert.equal(snapshot!.expiresAt, '2026-02-27T02:50:08.000Z')
+  })
 
-  it("stores earliest expiry separately when multiple RightCode subscriptions differ", async () => {
+  it('stores earliest expiry separately when multiple RightCode subscriptions differ', async () => {
     setFetch(async () =>
       jsonResponse({
         balance: 10,
         subscriptions: [
           {
-            name: "Codex Plan A",
+            name: 'Codex Plan A',
             total_quota: 60,
             remaining_quota: 45,
             reset_today: false,
-            expired_at: "2026-02-27T02:50:08Z",
-            available_prefixes: ["/codex"],
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
           },
           {
-            name: "Codex Plan B",
+            name: 'Codex Plan B',
             total_quota: 60,
             remaining_quota: 45,
             reset_today: false,
-            expired_at: "2026-03-01T00:00:00Z",
-            available_prefixes: ["/codex"],
+            expired_at: '2026-03-01T00:00:00Z',
+            available_prefixes: ['/codex'],
           },
         ],
       }),
-    );
+    )
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
-        openai: { type: "api", key: "rc-key" },
+        openai: { type: 'api', key: 'rc-key' },
       },
       makeConfig(),
       undefined,
-      { baseURL: "https://www.right.codes/codex/v1" },
-    );
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "rightcode");
-    assert.equal(snapshot!.status, "ok");
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows!.length, 1);
-    assert.equal(snapshot!.windows![0].resetLabel, undefined);
-    assert.equal(snapshot!.windows![0].resetAt, undefined);
-    assert.equal(snapshot!.expiresAt, "2026-02-27T02:50:08.000Z");
-    assert.match(snapshot!.note || "", /exp 02-27\+/);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows!.length, 1)
+    assert.equal(snapshot!.windows![0].resetLabel, undefined)
+    assert.equal(snapshot!.windows![0].resetAt, undefined)
+    assert.equal(snapshot!.expiresAt, '2026-02-27T02:50:08.000Z')
+    assert.match(snapshot!.note || '', /exp 02-27\+/)
+  })
 
-  it("falls back to balance for RightCode when subscription prefix does not match", async () => {
+  it('falls back to balance for RightCode when subscription prefix does not match', async () => {
     setFetch(async () =>
       jsonResponse({
         balance: 111.25,
         subscriptions: [
           {
-            name: "Other Plan",
+            name: 'Other Plan',
             total_quota: 100,
             remaining_quota: 50,
             duration_hours: 720,
-            available_prefixes: ["/chat"],
+            available_prefixes: ['/chat'],
           },
         ],
       }),
-    );
+    )
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
-        openai: { type: "api", key: "rc-key" },
+        openai: { type: 'api', key: 'rc-key' },
       },
       makeConfig(),
       undefined,
-      { baseURL: "https://www.right.codes/codex/v1" },
-    );
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "rightcode");
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.balance?.amount, 111.25);
-    assert.equal(snapshot!.windows, undefined);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.balance?.amount, 111.25)
+    assert.equal(snapshot!.windows, undefined)
+  })
 
-  it("uses normal same-day ratio when reset_today is true", async () => {
+  it('uses normal same-day ratio when reset_today is true', async () => {
     setFetch(async () =>
       jsonResponse({
         balance: 999,
         subscriptions: [
           {
-            name: "Codex Plan",
+            name: 'Codex Plan',
             total_quota: 60,
             remaining_quota: 30,
             reset_today: true,
-            available_prefixes: ["/codex"],
+            available_prefixes: ['/codex'],
           },
         ],
       }),
-    );
+    )
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "openai",
+      'openai',
       {
-        openai: { type: "api", key: "rc-key" },
+        openai: { type: 'api', key: 'rc-key' },
       },
       makeConfig(),
       undefined,
-      { baseURL: "https://www.right.codes/codex/v1" },
-    );
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.status, "ok");
-    assert.equal(snapshot!.remainingPercent, 50);
-    assert.ok(snapshot!.windows);
-    assert.equal(snapshot!.windows![0].label, "Daily $30/$60");
-    assert.equal(snapshot!.windows![0].remainingPercent, 50);
-  });
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 50)
+    assert.ok(snapshot!.windows)
+    assert.equal(snapshot!.windows![0].label, 'Daily $30/$60')
+    assert.equal(snapshot!.windows![0].remainingPercent, 50)
+  })
 
-  it("preserves rightcode provider ID for display labeling", async () => {
+  it('preserves rightcode provider ID for display labeling', async () => {
     setFetch(async () =>
       jsonResponse({
         balance: 1,
         subscriptions: [
           {
-            name: "Codex Plan",
+            name: 'Codex Plan',
             total_quota: 60,
             remaining_quota: 45,
             reset_today: false,
-            expired_at: "2026-02-27T02:50:08Z",
-            available_prefixes: ["/codex"],
+            expired_at: '2026-02-27T02:50:08Z',
+            available_prefixes: ['/codex'],
           },
         ],
       }),
-    );
+    )
 
     const snapshot = await quota.fetchQuotaSnapshot(
-      "rightcode-openai",
+      'rightcode-openai',
       {
-        "rightcode-openai": { type: "api", key: "rc-key" },
+        'rightcode-openai': { type: 'api', key: 'rc-key' },
       },
       makeConfig(),
       undefined,
-      { baseURL: "https://www.right.codes/codex/v1" },
-    );
+      { baseURL: 'https://www.right.codes/codex/v1' },
+    )
 
-    assert.ok(snapshot);
-    assert.equal(snapshot!.adapterID, "rightcode");
-    assert.equal(snapshot!.providerID, "rightcode-openai");
-    assert.equal(snapshot!.shortLabel, "RC-openai");
-  });
-});
+    assert.ok(snapshot)
+    assert.equal(snapshot!.adapterID, 'rightcode')
+    assert.equal(snapshot!.providerID, 'rightcode-openai')
+    assert.equal(snapshot!.shortLabel, 'RC-openai')
+  })
+})

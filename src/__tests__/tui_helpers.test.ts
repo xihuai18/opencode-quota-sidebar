@@ -228,10 +228,10 @@ describe('tui quota helpers', () => {
     const groups = renderSidebarQuotaGroups(
       [
         {
-          providerID: 'buzz',
-          adapterID: 'buzz',
-          label: 'Buzz',
-          shortLabel: 'Buzz',
+          providerID: 'rightcode',
+          adapterID: 'rightcode',
+          label: 'RightCode',
+          shortLabel: 'RC',
           status: 'ok',
           checkedAt: Date.now(),
           balance: { amount: 10.2, currency: '$' },
@@ -245,7 +245,7 @@ describe('tui quota helpers', () => {
 
   it('uses error tone for negative balance fallback groups', () => {
     const groups = fallbackQuotaGroupsFromTitle(
-      'Session | Buzz B-$3.2 | Cd63% | Est$2.34',
+      'Session | RC B-$3.2 | Cd63% | Est$2.34',
       36,
     )
 

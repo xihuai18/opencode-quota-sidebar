@@ -16,7 +16,7 @@ The plugin now uses a provider adapter registry, so adding a new provider does n
 ## Common adapter patterns
 
 - Direct provider ID match: best for first-party providers with stable IDs
-- `baseURL` match: best for OpenAI-compatible relays such as RightCode or Buzz
+- `baseURL` match: best for OpenAI-compatible relays such as RightCode
 - Prefix/variant normalization: best when one provider has multiple runtime IDs
 - Balance-only providers should prefer `balance` over inventing fake percent windows
 - Built-in API-key providers such as `kimi-for-coding` may need both: direct ID matching for the canonical provider and support for OpenCode's discovered `key -> options.apiKey` bridge
@@ -138,6 +138,9 @@ npm run typecheck
 When a change affects users, update the relevant docs in the same PR:
 
 - `README.md` for install, config, behavior, examples, or troubleshooting
+- `README.zh-CN.md` when Chinese-facing user docs should stay aligned with the English README
 - `CONTRIBUTING.md` if the change affects adapter patterns or provider authoring guidance
 - `CHANGELOG.md` for released user-facing changes
 - `SECURITY.md` if the change affects auth handling, external requests, or data storage
+
+If you update README screenshots or image references, also verify the corresponding asset is included in the published package file list in `package.json`.
