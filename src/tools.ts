@@ -1,8 +1,21 @@
-import { tool } from '@opencode-ai/plugin/tool'
+import * as z from 'zod'
 import type { QuotaSnapshot } from './types.js'
 import type { UsageSummary } from './usage.js'
 
-const z = tool.schema
+type ToolContext = {
+  sessionID: string
+}
+
+function tool<Args extends z.ZodRawShape>(input: {
+  description: string
+  args: Args
+  execute: (
+    args: z.infer<z.ZodObject<Args>>,
+    context: ToolContext,
+  ) => Promise<string>
+}) {
+  return input
+}
 
 export function createQuotaSidebarTools(deps: {
   getTitleEnabled: () => boolean

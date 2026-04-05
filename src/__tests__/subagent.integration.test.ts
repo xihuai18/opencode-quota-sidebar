@@ -179,7 +179,7 @@ describe('subagent aggregation integration', () => {
               if (args.path.id === 'p1') return { data: [sessions.c1] }
               return { data: [] }
             },
-            list: async () => ({ data: [{ id: 'p1' }, { id: 'c1' }] }),
+            list: async () => ({ data: [] }),
           },
           tui: {
             showToast: async () => ({ data: { ok: true } }),
@@ -743,9 +743,7 @@ describe('subagent aggregation integration', () => {
               )
               return { data: children as any }
             },
-            list: async () => ({
-              data: [{ id: 'p1' }, { id: 'p2' }, { id: 'c1' }],
-            }),
+            list: async () => ({ data: [] }),
           },
           tui: {
             showToast: async () => ({ data: { ok: true } }),

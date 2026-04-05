@@ -256,9 +256,14 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       swallow('startup:restoreAllVisibleTitles'),
     )
   } else {
-    startupTitleWork = refreshAllTouchedTitles()
-      .then(() => undefined)
-      .catch(swallow('startup:refreshAllTouchedTitles'))
+    startupTitleWork = Promise.allSettled([
+      refreshAllVisibleTitles().catch(
+        swallow('startup:refreshAllVisibleTitles'),
+      ),
+      refreshAllTouchedTitles().catch(
+        swallow('startup:refreshAllTouchedTitles'),
+      ),
+    ]).then(() => undefined)
   }
 
   const shutdown = async () => {
