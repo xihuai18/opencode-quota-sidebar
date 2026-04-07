@@ -14,13 +14,35 @@ import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
 import type { UsageSummary } from '../usage.js'
 
 const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT
+const ORIGINAL_DATE = globalThis.Date
+const FIXED_NOW_MS = ORIGINAL_DATE.parse('2026-02-20T12:00:00.000Z')
+
+class MockDate extends ORIGINAL_DATE {
+  constructor(value?: string | number | Date) {
+    super((value ?? FIXED_NOW_MS) as any)
+  }
+
+  static now() {
+    return FIXED_NOW_MS
+  }
+
+  static parse(value: string) {
+    return ORIGINAL_DATE.parse(value)
+  }
+
+  static UTC(...args: any[]) {
+    return (ORIGINAL_DATE.UTC as (...values: number[]) => number)(...args)
+  }
+}
 
 beforeEach(() => {
   process.env.OPENCODE_CLIENT = 'cli'
+  globalThis.Date = MockDate as DateConstructor
 })
 
 afterEach(() => {
   process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
+  globalThis.Date = ORIGINAL_DATE
 })
 
 function makeConfig(width = 36): QuotaSidebarConfig {
@@ -412,11 +434,8 @@ describe('renderSidebarTitle', () => {
     ])
     const quotaLines = renderSidebarQuotaLines(quotas, config)
     assert.equal(quotaLines.length, 2)
-    assert.match(
-      quotaLines[0] || '',
-      /^OAI 5h80 R(?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2}) W70 R04-03$/,
-    )
-    assert.equal(quotaLines[1], 'RC D$88.9/$60 E02-27 B260')
+    assert.match(quotaLines[0] || '', /^OAI 5h80 R\d+D\d{2}h W70 R\d+D\d{2}h$/)
+    assert.match(quotaLines[1] || '', /^RC D\$88\.9\/\$60 E\d+D\d{2}h B260$/)
   })
 
   it('renders cached ratio line for mixed cache model types', () => {
@@ -594,10 +613,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(
-      title,
-      /Kimi 5h84 R(?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2}) W72 R\d{2}-\d{2}/,
-    )
+    assert.match(title, /Kimi 5h84 R\d+D\d{2}h W72 R\d+D\d{2}h/)
   })
 
   it('renders MiniMax multi-window quota lines like other subscription providers', () => {
@@ -624,10 +640,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(
-      title,
-      /MiniMax 5h84 R(?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2}) W64 R\d{2}-\d{2}/,
-    )
+    assert.match(title, /MiniMax 5h84 R\d+D\d{2}h W64 R\d+D\d{2}h/)
   })
 
   it('renders Zhipu token quota like other coding-plan providers', () => {
@@ -656,24 +669,11 @@ describe('renderSidebarTitle', () => {
   })
 
   it('applies short-window time formatting consistently across providers', () => {
-    const now = new Date()
     const crossDayShortReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      1,
-      0,
-      0,
-      0,
+      Date.now() + 13 * 60 * 60_000,
     ).toISOString()
     const futureLongReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 7,
-      19,
-      0,
-      0,
-      0,
+      Date.now() + (7 * 24 + 19) * 60 * 60_000,
     ).toISOString()
 
     const quotas: QuotaSnapshot[] = [
@@ -731,12 +731,12 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /OAI 5h80 R\d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /Ant D46 R\d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /Cop M70 R\d{2}-\d{2}/)
-    assert.doesNotMatch(title, /M70 R\d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /RC D\$88\.9\/\$60 E\d{2}-\d{2}/)
-    assert.doesNotMatch(title, /D\$88\.9\/\$60 E\d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(title, /OAI 5h80 R\d+h\d{2}m/)
+    assert.match(title, /Ant D46 R\d+h\d{2}m/)
+    assert.match(title, /Cop M70 R\d+D\d{2}h/)
+    assert.doesNotMatch(title, /M70 R\d+h\d{2}m/)
+    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h/)
+    assert.doesNotMatch(title, /D\$88\.9\/\$60 E\d+h\d{2}m/)
   })
 
   it('adds blank line between title/tokens and tokens/quota', () => {
@@ -886,15 +886,8 @@ describe('renderSidebarTitle', () => {
   })
 
   it('renders XYAI reset time without compact expiry noise in sidebar', () => {
-    const now = new Date()
     const sameDayReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      22,
-      18,
-      0,
-      0,
+      Date.now() + (10 * 60 + 18) * 60_000,
     ).toISOString()
     const quotas: QuotaSnapshot[] = [
       {
@@ -923,38 +916,19 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /XYAI D\$70\.2\/\$90 R\d{2}:\d{2}/)
+    assert.match(title, /XYAI D\$70\.2\/\$90 R\d+h\d{2}m/)
     assert.doesNotMatch(title, /exp 04-15/i)
   })
 
   it('renders reset time and indented multi-window lines', () => {
-    const now = new Date()
     const sameDayReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      16,
-      20,
-      0,
-      0,
+      Date.now() + (4 * 60 + 20) * 60_000,
     ).toISOString()
     const weeklyReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 7,
-      12,
-      0,
-      0,
-      0,
+      Date.now() + (7 * 24 + 12) * 60 * 60_000,
     ).toISOString()
     const dailyReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      1,
-      30,
-      0,
-      0,
+      Date.now() + (13 * 60 + 30) * 60_000,
     ).toISOString()
     const quotas: QuotaSnapshot[] = [
       {
@@ -977,9 +951,9 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /OAI 5h80 R\d{2}:\d{2}/)
-    assert.match(title, /D65 R\d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(title, /W70 R\d{2}-\d{2}/)
+    assert.match(title, /OAI 5h80 R\d+h\d{2}m/)
+    assert.match(title, /D65 R\d+h\d{2}m/)
+    assert.match(title, /W70 R\d+D\d{2}h/)
   })
 
   it('renders RightCode daily quota without trailing percent and shows balance', () => {
@@ -1013,7 +987,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC D\$88\.9\/\$60 E02-27 B260/)
+    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h B260/)
     assert.doesNotMatch(title, /RC\s+D\$88\.9\/\$60\s+148/)
   })
 
@@ -1043,7 +1017,7 @@ describe('renderSidebarTitle', () => {
       quotas,
       makeConfig(60),
     )
-    assert.match(title, /RC D\$88\.9\/\$60 E\+02-27/)
+    assert.match(title, /RC D\$88\.9\/\$60 E\+\d+D\d{2}h/)
   })
 
   it('shows all used providers in sidebar', () => {
@@ -1405,24 +1379,9 @@ describe('renderMarkdownReport', () => {
   })
 
   it('uses compact reset formatting in markdown report for short windows', () => {
-    const now = new Date()
-    const shortReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      1,
-      0,
-      0,
-      0,
-    ).toISOString()
+    const shortReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString()
     const monthlyReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 10,
-      19,
-      0,
-      0,
-      0,
+      Date.now() + (10 * 24 + 19) * 60 * 60_000,
     ).toISOString()
 
     const report = renderMarkdownReport(
@@ -1468,11 +1427,9 @@ describe('renderMarkdownReport', () => {
       line.startsWith('- RC (Daily $88.9/$60):'),
     )
 
-    assert.match(anthro5h || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
-    assert.match(anthroWeekly || '', /reset \d{2}-\d{2}$/)
-    assert.doesNotMatch(anthroWeekly || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
-    assert.match(rightCodeDaily || '', /reset \d{2}-\d{2}$/)
-    assert.doesNotMatch(rightCodeDaily || '', /reset \d{2}-\d{2} \d{2}:\d{2}$/)
+    assert.match(anthro5h || '', /reset \d+h\d{2}m$/)
+    assert.match(anthroWeekly || '', /reset \d+D\d{2}h$/)
+    assert.match(rightCodeDaily || '', /reset \d+D\d{2}h$/)
   })
 
   it('renders Kimi markdown report like other subscription providers', () => {
@@ -1500,11 +1457,11 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
+      /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset \d+D\d{2}h/,
     )
     assert.match(
       report,
-      /- Kimi \(Weekly\): ok \\\| remaining 72\.0% \\\| reset \d{2}-\d{2}/,
+      /- Kimi \(Weekly\): ok \\\| remaining 72\.0% \\\| reset \d+D\d{2}h/,
     )
   })
 
@@ -1580,11 +1537,11 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /- MiniMax \(5h\): ok \\| remaining 84\.0% \\| reset (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
+      /- MiniMax \(5h\): ok \\| remaining 84\.0% \\| reset \d+D\d{2}h/,
     )
     assert.match(
       report,
-      /- MiniMax \(Weekly\): ok \\| remaining 64\.0% \\| reset \d{2}-\d{2}/,
+      /- MiniMax \(Weekly\): ok \\| remaining 64\.0% \\| reset \d+D\d{2}h/,
     )
     assert.match(
       report,
@@ -1594,15 +1551,8 @@ describe('renderMarkdownReport', () => {
   })
 
   it('includes XYAI expiry as secondary note in markdown report', () => {
-    const now = new Date()
     const sameDayReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      22,
-      18,
-      0,
-      0,
+      Date.now() + (10 * 60 + 18) * 60_000,
     ).toISOString()
     const report = renderMarkdownReport(
       'session',
@@ -1631,11 +1581,11 @@ describe('renderMarkdownReport', () => {
 
     assert.match(
       report,
-      /- XYAI \(Daily \$70\.2\/\$90\): ok \\\| reset \d{2}:\d{2} \\\| exp 04-15/,
+      /- XYAI \(Daily \$70\.2\/\$90\): ok \\\| reset \d+h\d{2}m \\\| exp 04-15/,
     )
   })
 
-  it('renders non-ok quota snapshots as plain status lines in markdown', () => {
+  it('hides unsupported and unavailable quota snapshots in markdown', () => {
     const report = renderMarkdownReport(
       'session',
       makeUsage(),
@@ -1649,15 +1599,45 @@ describe('renderMarkdownReport', () => {
           checkedAt: Date.now(),
           note: 'oauth quota endpoint is not publicly documented',
         },
+        {
+          providerID: 'kimi-for-coding',
+          adapterID: 'kimi-for-coding',
+          label: 'Kimi',
+          shortLabel: 'Kimi',
+          status: 'unavailable',
+          checkedAt: Date.now(),
+        },
       ],
       { showCost: true },
     )
 
+    assert.doesNotMatch(report, /Anthropic: unsupported/)
+    assert.doesNotMatch(report, /Kimi: unavailable/)
     assert.match(
       report,
-      /- Anthropic: unsupported \\| oauth quota endpoint is not publicly documented/,
+      /### Subscription Quota\n\n- no provider quota data available/,
     )
-    assert.doesNotMatch(report, /remaining - \\| reset -/)
+  })
+
+  it('keeps real quota fetch errors visible in markdown', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'anthropic',
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          status: 'error',
+          checkedAt: Date.now(),
+          note: 'quota endpoint returned 500',
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(report, /- Anthropic: error \\| quota endpoint returned 500/)
   })
 
   it('uses display labels for markdown quota lines', () => {
@@ -1732,15 +1712,8 @@ describe('renderToastMessage', () => {
   })
 
   it('uses aligned token and quota sections with blank line separation', () => {
-    const now = new Date()
     const sameDayReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      16,
-      20,
-      0,
-      0,
+      Date.now() + (4 * 60 + 20) * 60_000,
     ).toISOString()
     const toast = renderToastMessage('week', makeUsage(), [
       {
@@ -1763,17 +1736,8 @@ describe('renderToastMessage', () => {
     assert.ok(lines.some((line) => /OpenAI\s+5h 80\.0% Rst/.test(line)))
   })
 
-  it('shows date and time for cross-day short quota windows in toast', () => {
-    const now = new Date()
-    const tomorrowReset = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      1,
-      0,
-      0,
-      0,
-    ).toISOString()
+  it('shows countdown for short quota windows in toast', () => {
+    const tomorrowReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString()
     const toast = renderToastMessage('week', makeUsage(), [
       {
         providerID: 'anthropic',
@@ -1786,7 +1750,7 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(toast, /Anthropic\s+1d 46\.0% Rst \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(toast, /Anthropic\s+1d 46\.0% Rst \d+h\d{2}m/)
   })
 
   it('renders RightCode daily quota rules in toast', () => {
@@ -1861,8 +1825,8 @@ describe('renderToastMessage', () => {
     ])
 
     assert.match(toast, /Expiry Soon/)
-    assert.match(toast, /RC-openai\s+Exp \d{2}-\d{2} \d{2}:\d{2}/)
-    assert.match(toast, /XYAI\s+Exp \d{2}-\d{2} \d{2}:\d{2}/)
+    assert.match(toast, /RC-openai\s+Exp \d+D\d{2}h/)
+    assert.match(toast, /XYAI\s+Exp \d+D\d{2}h/)
   })
 
   it('does not show expiry reminders in toast when expiry is beyond 3 days', () => {
@@ -2020,6 +1984,46 @@ describe('renderToastMessage', () => {
     assert.doesNotMatch(toast, /Exp\+/)
   })
 
+  it('hides unsupported and unavailable quota snapshots in toast', () => {
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'anthropic',
+        adapterID: 'anthropic',
+        label: 'Anthropic',
+        shortLabel: 'Anthropic',
+        status: 'unsupported',
+        checkedAt: Date.now(),
+      },
+      {
+        providerID: 'kimi-for-coding',
+        adapterID: 'kimi-for-coding',
+        label: 'Kimi',
+        shortLabel: 'Kimi',
+        status: 'unavailable',
+        checkedAt: Date.now(),
+      },
+    ])
+
+    assert.doesNotMatch(toast, /unsupported|unavailable/i)
+    assert.doesNotMatch(toast, /\nQuota\n/)
+  })
+
+  it('keeps real quota fetch errors visible in toast', () => {
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'anthropic',
+        adapterID: 'anthropic',
+        label: 'Anthropic',
+        shortLabel: 'Anthropic',
+        status: 'error',
+        checkedAt: Date.now(),
+      },
+    ])
+
+    assert.match(toast, /\nQuota\n/)
+    assert.match(toast, /Anthropic\s+Remaining \?/)
+  })
+
   it('renders per-provider Cost as API section in toast', () => {
     const toast = renderToastMessage(
       'week',
@@ -2161,7 +2165,7 @@ describe('renderToastMessage', () => {
       .split('\n')
       .filter((line) => /^\s*RC\s+/.test(line)).length
     assert.equal(rightCodeLabelCount, 1)
-    assert.match(toast, /RC\s+Daily \$55\.6\/\$60 Exp 02-27/)
+    assert.match(toast, /RC\s+Daily \$55\.6\/\$60 Exp \d+D\d{2}h/)
     assert.match(toast, /\s+Balance \$245\.8/)
   })
 
@@ -2196,7 +2200,7 @@ describe('renderToastMessage', () => {
     ])
 
     // Variant should not show balance when base RC exists.
-    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp 02-27/)
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/)
     assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance/)
     assert.match(toast, /RC\s+Balance \$200/)
   })
@@ -2232,7 +2236,7 @@ describe('renderToastMessage', () => {
     ])
 
     assert.match(toast, /RC\s+Balance \$243\.5/)
-    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp 02-27/)
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/)
     assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.5/)
   })
 
@@ -2254,11 +2258,8 @@ describe('renderToastMessage', () => {
       },
     ])
 
-    assert.match(
-      toast,
-      /Kimi\s+5h 84\.0% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
-    )
-    assert.match(toast, /Weekly 72\.0% Rst \d{2}-\d{2}/)
+    assert.match(toast, /Kimi\s+5h 84\.0% Rst \d+D\d{2}h/)
+    assert.match(toast, /Weekly 72\.0% Rst \d+D\d{2}h/)
   })
 
   it('renders Kimi in the Cost as API toast section when apiCost is available', () => {
@@ -2327,11 +2328,8 @@ describe('renderToastMessage', () => {
       ],
     )
 
-    assert.match(
-      toast,
-      /MiniMax\s+5h 84\.0% Rst (?:\d{2}:\d{2}|\d{2}-\d{2} \d{2}:\d{2})/,
-    )
-    assert.match(toast, /Weekly 64\.0% Rst \d{2}-\d{2}/)
+    assert.match(toast, /MiniMax\s+5h 84\.0% Rst \d+D\d{2}h/)
+    assert.match(toast, /Weekly 64\.0% Rst \d+D\d{2}h/)
     assert.match(toast, /Cost as API[\s\S]*MiniMax\s+\$0\.06/)
   })
 

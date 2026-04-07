@@ -920,9 +920,28 @@ function compactQuotaWide(
     : `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
   return maybeBreak(fallbackText, [fallbackText])
 }
-function isShortResetWindow(label: string | undefined) {
-  if (typeof label !== 'string') return false
-  return /^\s*(?:\d+\s*[hd]|daily)\b/i.test(label)
+function compactCountdown(remainingMs: number) {
+  if (!Number.isFinite(remainingMs)) return undefined
+  if (remainingMs <= 0) return '0m'
+
+  const minuteMs = 60_000
+  const hourMinutes = 60
+  const dayMinutes = 24 * hourMinutes
+  const totalMinutes = Math.max(1, Math.floor(remainingMs / minuteMs))
+
+  if (totalMinutes < hourMinutes) {
+    return `${totalMinutes}m`
+  }
+
+  if (totalMinutes < dayMinutes) {
+    const hours = Math.floor(totalMinutes / hourMinutes)
+    const minutes = totalMinutes % hourMinutes
+    return `${hours}h${`${minutes}`.padStart(2, '0')}m`
+  }
+
+  const days = Math.floor(totalMinutes / dayMinutes)
+  const hours = Math.floor((totalMinutes % dayMinutes) / hourMinutes)
+  return `${days}D${`${hours}`.padStart(2, '0')}h`
 }
 
 function compactReset(
@@ -930,32 +949,13 @@ function compactReset(
   resetLabel?: string,
   windowLabel?: string,
 ) {
+  void resetLabel
+  void windowLabel
   if (!iso) return undefined
   const timestamp = Date.parse(iso)
   if (Number.isNaN(timestamp)) return undefined
 
-  const value = new Date(timestamp)
-
-  // RightCode subscriptions are displayed as an expiry date (MM-DD), not a time.
-  // Using UTC here makes the output stable across time zones for ISO `...Z` input.
-  if (typeof resetLabel === 'string' && resetLabel.startsWith('Exp')) {
-    const two = (num: number) => `${num}`.padStart(2, '0')
-    return `${two(value.getUTCMonth() + 1)}-${two(value.getUTCDate())}`
-  }
-
-  const now = new Date()
-  const sameDay =
-    value.getFullYear() === now.getFullYear() &&
-    value.getMonth() === now.getMonth() &&
-    value.getDate() === now.getDate()
-
-  const two = (num: number) => `${num}`.padStart(2, '0')
-  if (isShortResetWindow(windowLabel)) {
-    const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
-    if (sameDay) return hhmm
-    return `${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
-  }
-  return `${two(value.getMonth() + 1)}-${two(value.getDate())}`
+  return compactCountdown(timestamp - Date.now())
 }
 
 function dateLine(iso: string | undefined) {
@@ -973,17 +973,9 @@ function expiryAlertLine(iso: string | undefined, nowMs = Date.now()) {
   const thresholdMs = 3 * 24 * 60 * 60 * 1000
   if (remainingMs > thresholdMs) return undefined
 
-  const value = new Date(timestamp)
-  const now = new Date(nowMs)
-  const sameDay =
-    value.getFullYear() === now.getFullYear() &&
-    value.getMonth() === now.getMonth() &&
-    value.getDate() === now.getDate()
-
-  const two = (num: number) => `${num}`.padStart(2, '0')
-  const hhmm = `${two(value.getHours())}:${two(value.getMinutes())}`
-  if (sameDay) return `Exp today ${hhmm}`
-  return `Exp ${two(value.getMonth() + 1)}-${two(value.getDate())} ${hhmm}`
+  const countdown = compactCountdown(remainingMs)
+  if (!countdown) return undefined
+  return `Exp ${countdown}`
 }
 
 function quotaExpiryPairs(quotas: QuotaSnapshot[], nowMs = Date.now()) {
@@ -996,6 +988,12 @@ function quotaExpiryPairs(quotas: QuotaSnapshot[], nowMs = Date.now()) {
     .filter((item): item is { label: string; value: string } =>
       Boolean(item.value),
     )
+}
+
+function toolVisibleQuotaSnapshots(quotas: QuotaSnapshot[]) {
+  return collapseQuotaSnapshots(quotas).filter(
+    (item) => item.status === 'ok' || item.status === 'error',
+  )
 }
 
 function reportResetLine(
@@ -1166,7 +1164,7 @@ export function renderMarkdownReport(
     ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
     : '| --- | ---: | ---: | ---: | ---: | ---: |'
 
-  const quotaLines = collapseQuotaSnapshots(quotas).flatMap((quota) => {
+  const quotaLines = toolVisibleQuotaSnapshots(quotas).flatMap((quota) => {
     const displayLabel = quotaDisplayLabel(quota)
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
@@ -1203,7 +1201,7 @@ export function renderMarkdownReport(
         ),
       ]
     }
-    if (quota.status !== 'ok') {
+    if (quota.status === 'error') {
       return [
         mdCell(
           `- ${displayLabel}: ${quota.status}${quota.note ? ` | ${quota.note}` : ''}`,
@@ -1358,7 +1356,7 @@ export function renderToastMessage(
     )
   }
 
-  const quotaPairs = collapseQuotaSnapshots(quotas).flatMap((item) => {
+  const quotaPairs = toolVisibleQuotaSnapshots(quotas).flatMap((item) => {
     if (item.status === 'ok') {
       if (item.windows && item.windows.length > 0) {
         const pairs = item.windows.map((win, idx) => {
@@ -1404,12 +1402,6 @@ export function renderToastMessage(
       ]
     }
 
-    if (item.status === 'unsupported') {
-      return [{ label: quotaDisplayLabel(item), value: 'unsupported' }]
-    }
-    if (item.status === 'unavailable') {
-      return [{ label: quotaDisplayLabel(item), value: 'unavailable' }]
-    }
     return [{ label: quotaDisplayLabel(item), value: 'Remaining ?' }]
   })
 

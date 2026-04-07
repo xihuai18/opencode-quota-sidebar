@@ -121,7 +121,7 @@ MCP 条目通过 JSX 结构实现两种字体：
 - TUI sidebar 结构：`TITLE`（base title）、`USAGE`（两行以内）、`QUOTA`（provider 分组 + 续行缩进）
 - TUI usage 示例：`R12 I18.9k O53`、`CR31.4k CW300 Cd66%`
 - TUI 不再单独渲染 `CONTEXT` 或 `Est`：prompt 底部已经显示 live context 百分比和 OpenCode measured cost，sidebar 里保留 usage/quota 即可
-- Compact 单行 title 示例：`<base> | OAI 5h80 R16:20 W70 R04-03 | RC D88.9/60 B260 | Cd66% | Est$0.12`
+- Compact 单行 title 示例：`<base> | OAI 5h80 R3h20m W70 R2D04h | RC D88.9/60 B260 | Cd66% | Est$0.12`
 - Compact 单行模式仅保留最近 `sidebar.desktopCompact.recentRequests` 次请求或最近 `sidebar.desktopCompact.recentMinutes` 分钟内用过的 provider；一旦入选，要把该 provider 的所有窗口 / balance 都展开为紧凑缩写
 - Compact 单行为了更抗上游前端截断，顺序固定为 `base | quota... | usage-summary`；单行模式省略 `R/I/O/CR/CW`，保留 reset / `Cd` / `Est`
 - toast 和 markdown report 同样使用 `shortNumber()`
@@ -160,19 +160,18 @@ MCP 条目通过 JSX 结构实现两种字体：
 
 ### 5.2 格式
 
-- TUI sidebar quota 默认走 compact token：`OAI 5h80 R16:20`、`Cop M70 R03-01`、`XYAI D$31.3/$90 R22:39`
+- TUI sidebar quota 默认走 compact token：`OAI 5h80 R3h20m`、`Cop M70 R12D00h`、`XYAI D$31.3/$90 R10h18m`
 - 多窗口/多字段在放不下时续到下一行，但**不丢字段**；续行继续使用 compact token，例如：
-  - `OAI 5h80 R16:20 W70`
-  - `    R03-01`
+  - `OAI 5h80 R3h20m W70`
+  - `    R2D04h`
 - RightCode / XYAI 的余额或日额度同样走 compact token：`RC D$105/$60 E02-27 B$222.5`
 
 reset 时间规则：
 
-- 小时级 / 日级窗口（如 `5h` / `1d` / `Daily`）：
-  - 当天重置：显示 `HH:MM`
-  - 跨天重置：显示 `MM-DD HH:MM`
-- 周/月等长窗口：显示 `MM-DD`
-- RightCode 的 `Exp` / `Exp+` 继续只显示 `MM-DD`
+- 统一显示倒计时
+- `< 1h`：显示 `Xm`
+- `< 1d`：显示 `XhYYm`
+- `>= 1d`：显示 `xDyyh`，不显示分钟数
 
 当 `sidebar.wrapQuotaLines=true` 且单行过长时，会拆成多行显示；续行缩进对齐。
 
@@ -213,7 +212,7 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 
 - 订阅匹配规则：根据 `available_prefixes` 与当前 provider `baseURL` 路径前缀匹配
 - 忽略小套餐：`total_quota < 10` 的订阅项直接忽略（徽章/赠送等非主套餐）
-- 仅显示日额度：主行格式 `RC Daily $<dailyRemaining>/$<dailyTotal> Exp MM-DD`
+- 仅显示日额度：主行格式 `RC Daily $<dailyRemaining>/$<dailyTotal> Exp <countdown>`
 - 命中订阅时，额外显示余额行：`Balance $<balance>`
 - `reset_today = true`：
   - `dailyRemaining = remaining_quota`

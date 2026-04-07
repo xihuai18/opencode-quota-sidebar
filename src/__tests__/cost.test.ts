@@ -299,6 +299,26 @@ describe('cost', () => {
     assert.equal(longContext?.cacheWrite, 7.5)
   })
 
+  it('ships bundled OpenAI fallback pricing for GPT-5 family models', () => {
+    const map = getBundledModelCostMap()
+
+    assert.equal(map['openai:gpt-5']?.input, 2.5)
+    assert.equal(map['openai:gpt-5']?.output, 15)
+    assert.equal(map['openai:gpt-5']?.cacheRead, 0.25)
+    assert.equal(map['openai:gpt-5']?.cacheWrite, 0)
+    assert.equal(map['openai:gpt-5.3']?.input, 1.75)
+    assert.equal(map['openai:gpt-5.3-chat-latest']?.cacheRead, 0.175)
+    assert.equal(map['openai:gpt-5.3-codex']?.output, 14)
+    assert.equal(map['openai:gpt-5.2']?.input, 1.75)
+    assert.equal(map['openai:gpt-5.2-chat-latest']?.cacheRead, 0.175)
+    assert.equal(map['openai:gpt-5.2-pro']?.output, 168)
+    assert.equal(map['openai:gpt-5.4']?.output, 15)
+    assert.equal(map['openai:gpt-5-mini']?.input, 0.75)
+    assert.equal(map['openai:gpt-5.4-mini']?.cacheRead, 0.075)
+    assert.equal(map['openai:gpt-5-nano']?.output, 1.25)
+    assert.equal(map['openai:gpt-5.4-nano']?.cacheRead, 0.02)
+  })
+
   it('ships bundled Zhipu fallback pricing for current coding-plan models', () => {
     const map = getBundledModelCostMap()
 

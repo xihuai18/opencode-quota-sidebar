@@ -66,6 +66,8 @@ function isCoreDecoratedDetail(line: string) {
 
 function isQuotaDecoratedDetail(line: string) {
   if (!line) return false
+  const resetValue = '[-:\\dhmD]+'
+  const compactResetValue = '\\d[\\d:.\\-hmD]*'
   if (
     /^(OAI|Cop|Ant|Kimi|XYAI|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
       line,
@@ -77,44 +79,44 @@ function isQuotaDecoratedDetail(line: string) {
     return true
   }
   if (
-    /^(?:(?:Daily\s+\$[\d.,]+\/\$[\d.,]+|\$[\d.,]+\/\$[\d.,]+)(?:\s+(?:Rst|Exp\+?)\s+[-:\d]+)?|(?:\d+[hdw]|Weekly|Monthly)\s+\d{1,3}%(?:\s+Rst\s+[-:\d]+)?|Balance\s+\$[\d.,]+|Remaining\s+\?|(?:error|unsupported|unavailable))$/.test(
-      line,
-    )
+    new RegExp(
+      `^(?:(?:Daily\\s+\\$[\\d.,]+\\/\\$[\\d.,]+|\\$[\\d.,]+\\/\\$[\\d.,]+)(?:\\s+(?:Rst|Exp\\+?)\\s+${resetValue})?|(?:\\d+[hdw]|Weekly|Monthly)\\s+\\d{1,3}%(?:\\s+Rst\\s+${resetValue})?|Balance\\s+\\$[\\d.,]+|Remaining\\s+\\?|(?:error|unsupported|unavailable))$`,
+    ).test(line)
   ) {
     return true
   }
   if (
-    /^(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\d{1,3})(?:\s+(?:R|E\+?)\d[\d:.-]*)?$/.test(
-      line,
-    )
+    new RegExp(
+      `^(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3})(?:\\s+(?:R|E\\+?)${compactResetValue})?$`,
+    ).test(line)
   ) {
     return true
   }
   if (
-    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\s]+)?)(?:\s+(?:(?:Daily\s+\$[\d.,]+\/\$[\d.,]+|\$[\d.,]+\/\$[\d.,]+)(?:\s+(?:Rst|Exp\+?)\s+[-:\d]+)?|(?:\d+[hdw]|Weekly|Monthly)\s+\d{1,3}%(?:\s+Rst\s+[-:\d]+)?|(?:error|unsupported|unavailable)))$/.test(
-      line,
-    )
+    new RegExp(
+      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:Daily\\s+\\$[\\d.,]+\\/\\$[\\d.,]+|\\$[\\d.,]+\\/\\$[\\d.,]+)(?:\\s+(?:Rst|Exp\\+?)\\s+${resetValue})?|(?:\\d+[hdw]|Weekly|Monthly)\\s+\\d{1,3}%(?:\\s+Rst\\s+${resetValue})?|(?:error|unsupported|unavailable)))$`,
+    ).test(line)
   ) {
     return true
   }
   if (
-    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\s]+)?)(?:\s+(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\d{1,3})(?:\s+(?:R|E\+?)\d[\d:.-]*)?)$/.test(
-      line,
-    )
+    new RegExp(
+      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3})(?:\\s+(?:R|E\\+?)${compactResetValue})?)$`,
+    ).test(line)
   ) {
     return true
   }
   if (
-    /^(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\d{1,3}|(?:R|E\+?)\d[\d:.-]*))(?:\s+(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\d{1,3}|(?:R|E\+?)\d[\d:.-]*)))*$/.test(
-      line,
-    )
+    new RegExp(
+      `^(?:(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|(?:R|E\\+?)${compactResetValue}))(?:\\s+(?:(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|(?:R|E\\+?)${compactResetValue})))*$`,
+    ).test(line)
   ) {
     return true
   }
   if (
-    /^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\s]+)?)(?:\s+(?:(?:D\$?[\d.,]+\/\$?[\d.,]+|B(?:[￥$-])?[\d.,]+|(?:\d+[hdw]|[DWM])\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\d{1,3}|(?:R|E\+?)\d[\d:.-]*)))*$/.test(
-      line,
-    )
+    new RegExp(
+      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|(?:R|E\\+?)${compactResetValue})))*$`,
+    ).test(line)
   ) {
     return true
   }

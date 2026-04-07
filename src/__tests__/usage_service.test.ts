@@ -1023,6 +1023,93 @@ describe('usage service', () => {
     )
   })
 
+  it('falls back to bundled OpenAI pricing when runtime metadata reports zero cost', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const sessionID = 'openai-zero-cost'
+    const completedAt = Date.now() - 100
+
+    state.sessions[sessionID] = {
+      createdAt: Date.now() - 1000,
+      baseTitle: 'OpenAI Zero Cost',
+      lastAppliedTitle: undefined,
+      parentID: undefined,
+      usage: undefined,
+      cursor: undefined,
+    }
+    state.sessionDateMap[sessionID] = '2026-01-01'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm-openai-zero',
+                  sessionID,
+                  role: 'assistant',
+                  providerID: 'openai',
+                  modelID: 'gpt-5',
+                  time: { created: completedAt - 10, completed: completedAt },
+                  tokens: {
+                    input: 100_000,
+                    output: 20_000,
+                    reasoning: 5_000,
+                    cache: { read: 50_000, write: 0 },
+                  },
+                  cost: 0,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({
+            data: {
+              all: [
+                {
+                  id: 'openai',
+                  models: {
+                    'gpt-5': {
+                      id: 'gpt-5',
+                      cost: {
+                        input: 0,
+                        output: 0,
+                        cache: { read: 0, write: 0 },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const usage = await service.summarizeSessionUsageForDisplay(
+      sessionID,
+      false,
+    )
+
+    assert.equal(usage.providers.openai?.assistantMessages, 1)
+    assert.ok(Math.abs(usage.apiCost - 0.875) < 1e-9)
+    assert.ok(Math.abs((usage.providers.openai?.apiCost || 0) - 0.875) < 1e-9)
+  })
+
   it('reuses bundled Anthropic pricing for anthropic-compatible third-party providers', async () => {
     const state = makeState()
     const config = makeConfig()

@@ -46,6 +46,9 @@ function makeConfig(width = 36): QuotaSidebarConfig {
 describe('tui quota helpers', () => {
   it('groups sidebar quota lines by provider', () => {
     const config = makeConfig(38)
+    const rightCodeReset = new Date(
+      Date.now() + 6 * 24 * 60 * 60_000,
+    ).toISOString()
     const quotas: QuotaSnapshot[] = [
       {
         providerID: 'openai',
@@ -71,7 +74,7 @@ describe('tui quota helpers', () => {
             label: 'Daily $88.9/$60',
             showPercent: false,
             resetLabel: 'Exp',
-            resetAt: '2026-02-27T00:00:00.000Z',
+            resetAt: rightCodeReset,
           },
         ],
         balance: { amount: 260, currency: '$' },
@@ -87,7 +90,7 @@ describe('tui quota helpers', () => {
     assert.equal(groups[0]?.tone, 'success')
     assert.equal(groups[1]?.providerID, 'rightcode-openai')
     assert.equal(groups[1]?.shortLabel, 'RC')
-    assert.equal(groups[1]?.detail, 'D$88.9/$60 E02-27 B260')
+    assert.match(groups[1]?.detail || '', /^D\$88\.9\/\$60 E\d+D\d{2}h B260$/)
   })
 
   it('extracts only quota tokens from compact titles', () => {
@@ -168,16 +171,7 @@ describe('tui quota helpers', () => {
 
   it('reflows multi-provider groups for bullet width budget', () => {
     const config = makeConfig(16)
-    const now = new Date()
-    const resetAt = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      12,
-      34,
-      0,
-      0,
-    ).toISOString()
+    const resetAt = new Date(Date.now() + (4 * 60 + 34) * 60_000).toISOString()
 
     const singleProvider = renderSidebarQuotaGroups(
       [
@@ -217,10 +211,13 @@ describe('tui quota helpers', () => {
       config,
     )
 
-    assert.equal(singleProvider[0]?.detail, '5h80 R12:34')
+    assert.match(singleProvider[0]?.detail || '', /^5h80 R4h3[34]m$/)
     assert.equal(singleProvider[0]?.continuationLines.length, 0)
     assert.equal(multiProvider[0]?.detail, '5h80')
-    assert.deepEqual(multiProvider[0]?.continuationLines, ['    R12:34'])
+    assert.match(
+      multiProvider[0]?.continuationLines[0] || '',
+      /^    R4h3[34]m$/,
+    )
   })
 
   it('uses muted tone for balance-only live quota groups', () => {

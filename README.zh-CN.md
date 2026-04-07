@@ -89,17 +89,17 @@ USAGE
   CR31.4k CW3.2k Cd66%
   Est $12.8
 QUOTA
-  OAI 5h80 R16:20
-      W70 R04-03
-  Cop M78 R04-01
-  RC D$88.9/$60 E02-27
+  OAI 5h80 R3h20m
+      W70 R2D04h
+  Cop M78 R12D00h
+  RC D$88.9/$60 E6D00h
      B260
 ```
 
 compact shared title 示例：
 
 ```text
-Fix quota adapter matching | OAI 5h80 R16:20 W70 R04-03 | RC D$88.9/$60 B260 | Cd66% | Est$12.8
+Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | Est$12.8
 ```
 
 另一个多 provider 示例：
@@ -124,9 +124,9 @@ Add XYAI quota adapter | Ant 5h100 W77 O7d60 | Cop M78 R04-01 | Cd52% | Est$2.34
 
 ## Quota
 
-- OpenAI: 5h 80% (reset 16:20), Weekly 70% (reset 04-03)
-- Copilot: Monthly 78% (reset 04-01)
-- RightCode: Daily $88.9/$60 (exp 02-27), Balance $260
+- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h)
+- Copilot: Monthly 78% (reset 12D00h)
+- RightCode: Daily $88.9/$60 (exp 6D00h), Balance $260
 ```
 
 这个工具本身就返回完整 markdown，调用方应该直接展示，而不是再压缩成一句话摘要。
@@ -170,15 +170,15 @@ Quota token：
 - `D`：daily window
 - `W`：weekly window
 - `M`：monthly window
-- `R16:20`：重置时间为 `16:20`
-- `R04-03`：重置日期为 `04-03`
-- `E02-27`：到期日期为 `02-27`
+- `R3h20m`：还剩 `3h20m` 重置
+- `R2D04h`：还剩 `2D04h` 重置
+- `E6D00h`：还剩 `6D00h` 到期
 
 compact quota 片段示例：
 
-- `OAI 5h80 R16:20`：OpenAI 短窗口剩余 80%，`16:20` 重置
-- `Cop M78 R04-01`：Copilot 月额度剩余 78%，`04-01` 重置
-- `RC D$88.9/$60 E02-27 B260`：RightCode 日额度 + 余额
+- `OAI 5h80 R3h20m`：OpenAI 短窗口剩余 80%，还剩 `3h20m` 重置
+- `Cop M78 R12D00h`：Copilot 月额度剩余 78%，还剩 `12D00h` 重置
+- `RC D$88.9/$60 E6D00h B260`：RightCode 日额度 + 余额
 
 ## 安装
 

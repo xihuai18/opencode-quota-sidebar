@@ -108,17 +108,17 @@ USAGE
   CR31.4k CW3.2k Cd66%
   Est $12.8
 QUOTA
-  OAI 5h80 R16:20
-      W70 R04-03
-  Cop M78 R04-01
-  RC D$88.9/$60 E02-27
+  OAI 5h80 R3h20m
+      W70 R2D04h
+  Cop M78 R12D00h
+  RC D$88.9/$60 E6D00h
      B260
 ```
 
 Compact shared title example:
 
 ```text
-Fix quota adapter matching | OAI 5h80 R16:20 W70 R04-03 | RC D$88.9/$60 B260 | Cd66% | Est$12.8
+Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | Est$12.8
 ```
 
 Another compact title example with multiple providers:
@@ -143,9 +143,9 @@ Example `quota_summary` markdown output shape:
 
 ## Quota
 
-- OpenAI: 5h 80% (reset 16:20), Weekly 70% (reset 04-03)
-- Copilot: Monthly 78% (reset 04-01)
-- RightCode: Daily $88.9/$60 (exp 02-27), Balance $260
+- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h)
+- Copilot: Monthly 78% (reset 12D00h)
+- RightCode: Daily $88.9/$60 (exp 6D00h), Balance $260
 ```
 
 The tool already returns full markdown. Clients should display that report directly instead of replacing it with a short summary.
@@ -185,15 +185,15 @@ Quota tokens:
 - `D`: daily window
 - `W`: weekly window
 - `M`: monthly window
-- `R16:20`: reset at `16:20`
-- `R04-03`: reset on `04-03`
-- `E02-27`: expiry on `02-27`
+- `R3h20m`: resets in `3h20m`
+- `R2D04h`: resets in `2D04h`
+- `E6D00h`: expires in `6D00h`
 
 Example compact quota fragments:
 
-- `OAI 5h80 R16:20`: OpenAI short window, 80% remaining, resets at `16:20`
-- `Cop M78 R04-01`: Copilot monthly quota, 78% remaining, resets on `04-01`
-- `RC D$88.9/$60 E02-27 B260`: RightCode daily quota plus balance
+- `OAI 5h80 R3h20m`: OpenAI short window, 80% remaining, resets in `3h20m`
+- `Cop M78 R12D00h`: Copilot monthly quota, 78% remaining, resets in `12D00h`
+- `RC D$88.9/$60 E6D00h B260`: RightCode daily quota plus balance
 
 ## Config
 
