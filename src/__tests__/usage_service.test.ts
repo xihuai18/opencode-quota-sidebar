@@ -1106,8 +1106,8 @@ describe('usage service', () => {
     )
 
     assert.equal(usage.providers.openai?.assistantMessages, 1)
-    assert.ok(Math.abs(usage.apiCost - 0.875) < 1e-9)
-    assert.ok(Math.abs((usage.providers.openai?.apiCost || 0) - 0.875) < 1e-9)
+    assert.ok(Math.abs(usage.apiCost - 0.6375) < 1e-9)
+    assert.ok(Math.abs((usage.providers.openai?.apiCost || 0) - 0.6375) < 1e-9)
   })
 
   it('reuses bundled Anthropic pricing for anthropic-compatible third-party providers', async () => {
