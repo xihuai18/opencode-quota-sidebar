@@ -52,6 +52,7 @@ export function createTitleApplicator(deps: {
     includeChildren: boolean,
   ) => Promise<UsageSummary>
   scheduleParentRefreshIfSafe: (sessionID: string, parentID?: string) => void
+  isSessionActive?: (sessionID: string) => boolean
   restoreConcurrency: number
 }) {
   const pendingAppliedTitle = new Map<
@@ -86,6 +87,10 @@ export function createTitleApplicator(deps: {
 
   const applyTitle = async (sessionID: string) => {
     if (!deps.config.sidebar.enabled) return false
+    if (deps.isSessionActive && !deps.isSessionActive(sessionID)) {
+      debug(`applyTitle skipped inactive session ${sessionID}`)
+      return false
+    }
 
     let stateMutated = false
 

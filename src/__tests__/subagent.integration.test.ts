@@ -28,6 +28,25 @@ async function waitFor(check: () => boolean, timeoutMs = 6000) {
   assert.ok(check(), 'condition not met before timeout')
 }
 
+async function emitAssistantLifecycle(
+  hooks: Awaited<ReturnType<typeof QuotaSidebarPlugin>>,
+  message: {
+    time: { created: number; completed?: number }
+    [key: string]: unknown
+  },
+) {
+  const running = {
+    ...message,
+    time: { ...message.time, completed: undefined },
+  }
+  await hooks.event!({
+    event: { type: 'message.updated', properties: { info: running } },
+  } as never)
+  await hooks.event!({
+    event: { type: 'message.updated', properties: { info: message } },
+  } as never)
+}
+
 afterEach(async () => {
   process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
   await Promise.all(
@@ -193,9 +212,7 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: childMessage } },
-      } as never)
+      await emitAssistantLifecycle(hooks, childMessage)
 
       await waitFor(() => updates.some((u) => u.id === 'c1'))
 
@@ -549,12 +566,7 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: {
-          type: 'message.updated',
-          properties: { info: grandchildMessage },
-        },
-      } as never)
+      await emitAssistantLifecycle(hooks, grandchildMessage)
 
       const tool = (hooks.tool as any).quota_summary
       const markdown = await tool.execute(
@@ -766,9 +778,7 @@ describe('subagent aggregation integration', () => {
       } as never)
 
       // Initial child activity should aggregate into p1.
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: childMessage } },
-      } as never)
+      await emitAssistantLifecycle(hooks, childMessage)
 
       const tool = (hooks.tool as any).quota_summary
       const beforeP1 = await tool.execute(
@@ -987,9 +997,7 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: childMessage } },
-      } as never)
+      await emitAssistantLifecycle(hooks, childMessage)
 
       const tool = (hooks.tool as any).quota_summary
       const before = await tool.execute(

@@ -29,6 +29,25 @@ async function waitFor(check: () => boolean, timeoutMs = 5000) {
   assert.ok(check(), 'condition not met before timeout')
 }
 
+async function emitAssistantLifecycle(
+  hooks: Awaited<ReturnType<typeof QuotaSidebarPlugin>>,
+  message: {
+    time: { created: number; completed?: number }
+    [key: string]: unknown
+  },
+) {
+  const running = {
+    ...message,
+    time: { ...message.time, completed: undefined },
+  }
+  await hooks.event!({
+    event: { type: 'message.updated', properties: { info: running } },
+  } as never)
+  await hooks.event!({
+    event: { type: 'message.updated', properties: { info: message } },
+  } as never)
+}
+
 afterEach(async () => {
   process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
   await Promise.all(
@@ -48,7 +67,7 @@ beforeEach(() => {
 })
 
 describe('plugin integration', () => {
-  it('restores touched titles on startup when persisted display mode is off', async () => {
+  it('does not restore touched titles on startup when persisted display mode is off', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -136,8 +155,12 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await waitFor(() => updates.length > 0)
-      assert.equal(title, 'Greeting and quick check-in')
+      await delay(100)
+      assert.equal(updates.length, 0)
+      assert.equal(
+        title,
+        'Greeting and quick check-in\n\nInput 18.9k  Output 53',
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -231,6 +254,107 @@ describe('plugin integration', () => {
 
       assert.equal(updates.length, 0)
       assert.equal(title, 'Check recent upstream changes')
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('ignores replayed historical completed assistant updates for inactive sessions', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    try {
+      let title = 'Old session'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm-old',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: {
+          created: Date.now() - 60_000,
+          completed: Date.now() - 55_000,
+        },
+        tokens: {
+          input: 100,
+          output: 20,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            env: [],
+            models: {
+              'gpt-5': {
+                id: 'gpt-5',
+                name: 'GPT-5',
+                release_date: '2026-01-01',
+                attachment: true,
+                reasoning: true,
+                temperature: true,
+                tool_call: true,
+                cost: {
+                  input: 1,
+                  output: 2,
+                  cache_read: 0.5,
+                  cache_write: 0,
+                },
+                limit: { context: 1_000_000, output: 8_192 },
+                options: {},
+              },
+            },
+          },
+        ],
+        default: {},
+        connected: ['openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: {
+                id: 's1',
+                title,
+                time: { created: Date.now() - 120_000 },
+              },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+        },
+      } as never)
+
+      await emitAssistantLifecycle(hooks, msg)
+
+      await delay(100)
+      assert.equal(updates.length, 0)
+      assert.equal(title, 'Old session')
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -331,9 +455,7 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
 
@@ -420,9 +542,7 @@ describe('plugin integration', () => {
           properties: { sessionID: 's1' },
         },
       } as never)
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
       assert.equal(title.includes('\n'), false)
@@ -511,9 +631,7 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
 
@@ -628,9 +746,7 @@ describe('plugin integration', () => {
           properties: { sessionID: 's1' },
         },
       } as never)
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: messages.s1 } },
-      } as never)
+      await emitAssistantLifecycle(hooks, messages.s1)
       await waitFor(() => updates.length > 0)
 
       await hooks.event!({
@@ -639,9 +755,7 @@ describe('plugin integration', () => {
           properties: { sessionID: 's2' },
         },
       } as never)
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: messages.s2 } },
-      } as never)
+      await emitAssistantLifecycle(hooks, messages.s2)
 
       await waitFor(() => updates.length >= 2)
 
@@ -726,9 +840,7 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
 
@@ -862,9 +974,7 @@ describe('plugin integration', () => {
       assert.equal(updates.length, 0)
       assert.equal(title, 'Echoed Session\nCd5%\nOAI unavailable')
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
 
@@ -1021,9 +1131,7 @@ describe('plugin integration', () => {
           },
         } as never)
 
-        await hooks.event!({
-          event: { type: 'message.updated', properties: { info: msg } },
-        } as never)
+        await emitAssistantLifecycle(hooks, msg)
 
         await waitFor(() => updates.length > 0)
 
@@ -1179,9 +1287,7 @@ describe('plugin integration', () => {
         event: { type: 'session.created', properties: { info: session } },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => toasts.some((item) => item.includes('Expiry Soon')))
       assert.equal(
@@ -1190,9 +1296,7 @@ describe('plugin integration', () => {
       )
       assert.match(toasts[0] || '', /RC-openai Exp \d{2}-\d{2} \d{2}:\d{2}/)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await new Promise((resolve) => setTimeout(resolve, 50))
       assert.equal(
@@ -1286,9 +1390,7 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await hooks.event!({
-        event: { type: 'message.updated', properties: { info: msg } },
-      } as never)
+      await emitAssistantLifecycle(hooks, msg)
 
       await waitFor(() => updates.length > 0)
 

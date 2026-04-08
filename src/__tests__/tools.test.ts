@@ -37,21 +37,6 @@ describe('quota_summary tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 0,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
-      refreshAllVisibleTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
       showToast: async (period) => {
         calls.push({ type: 'toast', period })
       },
@@ -97,21 +82,6 @@ describe('quota_summary tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 0,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
-      refreshAllVisibleTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
       showToast: async (period) => {
         calls.push({ type: 'toast', period })
       },
@@ -142,7 +112,7 @@ describe('quota_summary tool', () => {
 })
 
 describe('quota_show tool', () => {
-  it('does not redecorate visible titles when OFF rollback keeps display enabled', async () => {
+  it('does not bulk-restore historical titles when OFF rollback keeps display enabled', async () => {
     let titleEnabled = true
     let refreshVisibleCalls = 0
     let refreshTouchedCalls = 0
@@ -159,19 +129,7 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 2,
-        restored: 1,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => {
-        refreshTouchedCalls++
-        return { attempted: 1, refreshed: 1, listFailed: false }
-      },
-      refreshAllVisibleTitles: async () => {
-        refreshVisibleCalls++
-        return { attempted: 2, refreshed: 2, listFailed: false }
-      },
+      restoreSessionTitle: async () => false,
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,
@@ -226,21 +184,7 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 0,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
-      refreshAllVisibleTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
+      restoreSessionTitle: async () => false,
       showToast: async () => {
         order.push('toast')
       },
@@ -281,6 +225,58 @@ describe('quota_show tool', () => {
     ])
   })
 
+  it('marks the current session active before refreshing on enable', async () => {
+    const order: string[] = []
+    let titleEnabled = false
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => titleEnabled,
+      setTitleEnabled: (enabled) => {
+        titleEnabled = enabled
+      },
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      markSessionActive: (sessionID) => {
+        order.push(`active:${sessionID}`)
+      },
+      refreshSessionTitle: (sessionID) => {
+        order.push(`refresh:${sessionID}`)
+      },
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      restoreSessionTitle: async () => false,
+      showToast: async () => {},
+      summarizeForTool: async () => ({
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 0,
+        sessionCount: 0,
+        providers: {},
+      }),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    await toolset.quota_show.execute({ enabled: true }, {
+      sessionID: 's1',
+    } as never)
+
+    assert.deepEqual(order, ['active:s1', 'refresh:s1'])
+  })
+
   it('does not block forever on hung startup title work', async () => {
     let titleEnabled = false
     const started = Date.now()
@@ -299,21 +295,7 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 0,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
-      refreshAllVisibleTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
+      restoreSessionTitle: async () => false,
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,
@@ -346,6 +328,75 @@ describe('quota_show tool', () => {
     assert.ok(Date.now() - started < 3500)
   })
 
+  it('restores only the current session when turning display off', async () => {
+    let titleEnabled = true
+    const order: string[] = []
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => titleEnabled,
+      setTitleEnabled: (enabled) => {
+        titleEnabled = enabled
+      },
+      scheduleSave: () => order.push('scheduleSave'),
+      flushSave: async () => {
+        order.push('flushSave')
+      },
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {
+        order.push('refreshSessionTitle')
+      },
+      cancelAllTitleRefreshes: () => {
+        order.push('cancelAll')
+      },
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {
+        order.push('quiescence')
+      },
+      restoreSessionTitle: async (sessionID) => {
+        order.push(`restore:${sessionID}`)
+        return true
+      },
+      showToast: async () => {
+        order.push('toast')
+      },
+      summarizeForTool: async () => ({
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        total: 0,
+        cost: 0,
+        apiCost: 0,
+        assistantMessages: 0,
+        sessionCount: 0,
+        providers: {},
+      }),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    const result = await toolset.quota_show.execute({ enabled: false }, {
+      sessionID: 's1',
+    } as never)
+
+    assert.equal(titleEnabled, false)
+    assert.match(result, /current session title was restored/i)
+    assert.deepEqual(order, [
+      'scheduleSave',
+      'flushSave',
+      'cancelAll',
+      'quiescence',
+      'restore:s1',
+      'toast',
+    ])
+  })
+
   it('redecorates current session after OFF rollback keeps display enabled', async () => {
     let titleEnabled = true
     let currentRefreshCalls = 0
@@ -364,21 +415,7 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 1,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => ({
-        attempted: 0,
-        refreshed: 0,
-        listFailed: false,
-      }),
-      refreshAllVisibleTitles: async () => ({
-        attempted: 1,
-        refreshed: 1,
-        listFailed: false,
-      }),
+      restoreSessionTitle: async () => false,
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,
@@ -427,17 +464,7 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({
-        attempted: 0,
-        restored: 0,
-        listFailed: false,
-      }),
-      refreshAllTouchedTitles: async () => {
-        throw new Error('unexpected refreshAllTouchedTitles')
-      },
-      refreshAllVisibleTitles: async () => {
-        throw new Error('unexpected refreshAllVisibleTitles')
-      },
+      restoreSessionTitle: async () => false,
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,

@@ -246,6 +246,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     getQuotaSnapshots,
     summarizeSessionUsageForDisplay,
     scheduleParentRefreshIfSafe,
+    isSessionActive,
     restoreConcurrency: RESTORE_TITLE_CONCURRENCY,
   })
 
@@ -258,32 +259,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   })
   scheduleTitleRefresh = titleRefresh.schedule
 
-  const restoreAllVisibleTitles = titleApplicator.restoreAllVisibleTitles
-  const refreshAllTouchedTitles = titleApplicator.refreshAllTouchedTitles
-  const refreshAllVisibleTitles = titleApplicator.refreshAllVisibleTitles
-  let startupTitleWork = Promise.resolve()
-
-  const runStartupRestore = async (attempt = 0): Promise<void> => {
-    const result = await restoreAllVisibleTitles({
-      abortIfEnabled: config.sidebar.enabled,
-    })
-    if (result.restored === result.attempted) return
-    debug(
-      `startup restore incomplete: restored ${result.restored}/${result.attempted} touched titles while display mode remains OFF`,
-    )
-    if (state.titleEnabled || config.sidebar.enabled === false) return
-    if (attempt >= 2) return
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
-    await runStartupRestore(attempt + 1)
-  }
-
-  if (!state.titleEnabled || !config.sidebar.enabled) {
-    startupTitleWork = runStartupRestore().catch(
-      swallow('startup:restoreAllVisibleTitles'),
-    )
-  } else {
-    startupTitleWork = Promise.resolve()
-  }
+  const startupTitleWork = Promise.resolve()
 
   const shutdown = async () => {
     await Promise.race([
@@ -499,11 +475,19 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     },
 
     onAssistantMessageUpdated: async (message) => {
-      markSessionActive(message.sessionID)
+      const now = Date.now()
       const completed = message.time.completed
       if (typeof completed !== 'number' || !Number.isFinite(completed)) {
+        markSessionActive(message.sessionID, now)
         return
       }
+
+      const wasActive = isSessionActive(message.sessionID, now)
+      if (!wasActive) {
+        return
+      }
+
+      markSessionActive(message.sessionID, now)
       usageService.markSessionDirty(message.sessionID)
       scheduleActiveTitleRefresh(message.sessionID)
       void maybeShowExpiryToast(message.sessionID)
@@ -526,15 +510,15 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       scheduleSave,
       flushSave,
       waitForStartupTitleWork: () => startupTitleWork,
+      markSessionActive,
       refreshSessionTitle: (sessionID, delay) =>
         scheduleActiveTitleRefresh(sessionID, delay ?? 250),
       cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
       flushScheduledTitleRefreshes: () => titleRefresh.flushScheduled(),
       waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),
       waitForTitleRefreshQuiescence: () => titleRefresh.waitForQuiescence(),
-      restoreAllVisibleTitles,
-      refreshAllTouchedTitles,
-      refreshAllVisibleTitles,
+      restoreSessionTitle: (sessionID) =>
+        titleApplicator.restoreSessionTitle(sessionID),
       showToast,
       summarizeForTool,
       getQuotaSnapshots,

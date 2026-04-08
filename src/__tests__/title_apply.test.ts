@@ -85,6 +85,50 @@ function makeCompactUsage(): UsageSummary {
 }
 
 describe('title apply', () => {
+  it('skips applyTitle for inactive sessions', async () => {
+    const config = makeConfig()
+    const state = defaultState()
+    state.titleEnabled = true
+
+    const createdAt = Date.now()
+    const sessionID = 's-inactive'
+    let updateCalls = 0
+
+    const applicator = createTitleApplicator({
+      state,
+      config,
+      directory: '/tmp',
+      client: {
+        session: {
+          get: async () => {
+            throw new Error('unexpected get')
+          },
+          update: async () => {
+            updateCalls++
+            return { data: { ok: true } }
+          },
+        },
+      } as any,
+      ensureSessionState: () => ({
+        createdAt,
+        baseTitle: 'Session',
+        lastAppliedTitle: undefined,
+      }),
+      markDirty: () => {},
+      scheduleSave: () => {},
+      renderSidebarTitle: () => 'decorated',
+      getQuotaSnapshots: async () => [],
+      summarizeSessionUsageForDisplay: async () => makeUsage(),
+      scheduleParentRefreshIfSafe: () => {},
+      isSessionActive: () => false,
+      restoreConcurrency: 2,
+    })
+
+    const applied = await applicator.applyTitle(sessionID)
+    assert.equal(applied, false)
+    assert.equal(updateCalls, 0)
+  })
+
   it('keeps lastAppliedTitle in sync when server normalizes decorated titles', async () => {
     const config = makeConfig()
     const state = defaultState()

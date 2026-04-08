@@ -23,26 +23,13 @@ export function createQuotaSidebarTools(deps: {
   scheduleSave: () => void
   flushSave: () => Promise<void>
   waitForStartupTitleWork: () => Promise<void>
+  markSessionActive?: (sessionID: string) => void
   refreshSessionTitle: (sessionID: string, delay?: number) => void
   cancelAllTitleRefreshes: () => void
   flushScheduledTitleRefreshes: () => Promise<void>
   waitForTitleRefreshIdle: () => Promise<void>
   waitForTitleRefreshQuiescence: () => Promise<void>
-  restoreAllVisibleTitles: () => Promise<{
-    attempted: number
-    restored: number
-    listFailed: boolean
-  }>
-  refreshAllTouchedTitles: () => Promise<{
-    attempted: number
-    refreshed: number
-    listFailed: boolean
-  }>
-  refreshAllVisibleTitles: () => Promise<{
-    attempted: number
-    refreshed: number
-    listFailed: boolean
-  }>
+  restoreSessionTitle?: (sessionID: string) => Promise<boolean>
   showToast: (
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
     message: string,
@@ -154,10 +141,12 @@ export function createQuotaSidebarTools(deps: {
             deps.scheduleSave()
             await deps.flushSave()
 
+            deps.markSessionActive?.(context.sessionID)
             deps.refreshSessionTitle(context.sessionID, 0)
             if (startupTimedOut) {
               void deps.waitForStartupTitleWork().then(() => {
                 if (!deps.getTitleEnabled()) return
+                deps.markSessionActive?.(context.sessionID)
                 deps.refreshSessionTitle(context.sessionID, 0)
               })
             }
@@ -170,15 +159,18 @@ export function createQuotaSidebarTools(deps: {
           await deps.flushSave()
           deps.cancelAllTitleRefreshes()
           await deps.waitForTitleRefreshQuiescence()
-          const restore = await deps.restoreAllVisibleTitles()
-          if (restore.restored === restore.attempted) {
+          const restoredCurrent = await (deps.restoreSessionTitle
+            ? deps.restoreSessionTitle(context.sessionID)
+            : Promise.resolve(false))
+          if (restoredCurrent) {
             await deps.showToast('toggle', 'Sidebar usage display: OFF')
-            return 'Sidebar usage display is now OFF. Touched session titles were restored to base titles.'
+            return 'Sidebar usage display is now OFF. The current session title was restored to its base title.'
           }
 
           deps.setTitleEnabled(true)
           deps.scheduleSave()
           await deps.flushSave()
+          deps.markSessionActive?.(context.sessionID)
           deps.refreshSessionTitle(context.sessionID, 0)
           await deps.showToast('toggle', 'Sidebar usage display: OFF failed')
           return 'Sidebar usage display remains ON because some touched session titles could not be restored. Try again after the session service recovers.'
