@@ -21,7 +21,11 @@ function emptyUsage() {
 
 describe('quota_summary tool', () => {
   it('supports week period with toast enabled', async () => {
-    const calls: Array<{ type: string; period?: string; includeChildren?: boolean }> = []
+    const calls: Array<{
+      type: string
+      period?: string
+      includeChildren?: boolean
+    }> = []
     const toolset = createQuotaSidebarTools({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
@@ -33,9 +37,21 @@ describe('quota_summary tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
-      refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      restoreAllVisibleTitles: async () => ({
+        attempted: 0,
+        restored: 0,
+        listFailed: false,
+      }),
+      refreshAllTouchedTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
+      refreshAllVisibleTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
       showToast: async (period) => {
         calls.push({ type: 'toast', period })
       },
@@ -65,7 +81,11 @@ describe('quota_summary tool', () => {
   })
 
   it('supports month period with toast enabled', async () => {
-    const calls: Array<{ type: string; period?: string; includeChildren?: boolean }> = []
+    const calls: Array<{
+      type: string
+      period?: string
+      includeChildren?: boolean
+    }> = []
     const toolset = createQuotaSidebarTools({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
@@ -77,9 +97,21 @@ describe('quota_summary tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
-      refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      restoreAllVisibleTitles: async () => ({
+        attempted: 0,
+        restored: 0,
+        listFailed: false,
+      }),
+      refreshAllTouchedTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
+      refreshAllVisibleTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
       showToast: async (period) => {
         calls.push({ type: 'toast', period })
       },
@@ -110,7 +142,7 @@ describe('quota_summary tool', () => {
 })
 
 describe('quota_show tool', () => {
-  it('redecorates visible titles when OFF rollback keeps display enabled', async () => {
+  it('does not redecorate visible titles when OFF rollback keeps display enabled', async () => {
     let titleEnabled = true
     let refreshVisibleCalls = 0
     let refreshTouchedCalls = 0
@@ -163,14 +195,13 @@ describe('quota_show tool', () => {
       },
     })
 
-    const result = await toolset.quota_show.execute(
-      { enabled: false },
-      { sessionID: 's1' } as never,
-    )
+    const result = await toolset.quota_show.execute({ enabled: false }, {
+      sessionID: 's1',
+    } as never)
 
     assert.equal(titleEnabled, true)
-    assert.equal(refreshVisibleCalls, 1)
-    assert.equal(refreshTouchedCalls, 1)
+    assert.equal(refreshVisibleCalls, 0)
+    assert.equal(refreshTouchedCalls, 0)
     assert.match(result, /remains ON/)
   })
 
@@ -195,15 +226,21 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => {
-        order.push('refreshTouched')
-        return { attempted: 0, refreshed: 0, listFailed: false }
-      },
-      refreshAllVisibleTitles: async () => {
-        order.push('refreshVisible')
-        return { attempted: 0, refreshed: 0, listFailed: false }
-      },
+      restoreAllVisibleTitles: async () => ({
+        attempted: 0,
+        restored: 0,
+        listFailed: false,
+      }),
+      refreshAllTouchedTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
+      refreshAllVisibleTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
       showToast: async () => {
         order.push('toast')
       },
@@ -229,9 +266,19 @@ describe('quota_show tool', () => {
       },
     })
 
-    await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
+    await toolset.quota_show.execute({ enabled: true }, {
+      sessionID: 's1',
+    } as never)
 
     assert.ok(order.indexOf('startupWait') < order.indexOf('set:on'))
+    assert.deepEqual(order, [
+      'startupWait',
+      'set:on',
+      'scheduleSave',
+      'flushSave',
+      'refreshSessionTitle',
+      'toast',
+    ])
   })
 
   it('does not block forever on hung startup title work', async () => {
@@ -252,9 +299,21 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
-      refreshAllVisibleTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
+      restoreAllVisibleTitles: async () => ({
+        attempted: 0,
+        restored: 0,
+        listFailed: false,
+      }),
+      refreshAllTouchedTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
+      refreshAllVisibleTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,
@@ -278,7 +337,9 @@ describe('quota_show tool', () => {
       },
     })
 
-    const result = await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
+    const result = await toolset.quota_show.execute({ enabled: true }, {
+      sessionID: 's1',
+    } as never)
 
     assert.equal(titleEnabled, true)
     assert.match(result, /now ON/)
@@ -303,9 +364,21 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 1, restored: 0, listFailed: false }),
-      refreshAllTouchedTitles: async () => ({ attempted: 0, refreshed: 0, listFailed: false }),
-      refreshAllVisibleTitles: async () => ({ attempted: 1, refreshed: 1, listFailed: false }),
+      restoreAllVisibleTitles: async () => ({
+        attempted: 1,
+        restored: 0,
+        listFailed: false,
+      }),
+      refreshAllTouchedTitles: async () => ({
+        attempted: 0,
+        refreshed: 0,
+        listFailed: false,
+      }),
+      refreshAllVisibleTitles: async () => ({
+        attempted: 1,
+        refreshed: 1,
+        listFailed: false,
+      }),
       showToast: async () => {},
       summarizeForTool: async () => ({
         input: 0,
@@ -329,7 +402,9 @@ describe('quota_show tool', () => {
       },
     })
 
-    await toolset.quota_show.execute({ enabled: false }, { sessionID: 's1' } as never)
+    await toolset.quota_show.execute({ enabled: false }, {
+      sessionID: 's1',
+    } as never)
 
     assert.equal(titleEnabled, true)
     assert.equal(currentRefreshCalls, 1)
@@ -352,7 +427,11 @@ describe('quota_show tool', () => {
       flushScheduledTitleRefreshes: async () => {},
       waitForTitleRefreshIdle: async () => {},
       waitForTitleRefreshQuiescence: async () => {},
-      restoreAllVisibleTitles: async () => ({ attempted: 0, restored: 0, listFailed: false }),
+      restoreAllVisibleTitles: async () => ({
+        attempted: 0,
+        restored: 0,
+        listFailed: false,
+      }),
       refreshAllTouchedTitles: async () => {
         throw new Error('unexpected refreshAllTouchedTitles')
       },
@@ -382,7 +461,9 @@ describe('quota_show tool', () => {
       },
     })
 
-    const result = await toolset.quota_show.execute({ enabled: true }, { sessionID: 's1' } as never)
+    const result = await toolset.quota_show.execute({ enabled: true }, {
+      sessionID: 's1',
+    } as never)
 
     assert.equal(titleEnabled, false)
     assert.match(result, /cannot be enabled/i)

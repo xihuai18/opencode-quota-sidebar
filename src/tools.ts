@@ -154,26 +154,15 @@ export function createQuotaSidebarTools(deps: {
             deps.scheduleSave()
             await deps.flushSave()
 
-            const visible = await deps.refreshAllVisibleTitles()
-            const touched = await deps.refreshAllTouchedTitles()
             deps.refreshSessionTitle(context.sessionID, 0)
             if (startupTimedOut) {
               void deps.waitForStartupTitleWork().then(() => {
                 if (!deps.getTitleEnabled()) return
-                void deps.refreshAllVisibleTitles()
-                void deps.refreshAllTouchedTitles()
                 deps.refreshSessionTitle(context.sessionID, 0)
               })
             }
             await deps.showToast('toggle', 'Sidebar usage display: ON')
-            if (
-              visible.listFailed ||
-              visible.refreshed < visible.attempted ||
-              touched.refreshed < touched.attempted
-            ) {
-              return 'Sidebar usage display is now ON. Visible-session refresh failed, so only touched/current session titles are guaranteed to refresh immediately.'
-            }
-            return 'Sidebar usage display is now ON. Visible session titles are refreshing to show token usage and quota.'
+            return 'Sidebar usage display is now ON. Only assistant-active sessions will refresh shared titles.'
           }
 
           deps.setTitleEnabled(false)
@@ -190,8 +179,6 @@ export function createQuotaSidebarTools(deps: {
           deps.setTitleEnabled(true)
           deps.scheduleSave()
           await deps.flushSave()
-          await deps.refreshAllVisibleTitles()
-          await deps.refreshAllTouchedTitles()
           deps.refreshSessionTitle(context.sessionID, 0)
           await deps.showToast('toggle', 'Sidebar usage display: OFF failed')
           return 'Sidebar usage display remains ON because some touched session titles could not be restored. Try again after the session service recovers.'

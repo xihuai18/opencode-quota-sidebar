@@ -19,7 +19,7 @@ export function createEventDispatcher(handlers: {
     sessionID: string
     messageID?: string
   }) => Promise<void>
-  onAssistantMessageCompleted: (message: AssistantMessage) => Promise<void>
+  onAssistantMessageUpdated: (message: AssistantMessage) => Promise<void>
 }) {
   return async (event: Event) => {
     const tui = event as unknown as {
@@ -42,7 +42,10 @@ export function createEventDispatcher(handlers: {
       return
     }
 
-    if (tui.type === 'tui.prompt.append' || tui.type === 'tui.command.execute') {
+    if (
+      tui.type === 'tui.prompt.append' ||
+      tui.type === 'tui.command.execute'
+    ) {
       await handlers.onTuiActivity()
       return
     }
@@ -69,8 +72,6 @@ export function createEventDispatcher(handlers: {
 
     if (event.type !== 'message.updated') return
     if (!isAssistantMessage(event.properties.info)) return
-    const completed = event.properties.info.time.completed
-    if (typeof completed !== 'number' || !Number.isFinite(completed)) return
-    await handlers.onAssistantMessageCompleted(event.properties.info)
+    await handlers.onAssistantMessageUpdated(event.properties.info)
   }
 }

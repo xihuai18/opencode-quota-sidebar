@@ -378,7 +378,7 @@ describe('subagent aggregation integration', () => {
     }
   })
 
-  it('includes grandchild session usage in the root parent aggregation', async () => {
+  it('includes grandchild session usage in the root parent summary without rewriting parent title', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -556,18 +556,26 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await waitFor(() => updates.some((u) => u.id === 'p1'))
+      const tool = (hooks.tool as any).quota_summary
+      const markdown = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
+      )
 
-      const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
-      assert.ok(latestP1)
-      assert.match(latestP1!.title, /R3 I111 O6/)
-      assert.match(latestP1!.title, /Cd12%/)
+      assert.match(markdown, /- Sessions: 3/)
+      assert.match(markdown, /- Requests: 3/)
+      assert.match(markdown, /Tokens: input 111, output 6/)
+      assert.match(markdown, /11\.9%/)
+      assert.equal(
+        updates.some((u) => u.id === 'p1'),
+        false,
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
 
-  it('refreshes old and new parents when a child session is re-parented', async () => {
+  it('recomputes old and new parent summaries when a child session is re-parented without rewriting titles', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -762,11 +770,18 @@ describe('subagent aggregation integration', () => {
         event: { type: 'message.updated', properties: { info: childMessage } },
       } as never)
 
-      await waitFor(() => updates.some((u) => u.id === 'p1'))
+      const tool = (hooks.tool as any).quota_summary
+      const beforeP1 = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
+      )
+      const beforeP2 = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p2' },
+      )
 
-      const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
-      assert.ok(latestP1)
-      assert.match(latestP1!.title, /R2 I110 O11/)
+      assert.match(beforeP1, /Tokens: input 110, output 11/)
+      assert.match(beforeP2, /Tokens: input 20, output 2/)
 
       // Re-parent c1 from p1 -> p2. Use decorated title echo to ensure the
       // parent refresh logic is not skipped by title echo handling.
@@ -778,22 +793,27 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await waitFor(() => updates.some((u) => u.id === 'p2'))
+      const afterP2 = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p2' },
+      )
+      const afterP1 = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
+      )
 
-      const latestP2 = [...updates].reverse().find((u) => u.id === 'p2')
-      assert.ok(latestP2)
-      assert.match(latestP2!.title, /R2 I120 O12/)
-
-      const latestP1After = [...updates].reverse().find((u) => u.id === 'p1')
-      assert.ok(latestP1After)
-      // After re-parent, p1 should no longer include child usage.
-      assert.match(latestP1After!.title, /R1 I10 O1/)
+      assert.match(afterP2, /Tokens: input 120, output 12/)
+      assert.match(afterP1, /Tokens: input 10, output 1/)
+      assert.equal(
+        updates.some((u) => u.id === 'p1' || u.id === 'p2'),
+        false,
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
 
-  it('recomputes parent aggregation after child message.removed even if child refresh fails', async () => {
+  it('recomputes parent summary after child message.removed even if child refresh fails', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -971,9 +991,12 @@ describe('subagent aggregation integration', () => {
         event: { type: 'message.updated', properties: { info: childMessage } },
       } as never)
 
-      await waitFor(() =>
-        updates.some((u) => u.id === 'p1' && /R2 I110 O11\b/.test(u.title)),
+      const tool = (hooks.tool as any).quota_summary
+      const before = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
       )
+      assert.match(before, /Tokens: input 110, output 11/)
 
       childEntries = []
       missing = true
@@ -984,13 +1007,15 @@ describe('subagent aggregation integration', () => {
         },
       } as never)
 
-      await waitFor(() =>
-        updates.some((u) => u.id === 'p1' && /R1 I10 O1\b/.test(u.title)),
+      const after = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
       )
-
-      const latestP1 = [...updates].reverse().find((u) => u.id === 'p1')
-      assert.ok(latestP1)
-      assert.match(latestP1!.title, /R1 I10 O1\b/)
+      assert.match(after, /Tokens: input 10, output 1/)
+      assert.equal(
+        updates.some((u) => u.id === 'p1'),
+        false,
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }

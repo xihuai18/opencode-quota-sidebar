@@ -37,6 +37,7 @@ const SHUTDOWN_HOOK_KEY = Symbol.for('opencode-quota-sidebar.shutdown-hook')
 const SHUTDOWN_CALLBACKS_KEY = Symbol.for(
   'opencode-quota-sidebar.shutdown-callbacks',
 )
+const SESSION_ACTIVE_GRACE_MS = 15_000
 
 export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const quotaRuntime = createQuotaRuntime()
@@ -176,10 +177,34 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     usageService.summarizeSessionUsageForDisplay
   const summarizeForTool = usageService.summarizeForTool
 
+  const activeSessionUntil = new Map<string, number>()
+
+  const markSessionActive = (sessionID: string, now = Date.now()) => {
+    activeSessionUntil.set(sessionID, now + SESSION_ACTIVE_GRACE_MS)
+  }
+
+  const clearSessionActivity = (sessionID: string) => {
+    activeSessionUntil.delete(sessionID)
+  }
+
+  const isSessionActive = (sessionID: string, now = Date.now()) => {
+    const expiresAt = activeSessionUntil.get(sessionID)
+    if (expiresAt === undefined) return false
+    if (expiresAt > now) return true
+    activeSessionUntil.delete(sessionID)
+    return false
+  }
+
   // title apply / refresh lifecycle
   let scheduleTitleRefresh = (sessionID: string, delay = 250) => {
     void sessionID
     void delay
+  }
+
+  const scheduleActiveTitleRefresh = (sessionID: string, delay = 250) => {
+    if (!isSessionActive(sessionID)) return false
+    scheduleTitleRefresh(sessionID, delay)
+    return true
   }
 
   const scheduleParentRefreshIfSafe = (
@@ -205,7 +230,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       current = state.sessions[current]?.parentID
     }
 
-    scheduleTitleRefresh(parentID, 0)
+    scheduleActiveTitleRefresh(parentID, 0)
   }
 
   const titleApplicator = createTitleApplicator({
@@ -226,6 +251,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
   const titleRefresh = createTitleRefreshScheduler({
     apply: async (sessionID: string) => {
+      if (!isSessionActive(sessionID)) return
       await titleApplicator.applyTitle(sessionID)
     },
     onError: swallow('titleRefresh'),
@@ -256,14 +282,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       swallow('startup:restoreAllVisibleTitles'),
     )
   } else {
-    startupTitleWork = Promise.allSettled([
-      refreshAllVisibleTitles().catch(
-        swallow('startup:refreshAllVisibleTitles'),
-      ),
-      refreshAllTouchedTitles().catch(
-        swallow('startup:refreshAllTouchedTitles'),
-      ),
-    ]).then(() => undefined)
+    startupTitleWork = Promise.resolve()
   }
 
   const shutdown = async () => {
@@ -423,7 +442,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         sessionID: session.id,
         incomingTitle: session.title,
         sessionState,
-        scheduleRefresh: titleRefresh.schedule,
+        scheduleRefresh: scheduleActiveTitleRefresh,
       })
     },
 
@@ -435,6 +454,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       usageService.forgetSession(session.id)
       titleApplicator.forgetSession(session.id)
       titleRefresh.cancel(session.id)
+      clearSessionActivity(session.id)
 
       const dateKey =
         state.sessionDateMap[session.id] ||
@@ -457,7 +477,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       }
 
       if (config.sidebar.includeChildren && session.parentID) {
-        titleRefresh.schedule(session.parentID, 0)
+        scheduleActiveTitleRefresh(session.parentID, 0)
       }
     },
 
@@ -466,21 +486,26 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     },
 
     onTuiSessionSelect: async (sessionID) => {
-      titleRefresh.schedule(sessionID, 0)
+      scheduleActiveTitleRefresh(sessionID, 0)
     },
 
     onMessageRemoved: async (info) => {
       usageService.markForceRescan(info.sessionID)
-      titleRefresh.schedule(info.sessionID, 0)
+      scheduleActiveTitleRefresh(info.sessionID, 0)
       scheduleParentRefreshIfSafe(
         info.sessionID,
         state.sessions[info.sessionID]?.parentID,
       )
     },
 
-    onAssistantMessageCompleted: async (message) => {
+    onAssistantMessageUpdated: async (message) => {
+      markSessionActive(message.sessionID)
+      const completed = message.time.completed
+      if (typeof completed !== 'number' || !Number.isFinite(completed)) {
+        return
+      }
       usageService.markSessionDirty(message.sessionID)
-      titleRefresh.schedule(message.sessionID)
+      scheduleActiveTitleRefresh(message.sessionID)
       void maybeShowExpiryToast(message.sessionID)
     },
   })
@@ -502,7 +527,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       flushSave,
       waitForStartupTitleWork: () => startupTitleWork,
       refreshSessionTitle: (sessionID, delay) =>
-        titleRefresh.schedule(sessionID, delay ?? 250),
+        scheduleActiveTitleRefresh(sessionID, delay ?? 250),
       cancelAllTitleRefreshes: () => titleRefresh.cancelAll(),
       flushScheduledTitleRefreshes: () => titleRefresh.flushScheduled(),
       waitForTitleRefreshIdle: () => titleRefresh.waitForIdle(),

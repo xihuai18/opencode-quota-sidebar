@@ -143,7 +143,7 @@ describe('plugin integration', () => {
     }
   })
 
-  it('refreshes visible titles on startup when persisted display mode is on', async () => {
+  it('does not refresh inactive titles on startup when persisted display mode is on', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
@@ -227,12 +227,10 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      await waitFor(() => updates.length > 0)
+      await delay(100)
 
-      assert.ok(updates.length > 0)
-      assert.match(title, /Cd7%/)
-      assert.match(title, /Est\$0\.02/)
-      assert.equal(title.includes('\n'), false)
+      assert.equal(updates.length, 0)
+      assert.equal(title, 'Check recent upstream changes')
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
@@ -1306,7 +1304,7 @@ describe('plugin integration', () => {
     }
   })
 
-  it('includes descendant subagent usage and quota providers in parent title', async () => {
+  it('includes descendant subagent usage and quota providers in parent summary without rewriting parent title', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -1519,22 +1517,28 @@ describe('plugin integration', () => {
         event: { type: 'message.updated', properties: { info: childMessage } },
       } as never)
 
-      await waitFor(() => updates.some((u) => u.id === 'p1'))
+      const tool = (hooks.tool as any).quota_summary
+      const markdown = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
+      )
 
-      const latestParent = [...updates]
-        .reverse()
-        .find((item) => item.id === 'p1')
-      assert.ok(latestParent)
-      assert.match(latestParent!.title, /R2 I300 O50/)
-      assert.match(latestParent!.title, /OAI/)
-      assert.match(latestParent!.title, /Cop/)
+      assert.match(markdown, /- Sessions: 2/)
+      assert.match(markdown, /- Requests: 2/)
+      assert.match(markdown, /Tokens: input 300, output 50/)
+      assert.match(markdown, /OpenAI/)
+      assert.match(markdown, /Copilot/)
+      assert.equal(
+        updates.some((item) => item.id === 'p1'),
+        false,
+      )
     } finally {
       ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
   })
 
-  it('includes child long-context API cost in parent title', async () => {
+  it('includes child long-context API cost in parent summary without rewriting parent title', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
@@ -1686,15 +1690,21 @@ describe('plugin integration', () => {
         event: { type: 'message.updated', properties: { info: childMessage } },
       } as never)
 
-      await waitFor(() => updates.some((u) => u.id === 'p1'))
+      const tool = (hooks.tool as any).quota_summary
+      const markdown = await tool.execute(
+        { period: 'session', toast: false, includeChildren: true },
+        { sessionID: 'p1' },
+      )
 
-      const latestParent = [...updates]
-        .reverse()
-        .find((item) => item.id === 'p1')
-      assert.ok(latestParent)
-      assert.match(latestParent!.title, /R2 I350\.0k O30\.0k/)
-      assert.match(latestParent!.title, /Cd5%/)
-      assert.match(latestParent!.title, /Est\$1\.02/)
+      assert.match(markdown, /- Sessions: 2/)
+      assert.match(markdown, /350\.0k/)
+      assert.match(markdown, /30\.0k/)
+      assert.match(markdown, /5\.4%/)
+      assert.match(markdown, /\$1\.02/)
+      assert.equal(
+        updates.some((item) => item.id === 'p1'),
+        false,
+      )
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
