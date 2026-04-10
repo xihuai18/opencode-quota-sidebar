@@ -6,13 +6,73 @@ import type {
 } from '../../types.js'
 import {
   OPENAI_OAUTH_CLIENT_ID,
+  asNumber,
   configuredProviderEnabled,
   fetchWithTimeout,
-  normalizePercent,
-  parseRateLimitWindow,
   toIso,
+  windowLabel,
 } from '../common.js'
 import type { QuotaProviderAdapter } from '../types.js'
+
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return undefined
+    const payload = JSON.parse(
+      Buffer.from(parts[1], 'base64url').toString('utf8'),
+    ) as unknown
+    return isRecord(payload) ? payload : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function extractAccountIdFromJwt(token: string): string | undefined {
+  const payload = decodeJwtPayload(token)
+  if (!payload) return undefined
+  const authClaim = payload['https://api.openai.com/auth']
+  if (!isRecord(authClaim)) return undefined
+  const accountID = authClaim.chatgpt_account_id
+  return typeof accountID === 'string' && accountID ? accountID : undefined
+}
+
+function normalizeOpenAIQuotaPercent(value: unknown) {
+  const numeric = asNumber(value)
+  if (numeric === undefined || Number.isNaN(numeric)) return undefined
+  const expanded = numeric > 0 && numeric < 1 ? numeric * 100 : numeric
+  if (expanded < 0) return 0
+  if (expanded > 100) return 100
+  return expanded
+}
+
+function windowResetAt(
+  win: Record<string, unknown>,
+  fallback?: Record<string, unknown>,
+) {
+  const absolute = toIso(win.reset_at ?? fallback?.reset_at)
+  if (absolute) return absolute
+  const resetAfterSeconds =
+    asNumber(win.reset_after_seconds) ?? asNumber(fallback?.reset_after_seconds)
+  if (resetAfterSeconds === undefined || resetAfterSeconds < 0) return undefined
+  return new Date(Date.now() + resetAfterSeconds * 1000).toISOString()
+}
+
+function parseOpenAIWindow(
+  win: Record<string, unknown>,
+  fallbackLabel: string,
+): QuotaWindow | undefined {
+  const usedPercent = normalizeOpenAIQuotaPercent(win.used_percent)
+  const remainingPercent =
+    normalizeOpenAIQuotaPercent(win.remaining_percent) ??
+    (usedPercent === undefined ? undefined : 100 - usedPercent)
+  if (remainingPercent === undefined) return undefined
+  return {
+    label: windowLabel(win, fallbackLabel),
+    remainingPercent,
+    usedPercent,
+    resetAt: windowResetAt(win),
+  }
+}
 
 async function fetchOpenAIQuota(ctx: {
   providerID: string
@@ -138,13 +198,17 @@ async function fetchOpenAIQuota(ctx: {
     }
   }
 
+  const accountId =
+    (typeof ctx.auth.accountId === 'string' && ctx.auth.accountId) ||
+    extractAccountIdFromJwt(access)
+
   const headers = new Headers({
     Authorization: `Bearer ${access}`,
     Accept: 'application/json',
     'User-Agent': 'opencode-quota-sidebar',
   })
-  if (typeof ctx.auth.accountId === 'string' && ctx.auth.accountId) {
-    headers.set('ChatGPT-Account-Id', ctx.auth.accountId)
+  if (accountId) {
+    headers.set('ChatGPT-Account-Id', accountId)
   }
 
   const response = await fetchWithTimeout(
@@ -186,22 +250,19 @@ async function fetchOpenAIQuota(ctx: {
     ? rateLimit.primary_window
     : {}
 
-  const usedPercent = normalizePercent(primary.used_percent)
+  const usedPercent = normalizeOpenAIQuotaPercent(primary.used_percent)
   const remainingPercent =
-    normalizePercent(primary.remaining_percent) ??
+    normalizeOpenAIQuotaPercent(primary.remaining_percent) ??
     (usedPercent === undefined ? undefined : 100 - usedPercent)
-  const resetAt = toIso(primary.reset_at ?? rateLimit.reset_at)
+  const resetAt = windowResetAt(primary, rateLimit)
 
   const windows: QuotaWindow[] = []
   if (remainingPercent !== undefined) {
-    const primaryWin = parseRateLimitWindow(primary, '')
+    const primaryWin = parseOpenAIWindow(primary, '')
     if (primaryWin) windows.push(primaryWin)
   }
   if (isRecord(rateLimit.secondary_window)) {
-    const secondaryWin = parseRateLimitWindow(
-      rateLimit.secondary_window,
-      'Weekly',
-    )
+    const secondaryWin = parseOpenAIWindow(rateLimit.secondary_window, 'Weekly')
     if (secondaryWin) windows.push(secondaryWin)
   }
 

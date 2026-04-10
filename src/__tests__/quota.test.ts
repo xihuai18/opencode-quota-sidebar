@@ -43,6 +43,10 @@ function jsonResponse(payload: unknown, status = 200) {
   })
 }
 
+function jwtToken(payload: unknown) {
+  return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.sig`
+}
+
 const originalFetch = globalThis.fetch
 const setFetch = (next: typeof fetch) => {
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch = next
@@ -101,6 +105,71 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows![0].remainingPercent, 80)
     assert.equal(snapshot!.windows![1].label, 'Weekly')
     assert.equal(snapshot!.windows![1].remainingPercent, 70)
+  })
+
+  it('derives ChatGPT account id from OpenAI oauth jwt when auth metadata is missing', async () => {
+    const token = jwtToken({
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'acct-123',
+      },
+    })
+
+    setFetch(async (input, init) => {
+      assert.equal(String(input), 'https://chatgpt.com/backend-api/wham/usage')
+      const headers = new Headers(init?.headers)
+      assert.equal(headers.get('ChatGPT-Account-Id'), 'acct-123')
+      return jsonResponse({
+        rate_limit: {
+          primary_window: {
+            remaining_percent: 60,
+            limit_window_seconds: 18_000,
+            reset_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'oauth', access: token },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 60)
+  })
+
+  it('treats OpenAI used_percent=1 as 1 percent used instead of zero remaining', async () => {
+    setFetch(async (input) => {
+      assert.equal(String(input), 'https://chatgpt.com/backend-api/wham/usage')
+      return jsonResponse({
+        rate_limit: {
+          primary_window: {
+            used_percent: 1,
+            limit_window_seconds: 18_000,
+            reset_after_seconds: 3600,
+          },
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'oauth', access: 'access-token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 99)
+    assert.equal(snapshot!.windows?.[0]?.remainingPercent, 99)
+    assert.ok(snapshot!.resetAt)
+    assert.ok(snapshot!.windows?.[0]?.resetAt)
   })
 
   it('keeps OpenAI quota fetch working when token refresh persistence fails', async () => {
