@@ -81,6 +81,11 @@ type HistoryDialogData = {
   warning?: string
 }
 
+type HistoryDialogTarget = {
+  replace: (render: () => unknown, onClose?: () => void) => void
+  clear?: () => void
+}
+
 const HISTORY_METRIC_OPTIONS: Array<{
   name: string
   description: string
@@ -692,6 +697,7 @@ function HistoryDialogView(props: {
   api: TuiPluginApi
   period: HistoryPeriod
   sinceInput: string
+  dialog: HistoryDialogTarget
 }) {
   const [metric, setMetric] = createSignal<HistoryMetric>(
     resolvedHistoryMetric(props.api),
@@ -776,7 +782,7 @@ function HistoryDialogView(props: {
 
   return props.api.ui.Dialog({
     size: 'large',
-    onClose: () => props.api.ui.dialog.clear(),
+    onClose: () => props.dialog.clear?.(),
     children: (
       <box flexDirection="column" gap={1}>
         <text fg={props.api.theme.current.text}>
@@ -861,12 +867,24 @@ function openHistoryDialog(
   api: TuiPluginApi,
   period: HistoryPeriod,
   sinceInput: string,
+  dialog: HistoryDialogTarget = api.ui.dialog,
 ) {
-  api.ui.dialog.replace(() => HistoryDialogView({ api, period, sinceInput }))
+  dialog.replace(() => (
+    <HistoryDialogView
+      api={api}
+      period={period}
+      sinceInput={sinceInput}
+      dialog={dialog}
+    />
+  ))
 }
 
-function openHistoryPrompt(api: TuiPluginApi, period: HistoryPeriod) {
-  openHistoryDialog(api, period, defaultSinceInput(period))
+function openHistoryPrompt(
+  api: TuiPluginApi,
+  period: HistoryPeriod,
+  dialog: HistoryDialogTarget = api.ui.dialog,
+) {
+  openHistoryDialog(api, period, defaultSinceInput(period), dialog)
 }
 
 const tui: TuiPlugin = async (api) => {
@@ -893,7 +911,9 @@ const tui: TuiPlugin = async (api) => {
   })
 
   const unregisterCommands = api.command.register(() =>
-    createHistoryCommands((period) => openHistoryPrompt(api, period)),
+    createHistoryCommands((period, dialog) =>
+      openHistoryPrompt(api, period, dialog),
+    ),
   )
   api.lifecycle.onDispose(unregisterCommands)
 
