@@ -7,6 +7,7 @@ import type {
   CachedSessionUsage,
   IncrementalCursor,
   QuotaSidebarState,
+  QuotaStaleReasonKind,
   QuotaSnapshot,
   RecentProviderEvent,
   SidebarPanelState,
@@ -189,6 +190,27 @@ function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
           (window) => window.label || window.remainingPercent !== undefined,
         )
     : undefined
+  const stale = isRecord(value.stale)
+    ? (() => {
+        const staleReasonKind: QuotaStaleReasonKind =
+          value.stale.staleReasonKind === 'timeout' ||
+          value.stale.staleReasonKind === 'network' ||
+          value.stale.staleReasonKind === 'http_5xx' ||
+          value.stale.staleReasonKind === 'invalid_response' ||
+          value.stale.staleReasonKind === 'unknown'
+            ? value.stale.staleReasonKind
+            : 'unknown'
+        return {
+          staleAt:
+            typeof value.stale.staleAt === 'number' ? value.stale.staleAt : 0,
+          staleReason:
+            typeof value.stale.staleReason === 'string'
+              ? value.stale.staleReason
+              : '',
+          staleReasonKind,
+        }
+      })()
+    : undefined
 
   return {
     providerID: typeof value.providerID === 'string' ? value.providerID : label,
@@ -210,6 +232,7 @@ function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
     balance,
     note: typeof value.note === 'string' ? value.note : undefined,
     windows,
+    stale: stale && stale.staleAt > 0 && stale.staleReason ? stale : undefined,
   }
 }
 

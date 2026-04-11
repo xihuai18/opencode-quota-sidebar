@@ -89,11 +89,18 @@ async function loadSidebarPanel(
 
   const liveUsage = summarizeMessages(liveEntries, 0, 1)
   const cachedUsage = session?.sidebarPanel?.usage || session?.usage
-  const usage = cachedUsage
+  const persistedUsage = cachedUsage
     ? fromCachedSessionUsage(cachedUsage)
-    : liveUsage.assistantMessages > 0
+    : undefined
+  const usage =
+    liveUsage.assistantMessages > 0 &&
+    (!persistedUsage ||
+      liveUsage.assistantMessages > persistedUsage.assistantMessages ||
+      (liveUsage.assistantMessages === persistedUsage.assistantMessages &&
+        liveUsage.total >= persistedUsage.total))
       ? liveUsage
-      : undefined
+      : persistedUsage ||
+        (liveUsage.assistantMessages > 0 ? liveUsage : undefined)
   const compactTitle = resolveCompactTitle(sessionID, session?.lastAppliedTitle)
 
   if (!enabled) {
@@ -154,8 +161,8 @@ function useSidebarPanelData(api: TuiPluginApi, sessionID: () => string) {
   }
 
   const scheduleRefresh = () => {
-    queueRefresh(300)
-    queueRefresh(1_000)
+    queueRefresh(150)
+    queueRefresh(600)
   }
 
   // Bulk session sync populates messages asynchronously without emitting the

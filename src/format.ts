@@ -378,6 +378,14 @@ function compactDesktopCurrencyValue(value: number, currency: string) {
   return rendered
 }
 
+function compactQuotaStaleToken(quota: QuotaSnapshot) {
+  return quota.stale ? 'St' : undefined
+}
+
+function verboseQuotaStaleText(quota: QuotaSnapshot) {
+  return quota.stale ? 'stale' : undefined
+}
+
 function compactDesktopQuotaSegment(quota: QuotaSnapshot) {
   const label = compactProviderLabel(quota)
   if (quota.status !== 'ok') {
@@ -413,6 +421,9 @@ function compactDesktopQuotaSegment(quota: QuotaSnapshot) {
     )}`
     parts.push(balanceToken)
   }
+
+  const staleToken = compactQuotaStaleToken(quota)
+  if (staleToken) parts.push(staleToken)
 
   return [label, ...parts].filter(Boolean).join(' ')
 }
@@ -564,6 +575,7 @@ function alignPairs(
 
 function compactQuotaInline(quota: QuotaSnapshot) {
   const label = sanitizeLine(quotaDisplayLabel(quota))
+  const staleToken = compactQuotaStaleToken(quota)
   if (quota.status !== 'ok') {
     if (quota.status === 'error') return `${label} Remaining ?`
     return `${label} ${sanitizeLine(quota.status)}`
@@ -585,11 +597,11 @@ function compactQuotaInline(quota: QuotaSnapshot) {
     const hasMore =
       quota.windows.length > 1 ||
       (quota.balance !== undefined && !summary.includes('Balance '))
-    return `${label}${summary ? ` ${summary}` : ''}${hasMore ? '+' : ''}`
+    return `${label}${summary ? ` ${summary}` : ''}${hasMore ? '+' : ''}${staleToken ? ` ${staleToken}` : ''}`
   }
 
   if (quota.balance) {
-    return `${label} Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
+    return `${label} Balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}${staleToken ? ` ${staleToken}` : ''}`
   }
 
   const singlePercent = formatQuotaPercent(quota.remainingPercent, {
@@ -597,10 +609,10 @@ function compactQuotaInline(quota: QuotaSnapshot) {
     missing: '',
   })
   if (singlePercent) {
-    return `${label} ${singlePercent}`
+    return `${label} ${singlePercent}${staleToken ? ` ${staleToken}` : ''}`
   }
 
-  return label
+  return `${label}${staleToken ? ` ${staleToken}` : ''}`
 }
 
 function renderSingleLineTitle(
@@ -886,6 +898,8 @@ function compactQuotaWide(
     if (compactDetails) {
       const tokens = [...compactTokens]
       if (balanceText) tokens.push(balanceText)
+      const staleToken = compactQuotaStaleToken(quota)
+      if (staleToken) tokens.push(staleToken)
       return packInlineTokens(
         label,
         tokens,
@@ -907,17 +921,23 @@ function compactQuotaWide(
   }
 
   if (balanceText) {
-    return maybeBreak(balanceText, [balanceText])
+    const staleText = verboseQuotaStaleText(quota)
+    const detail = staleText ? `${balanceText} ${staleText}` : balanceText
+    return maybeBreak(detail, [detail])
   }
 
   // Fallback: single value from top-level remainingPercent
   const percent = formatQuotaPercent(quota.remainingPercent, { rounded: true })
   const reset = compactReset(quota.resetAt, 'Rst')
   const fallbackText = compactDetails
-    ? [`R${percent.replace(/%$/, '')}`, reset ? `R${reset}` : undefined]
+    ? [
+        `R${percent.replace(/%$/, '')}`,
+        reset ? `R${reset}` : undefined,
+        compactQuotaStaleToken(quota),
+      ]
         .filter(Boolean)
         .join(' ')
-    : `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`
+    : `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}${verboseQuotaStaleText(quota) ? ` ${verboseQuotaStaleText(quota)}` : ''}`
   return maybeBreak(fallbackText, [fallbackText])
 }
 function compactCountdown(remainingMs: number) {
@@ -1166,6 +1186,7 @@ export function renderMarkdownReport(
 
   const quotaLines = toolVisibleQuotaSnapshots(quotas).flatMap((quota) => {
     const displayLabel = quotaDisplayLabel(quota)
+    const staleSuffix = quota.stale ? ' | stale' : ''
     // Multi-window detail
     if (quota.windows && quota.windows.length > 0 && quota.status === 'ok') {
       const windowLines = quota.windows.map((win) => {
@@ -1173,16 +1194,18 @@ export function renderMarkdownReport(
           win.note || (win === quota.windows?.[0] && quota.note)
             ? ` | ${win.note || quota.note}`
             : ''
+        const staleNote =
+          quota.stale && win === quota.windows?.[0] ? staleSuffix : ''
         if (win.showPercent === false) {
           const winLabel = win.label ? ` (${win.label})` : ''
           return mdCell(
-            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}`,
+            `- ${displayLabel}${winLabel}: ${quota.status} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}${staleNote}`,
           )
         }
         const remaining = formatQuotaPercent(win.remainingPercent)
         const winLabel = win.label ? ` (${win.label})` : ''
         return mdCell(
-          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}`,
+          `- ${displayLabel}${winLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(win.resetAt, win.resetLabel, win.label)}${extraNote}${staleNote}`,
         )
       })
       if (quota.balance) {
@@ -1197,7 +1220,7 @@ export function renderMarkdownReport(
     if (quota.status === 'ok' && quota.balance) {
       return [
         mdCell(
-          `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`,
+          `- ${displayLabel}: ${quota.status} | balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}${staleSuffix}`,
         ),
       ]
     }
@@ -1211,7 +1234,7 @@ export function renderMarkdownReport(
     const remaining = formatQuotaPercent(quota.remainingPercent)
     return [
       mdCell(
-        `- ${displayLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}`,
+        `- ${displayLabel}: ${quota.status} | remaining ${remaining} | reset ${reportResetLine(quota.resetAt)}${quota.note ? ` | ${quota.note}` : ''}${staleSuffix}`,
       ),
     ]
   })
@@ -1367,6 +1390,7 @@ export function renderToastMessage(
           if (showPercent) parts.push(pct)
           if (reset) parts.push(`${win.resetLabel || 'Rst'} ${reset}`)
           if (win.note) parts.push(win.note)
+          if (item.stale && idx === 0) parts.push('stale')
           return {
             label: idx === 0 ? quotaDisplayLabel(item) : '',
             value: parts.filter(Boolean).join(' '),
@@ -1387,7 +1411,7 @@ export function renderToastMessage(
         return [
           {
             label: quotaDisplayLabel(item),
-            value: `Balance ${formatCurrency(item.balance.amount, item.balance.currency)}`,
+            value: `Balance ${formatCurrency(item.balance.amount, item.balance.currency)}${item.stale ? ' stale' : ''}`,
           },
         ]
       }
@@ -1397,7 +1421,7 @@ export function renderToastMessage(
       return [
         {
           label: quotaDisplayLabel(item),
-          value: `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}`,
+          value: `Remaining ${percent}${reset ? ` Rst ${reset}` : ''}${item.stale ? ' stale' : ''}`,
         },
       ]
     }

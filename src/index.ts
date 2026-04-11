@@ -79,6 +79,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     scheduleSave,
   })
   const getQuotaSnapshots = quotaService.getQuotaSnapshots
+  const invalidateQuotaForProvider = quotaService.invalidateForProvider
 
   const ensureSessionState = (
     sessionID: string,
@@ -489,7 +490,8 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
       markSessionActive(message.sessionID, now)
       usageService.markSessionDirty(message.sessionID)
-      scheduleActiveTitleRefresh(message.sessionID)
+      invalidateQuotaForProvider(message.providerID)
+      scheduleActiveTitleRefresh(message.sessionID, 100)
       void maybeShowExpiryToast(message.sessionID)
     },
   })

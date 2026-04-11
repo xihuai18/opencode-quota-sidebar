@@ -58,6 +58,11 @@ describe('storage state persistence', () => {
       status: 'ok',
       checkedAt: Date.now(),
       remainingPercent: 80,
+      stale: {
+        staleAt: Date.now() - 5_000,
+        staleReason: 'timeout',
+        staleReasonKind: 'timeout',
+      },
       windows: [
         { label: '5h', remainingPercent: 80, usedPercent: 20 },
         { label: 'Weekly', remainingPercent: 70 },
@@ -69,6 +74,7 @@ describe('storage state persistence', () => {
 
     assert.ok(loaded.quotaCache.openai)
     assert.equal(loaded.quotaCache.openai.status, 'ok')
+    assert.equal(loaded.quotaCache.openai.stale?.staleReason, 'timeout')
     assert.ok(loaded.quotaCache.openai.windows)
     assert.equal(loaded.quotaCache.openai.windows!.length, 2)
     assert.equal(loaded.quotaCache.openai.windows![0].label, '5h')

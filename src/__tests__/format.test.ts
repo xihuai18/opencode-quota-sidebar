@@ -1640,6 +1640,35 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /- Anthropic: error \\| quota endpoint returned 500/)
   })
 
+  it('shows stale quota markers in markdown', () => {
+    const report = renderMarkdownReport(
+      'session',
+      makeUsage(),
+      [
+        {
+          providerID: 'anthropic',
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          status: 'ok',
+          checkedAt: Date.now(),
+          stale: {
+            staleAt: Date.now(),
+            staleReason: 'timeout',
+            staleReasonKind: 'timeout',
+          },
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        },
+      ],
+      { showCost: true },
+    )
+
+    assert.match(
+      report,
+      /- Anthropic \(5h\): ok \\| remaining 80\.0% \\| reset - \\| stale/,
+    )
+  })
+
   it('uses display labels for markdown quota lines', () => {
     const report = renderMarkdownReport(
       'session',
@@ -2022,6 +2051,27 @@ describe('renderToastMessage', () => {
 
     assert.match(toast, /\nQuota\n/)
     assert.match(toast, /Anthropic\s+Remaining \?/)
+  })
+
+  it('shows stale quota markers in toast', () => {
+    const toast = renderToastMessage('session', makeUsage(), [
+      {
+        providerID: 'anthropic',
+        adapterID: 'anthropic',
+        label: 'Anthropic',
+        shortLabel: 'Anthropic',
+        status: 'ok',
+        checkedAt: Date.now(),
+        stale: {
+          staleAt: Date.now(),
+          staleReason: 'timeout',
+          staleReasonKind: 'timeout',
+        },
+        windows: [{ label: '5h', remainingPercent: 80 }],
+      },
+    ])
+
+    assert.match(toast, /Anthropic\s+5h 80\.0% stale/)
   })
 
   it('renders per-provider Cost as API section in toast', () => {

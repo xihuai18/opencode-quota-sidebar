@@ -928,6 +928,60 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows![1].remainingPercent, 77)
   })
 
+  it('retries Anthropic quota once after a timeout and succeeds', async () => {
+    let calls = 0
+    setFetch(async () => {
+      calls++
+      if (calls === 1) {
+        const error = new Error('timed out')
+        error.name = 'AbortError'
+        throw error
+      }
+      return jsonResponse({
+        five_hour: {
+          utilization: 20,
+          resets_at: '2026-03-09T16:20:00Z',
+        },
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'anthropic',
+      {
+        anthropic: { type: 'oauth', access: 'token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(calls, 2)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 80)
+  })
+
+  it('returns timeout when Anthropic retry also fails', async () => {
+    let calls = 0
+    setFetch(async () => {
+      calls++
+      const error = new Error('timed out')
+      error.name = 'AbortError'
+      throw error
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'anthropic',
+      {
+        anthropic: { type: 'oauth', access: 'token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(calls, 2)
+    assert.equal(snapshot!.status, 'error')
+    assert.equal(snapshot!.note, 'timeout')
+  })
+
   it('returns unsupported for anthropic api-key auth', async () => {
     const snapshot = await quota.fetchQuotaSnapshot(
       'anthropic',

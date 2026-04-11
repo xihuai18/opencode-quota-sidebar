@@ -15,6 +15,19 @@ export type QuotaWindow = {
   resetAt?: string
 }
 
+export type QuotaStaleReasonKind =
+  | 'timeout'
+  | 'network'
+  | 'http_5xx'
+  | 'invalid_response'
+  | 'unknown'
+
+export type QuotaStaleMeta = {
+  staleAt: number
+  staleReason: string
+  staleReasonKind: QuotaStaleReasonKind
+}
+
 export type QuotaSnapshot = {
   providerID: string
   /** Adapter ID that produced this snapshot (e.g. openai, rightcode). */
@@ -38,6 +51,8 @@ export type QuotaSnapshot = {
   note?: string
   /** Multi-window quota (e.g. OpenAI short-term + weekly). */
   windows?: QuotaWindow[]
+  /** Last successful snapshot reused during a transient quota fetch failure. */
+  stale?: QuotaStaleMeta
 }
 
 export type QuotaProviderConfig = {

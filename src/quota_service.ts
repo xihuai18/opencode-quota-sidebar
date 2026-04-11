@@ -37,19 +37,43 @@ export function createQuotaService(deps: {
   directory: string
   scheduleSave: () => void
 }) {
-  const ERROR_CACHE_TTL_MS = 30_000
+  const ERROR_CACHE_TTL_MS = 15_000
   const ZERO_QUOTA_CACHE_TTL_MS = 15_000
+  const CRITICAL_QUOTA_CACHE_TTL_MS = 20_000
   const LOW_QUOTA_CACHE_TTL_MS = 30_000
+  const MODERATE_QUOTA_CACHE_TTL_MS = 45_000
   const SOON_RESET_CACHE_TTL_MS = 15_000
   const SOON_RESET_WINDOW_MS = 2 * 60 * 1000
+  const MIN_STALE_MAX_AGE_MS = 5 * 60 * 1000
+  const MAX_STALE_MAX_AGE_MS = 15 * 60 * 1000
+  const RESET_PASSED_STALE_GRACE_MS = 60_000
 
   const authCache = new TtlValueCache<Record<string, AuthValue>>()
   const providerOptionsCache = new TtlValueCache<
     Record<string, Record<string, unknown>>
   >()
 
-  const inFlight = new Map<string, Promise<QuotaSnapshot | undefined>>()
-  let lastSuccessfulProviderOptionsMap: Record<string, Record<string, unknown>> = {}
+  const inFlight = new Map<
+    string,
+    {
+      generation: number
+      providerID: string
+      normalizedProviderID: string
+      promise: Promise<QuotaSnapshot | undefined>
+    }
+  >()
+  const invalidatedCacheKeys = new Map<string, number>()
+  const latestFetchGeneration = new Map<string, number>()
+  let requestGeneration = 0
+  let lastSuccessfulProviderOptionsMap: Record<
+    string,
+    Record<string, unknown>
+  > = {}
+
+  const nextRequestGeneration = () => {
+    requestGeneration += 1
+    return requestGeneration
+  }
 
   const authFingerprint = (auth: unknown) => {
     if (!auth || typeof auth !== 'object') return undefined
@@ -136,7 +160,8 @@ export function createQuotaService(deps: {
     }
 
     const data =
-      isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+      isRecord(response) &&
+      Object.prototype.hasOwnProperty.call(response, 'data')
         ? (response as Record<string, unknown>).data
         : undefined
 
@@ -150,7 +175,8 @@ export function createQuotaService(deps: {
           .catch(swallow('getProviderOptionsMap:providerListNoDataFallback'))
 
         const fallbackData =
-          isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+          isRecord(response) &&
+          Object.prototype.hasOwnProperty.call(response, 'data')
             ? (response as Record<string, unknown>).data
             : undefined
         const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
@@ -163,27 +189,36 @@ export function createQuotaService(deps: {
               : undefined
 
         const map = Array.isArray(fallbackList)
-          ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
-              if (!item || typeof item !== 'object') return acc
-              const record = item as Record<string, unknown>
-              const id = record.id
-              const options = record.options
-              const key = record.key
-              if (typeof id !== 'string') return acc
-              if (!options || typeof options !== 'object' || Array.isArray(options)) {
-                acc[id] =
-                  typeof key === 'string' && key ? { apiKey: key } : {}
+          ? fallbackList.reduce<Record<string, Record<string, unknown>>>(
+              (acc, item) => {
+                if (!item || typeof item !== 'object') return acc
+                const record = item as Record<string, unknown>
+                const id = record.id
+                const options = record.options
+                const key = record.key
+                if (typeof id !== 'string') return acc
+                if (
+                  !options ||
+                  typeof options !== 'object' ||
+                  Array.isArray(options)
+                ) {
+                  acc[id] =
+                    typeof key === 'string' && key ? { apiKey: key } : {}
+                  return acc
+                }
+                const optionsRecord = options as Record<string, unknown>
+                acc[id] = {
+                  ...optionsRecord,
+                  ...(typeof key === 'string' &&
+                  key &&
+                  optionsRecord.apiKey === undefined
+                    ? { apiKey: key }
+                    : {}),
+                }
                 return acc
-              }
-              const optionsRecord = options as Record<string, unknown>
-              acc[id] = {
-                ...optionsRecord,
-                ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
-                  ? { apiKey: key }
-                  : {}),
-              }
-              return acc
-            }, {})
+              },
+              {},
+            )
           : {}
         if (Object.keys(map).length > 0) {
           lastSuccessfulProviderOptionsMap = map
@@ -213,7 +248,8 @@ export function createQuotaService(deps: {
         .catch(swallow('getProviderOptionsMap:providerListFallback'))
 
       const fallbackData =
-        isRecord(response) && Object.prototype.hasOwnProperty.call(response, 'data')
+        isRecord(response) &&
+        Object.prototype.hasOwnProperty.call(response, 'data')
           ? (response as Record<string, unknown>).data
           : undefined
       const fallbackRecord = isRecord(fallbackData) ? fallbackData : undefined
@@ -226,26 +262,35 @@ export function createQuotaService(deps: {
             : undefined
 
       const map = Array.isArray(fallbackList)
-        ? fallbackList.reduce<Record<string, Record<string, unknown>>>((acc, item) => {
-            if (!item || typeof item !== 'object') return acc
-            const record = item as Record<string, unknown>
-            const id = record.id
-            const options = record.options
-            const key = record.key
-            if (typeof id !== 'string') return acc
-            if (!options || typeof options !== 'object' || Array.isArray(options)) {
-              acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
+        ? fallbackList.reduce<Record<string, Record<string, unknown>>>(
+            (acc, item) => {
+              if (!item || typeof item !== 'object') return acc
+              const record = item as Record<string, unknown>
+              const id = record.id
+              const options = record.options
+              const key = record.key
+              if (typeof id !== 'string') return acc
+              if (
+                !options ||
+                typeof options !== 'object' ||
+                Array.isArray(options)
+              ) {
+                acc[id] = typeof key === 'string' && key ? { apiKey: key } : {}
+                return acc
+              }
+              const optionsRecord = options as Record<string, unknown>
+              acc[id] = {
+                ...optionsRecord,
+                ...(typeof key === 'string' &&
+                key &&
+                optionsRecord.apiKey === undefined
+                  ? { apiKey: key }
+                  : {}),
+              }
               return acc
-            }
-            const optionsRecord = options as Record<string, unknown>
-            acc[id] = {
-              ...optionsRecord,
-              ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
-                ? { apiKey: key }
-                : {}),
-            }
-            return acc
-          }, {})
+            },
+            {},
+          )
         : {}
       if (Object.keys(map).length > 0) {
         lastSuccessfulProviderOptionsMap = map
@@ -278,7 +323,9 @@ export function createQuotaService(deps: {
           const optionsRecord = options as Record<string, unknown>
           acc[id] = {
             ...optionsRecord,
-            ...(typeof key === 'string' && key && optionsRecord.apiKey === undefined
+            ...(typeof key === 'string' &&
+            key &&
+            optionsRecord.apiKey === undefined
               ? { apiKey: key }
               : {}),
           }
@@ -353,11 +400,72 @@ export function createQuotaService(deps: {
     return values
   }
 
+  const staleMaxAgeMs = () =>
+    Math.min(
+      MAX_STALE_MAX_AGE_MS,
+      Math.max(MIN_STALE_MAX_AGE_MS, deps.config.quota.refreshMs * 2),
+    )
+
+  const staleReason = (snapshot: QuotaSnapshot) => {
+    if (snapshot.status !== 'error') return undefined
+    const note = snapshot.note?.trim()
+    if (!note) return undefined
+    const normalized = note.toLowerCase()
+    if (normalized === 'timeout') {
+      return { kind: 'timeout' as const, text: note }
+    }
+    if (normalized.includes('network request failed')) {
+      return { kind: 'network' as const, text: note }
+    }
+    if (/^http\s+5\d\d\b/i.test(note)) {
+      return { kind: 'http_5xx' as const, text: note }
+    }
+    if (
+      normalized.includes('invalid response') ||
+      normalized.includes('missing quota fields')
+    ) {
+      return { kind: 'invalid_response' as const, text: note }
+    }
+    return undefined
+  }
+
+  const canReuseStaleQuota = (snapshot: QuotaSnapshot, now = Date.now()) => {
+    if (snapshot.status !== 'ok') return false
+    if (now - snapshot.checkedAt > staleMaxAgeMs()) return false
+    const resetTimes = snapshotResetTimes(snapshot)
+    if (
+      resetTimes.some((resetAt) => resetAt + RESET_PASSED_STALE_GRACE_MS <= now)
+    ) {
+      return false
+    }
+    return true
+  }
+
+  const withStaleQuota = (
+    snapshot: QuotaSnapshot,
+    failure: QuotaSnapshot,
+    now = Date.now(),
+  ): QuotaSnapshot => {
+    const reason = staleReason(failure)
+    return {
+      ...snapshot,
+      stale: {
+        staleAt: now,
+        staleReason: reason?.text || failure.note || 'error',
+        staleReasonKind: reason?.kind || 'unknown',
+      },
+    }
+  }
+
   const effectiveQuotaCacheTtl = (
     snapshot: QuotaSnapshot,
     now = Date.now(),
   ) => {
     let ttlMs = deps.config.quota.refreshMs
+
+    if (snapshot.stale) {
+      ttlMs = Math.min(ttlMs, ERROR_CACHE_TTL_MS)
+    }
 
     if (snapshot.status !== 'ok') {
       ttlMs = Math.min(ttlMs, ERROR_CACHE_TTL_MS)
@@ -366,8 +474,12 @@ export function createQuotaService(deps: {
     const remainingPercents = snapshotRemainingPercents(snapshot)
     if (remainingPercents.some((value) => value <= 0)) {
       ttlMs = Math.min(ttlMs, ZERO_QUOTA_CACHE_TTL_MS)
-    } else if (remainingPercents.some((value) => value <= 1)) {
+    } else if (remainingPercents.some((value) => value <= 5)) {
+      ttlMs = Math.min(ttlMs, CRITICAL_QUOTA_CACHE_TTL_MS)
+    } else if (remainingPercents.some((value) => value <= 15)) {
       ttlMs = Math.min(ttlMs, LOW_QUOTA_CACHE_TTL_MS)
+    } else if (remainingPercents.some((value) => value <= 30)) {
+      ttlMs = Math.min(ttlMs, MODERATE_QUOTA_CACHE_TTL_MS)
     }
 
     const resetTimes = snapshotResetTimes(snapshot)
@@ -508,19 +620,36 @@ export function createQuotaService(deps: {
         providerOptions,
       )
       const cacheKey = `${baseKey}#${authScopeFor(providerID, providerOptions)}`
+      const normalizedProviderID =
+        deps.quotaRuntime.normalizeProviderID(providerID)
 
       const cached = deps.state.quotaCache[cacheKey]
       const now = Date.now()
+      const invalidatedAt = invalidatedCacheKeys.get(cacheKey)
       const cacheTtl = cached ? effectiveQuotaCacheTtl(cached, now) : 0
-      if (cached && cacheTtl > 0 && now - cached.checkedAt <= cacheTtl) {
+      const freshnessAt = cached?.stale?.staleAt ?? cached?.checkedAt ?? 0
+      if (
+        cached &&
+        invalidatedAt === undefined &&
+        cacheTtl > 0 &&
+        now - freshnessAt <= cacheTtl
+      ) {
         if (isValidQuotaCache(cached)) return Promise.resolve(cached)
         delete deps.state.quotaCache[cacheKey]
         cacheChanged = true
       }
 
       const existing = inFlight.get(cacheKey)
-      if (existing) return existing
+      if (
+        existing &&
+        (invalidatedAt === undefined || existing.generation >= invalidatedAt)
+      ) {
+        return existing.promise
+      }
 
+      if (invalidatedAt !== undefined) invalidatedCacheKeys.delete(cacheKey)
+
+      const generation = nextRequestGeneration()
       const promise = deps.quotaRuntime
         .fetchQuotaSnapshot(
           providerID,
@@ -544,17 +673,41 @@ export function createQuotaService(deps: {
         )
         .then((latest) => {
           if (!latest) return undefined
-          deps.state.quotaCache[cacheKey] = latest
-          cacheChanged = true
-          return latest
+          const cachedOk =
+            cached &&
+            cached.status === 'ok' &&
+            canReuseStaleQuota(cached, Date.now())
+              ? cached
+              : undefined
+          const next =
+            cachedOk && staleReason(latest)
+              ? withStaleQuota(cachedOk, latest, Date.now())
+              : latest.stale
+                ? { ...latest, stale: undefined }
+                : latest
+          const invalidatedGeneration = invalidatedCacheKeys.get(cacheKey) || 0
+          if (
+            generation >= (latestFetchGeneration.get(cacheKey) || 0) &&
+            generation >= invalidatedGeneration
+          ) {
+            deps.state.quotaCache[cacheKey] = next
+            cacheChanged = true
+          }
+          return next
         })
         .finally(() => {
-          if (inFlight.get(cacheKey) === promise) {
+          if (inFlight.get(cacheKey)?.promise === promise) {
             inFlight.delete(cacheKey)
           }
         })
 
-      inFlight.set(cacheKey, promise)
+      latestFetchGeneration.set(cacheKey, generation)
+      inFlight.set(cacheKey, {
+        generation,
+        providerID,
+        normalizedProviderID,
+        promise,
+      })
       return promise
     }
 
@@ -572,5 +725,30 @@ export function createQuotaService(deps: {
     return snapshots
   }
 
-  return { getQuotaSnapshots }
+  const invalidateForProvider = (providerID: string) => {
+    const normalized = deps.quotaRuntime.normalizeProviderID(providerID)
+    for (const [cacheKey, snapshot] of Object.entries(deps.state.quotaCache)) {
+      if (snapshot.providerID === providerID) {
+        invalidatedCacheKeys.set(cacheKey, nextRequestGeneration())
+        continue
+      }
+      if (
+        deps.quotaRuntime.normalizeProviderID(snapshot.providerID) ===
+        normalized
+      ) {
+        invalidatedCacheKeys.set(cacheKey, nextRequestGeneration())
+      }
+    }
+
+    for (const [cacheKey, entry] of inFlight.entries()) {
+      if (
+        entry.providerID === providerID ||
+        entry.normalizedProviderID === normalized
+      ) {
+        invalidatedCacheKeys.set(cacheKey, nextRequestGeneration())
+      }
+    }
+  }
+
+  return { getQuotaSnapshots, invalidateForProvider }
 }

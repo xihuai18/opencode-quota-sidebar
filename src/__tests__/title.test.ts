@@ -75,6 +75,11 @@ describe('title', () => {
       ),
       true,
     )
+    assert.equal(
+      looksDecorated('Session | R12 I18.9k O53 | Ant 5h80 St | Est$0.12'),
+      true,
+    )
+    assert.equal(looksDecorated('Session\nAnthropic 5h 80% stale'), true)
     assert.equal(looksDecorated('Session|Input 1k  Output 2k|OpenAI 80%'), true)
     assert.equal(looksDecorated('Greetin~ | Input 1.~'), true)
     assert.equal(looksDecorated('Greetin~ | Input 1.~ | OpenAI 8~'), true)
@@ -105,6 +110,10 @@ describe('title', () => {
     )
     assert.equal(
       normalizeBaseTitle('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
+      'Session',
+    )
+    assert.equal(
+      normalizeBaseTitle('Session\nAnthropic 5h 80% stale'),
       'Session',
     )
     assert.equal(

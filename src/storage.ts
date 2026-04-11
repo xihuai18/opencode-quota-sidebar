@@ -81,13 +81,13 @@ export const defaultConfig: QuotaSidebarConfig = {
     },
   },
   quota: {
-    refreshMs: 5 * 60 * 1000,
+    refreshMs: 1 * 60 * 1000,
     includeOpenAI: true,
     includeCopilot: true,
     includeAnthropic: true,
     providers: {},
     refreshAccessToken: false,
-    requestTimeoutMs: 8_000,
+    requestTimeoutMs: 12_000,
   },
   toast: {
     durationMs: 12_000,

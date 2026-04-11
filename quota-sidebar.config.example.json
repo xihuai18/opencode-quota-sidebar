@@ -17,7 +17,7 @@
     }
   },
   "quota": {
-    "refreshMs": 300000,
+    "refreshMs": 60000,
     "includeOpenAI": true,
     "includeCopilot": true,
     "includeAnthropic": true,
@@ -36,7 +36,7 @@
       }
     },
     "refreshAccessToken": false,
-    "requestTimeoutMs": 8000
+    "requestTimeoutMs": 12000
   },
   "toast": {
     "durationMs": 12000

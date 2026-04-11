@@ -13,7 +13,9 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function makeConfig(): QuotaSidebarConfig {
+function makeConfig(
+  overrides: Partial<QuotaSidebarConfig['quota']> = {},
+): QuotaSidebarConfig {
   return {
     sidebar: {
       enabled: true,
@@ -33,6 +35,7 @@ function makeConfig(): QuotaSidebarConfig {
       includeAnthropic: true,
       refreshAccessToken: false,
       requestTimeoutMs: 8_000,
+      ...overrides,
     },
     toast: { durationMs: 12_000 },
     retentionDays: 730,
@@ -449,6 +452,621 @@ describe('quota service', () => {
     assert.equal(snapshots[0].status, 'ok')
   })
 
+  it('reuses a recent ok snapshot as stale after a transient quota error', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let scheduled = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'error',
+          checkedAt: Date.now(),
+          note: 'timeout',
+        }
+        return snapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {
+        scheduled++
+      },
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].status, 'ok')
+    assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 81)
+    assert.equal(snapshots[0].stale?.staleReason, 'timeout')
+    assert.equal(snapshots[0].stale?.staleReasonKind, 'timeout')
+    assert.equal(scheduled, 1)
+  })
+
+  it('does not reuse stale quota for auth failures', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'error',
+          checkedAt: Date.now(),
+          note: 'http 401',
+        }
+        return snapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].status, 'error')
+    assert.equal(snapshots[0].stale, undefined)
+    assert.equal(snapshots[0].note, 'http 401')
+  })
+
+  it('uses tighter ttl tiers when quota is low', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'openai' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        return {
+          providerID,
+          adapterID: 'openai',
+          label: 'OpenAI Codex',
+          shortLabel: 'OpenAI',
+          sortOrder: 10,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 50 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    const lowState = defaultState()
+    lowState.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'ok',
+      checkedAt: Date.now() - 21_000,
+      windows: [{ label: '5h', remainingPercent: 4 }],
+    }
+
+    const lowService = createQuotaService({
+      quotaRuntime,
+      config,
+      state: lowState,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    await lowService.getQuotaSnapshots(['openai'])
+    assert.equal(calls, 1)
+
+    const moderateState = defaultState()
+    moderateState.quotaCache['openai#none'] = {
+      providerID: 'openai',
+      adapterID: 'openai',
+      label: 'OpenAI Codex',
+      shortLabel: 'OpenAI',
+      sortOrder: 10,
+      status: 'ok',
+      checkedAt: Date.now() - 46_000,
+      windows: [{ label: '5h', remainingPercent: 25 }],
+    }
+
+    const moderateService = createQuotaService({
+      quotaRuntime,
+      config,
+      state: moderateState,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    await moderateService.getQuotaSnapshots(['openai'])
+    assert.equal(calls, 2)
+  })
+
+  it('invalidates matching provider cache entries after usage updates', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 67 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now(),
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const before = await service.getQuotaSnapshots(['anthropic'])
+    assert.equal(before[0].windows?.[0]?.remainingPercent, 81)
+    assert.equal(calls, 0)
+
+    service.invalidateForProvider('anthropic')
+    const after = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(calls, 1)
+    assert.equal(after[0].windows?.[0]?.remainingPercent, 67)
+  })
+
+  it('uses staleAt to throttle retries for stale snapshots', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 67 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      stale: {
+        staleAt: Date.now() - 5_000,
+        staleReason: 'timeout',
+        staleReasonKind: 'timeout',
+      },
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(calls, 0)
+    assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 81)
+    assert.equal(snapshots[0].stale?.staleReason, 'timeout')
+  })
+
+  it('refreshes staleAt after a new transient fallback so retries stay throttled', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        calls++
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'error',
+          checkedAt: Date.now(),
+          note: 'timeout',
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      stale: {
+        staleAt: Date.now() - 16_000,
+        staleReason: 'timeout',
+        staleReasonKind: 'timeout',
+      },
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = await service.getQuotaSnapshots(['anthropic'])
+    const refreshedStaleAt = first[0].stale?.staleAt
+    assert.equal(calls, 1)
+    assert.ok(typeof refreshedStaleAt === 'number')
+
+    const second = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(calls, 1)
+    assert.equal(second[0].stale?.staleAt, refreshedStaleAt)
+  })
+
+  it('starts a fresh fetch when invalidation lands during an older in-flight request', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const attempt = ++calls
+        await delay(40)
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: attempt === 1 ? 80 : 67 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = service.getQuotaSnapshots(['anthropic'])
+    await delay(5)
+    service.invalidateForProvider('anthropic')
+    const second = service.getQuotaSnapshots(['anthropic'])
+
+    const [firstSnapshots, secondSnapshots] = await Promise.all([first, second])
+
+    assert.equal(calls, 2)
+    assert.equal(firstSnapshots[0].windows?.[0]?.remainingPercent, 80)
+    assert.equal(secondSnapshots[0].windows?.[0]?.remainingPercent, 67)
+  })
+
+  it('records invalidation for providers that only exist in flight', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const attempt = ++calls
+        await delay(40)
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: attempt === 1 ? 80 : 67 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state: defaultState(),
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = service.getQuotaSnapshots(['anthropic'])
+    await delay(5)
+    service.invalidateForProvider('anthropic')
+    const second = service.getQuotaSnapshots(['anthropic'])
+
+    const [firstSnapshots, secondSnapshots] = await Promise.all([first, second])
+
+    assert.equal(calls, 2)
+    assert.equal(firstSnapshots[0].windows?.[0]?.remainingPercent, 80)
+    assert.equal(secondSnapshots[0].windows?.[0]?.remainingPercent, 67)
+  })
+
+  it('does not let an invalidated in-flight fetch overwrite cache before replacement starts', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    let calls = 0
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const attempt = ++calls
+        await delay(40)
+        return {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: attempt === 1 ? 80 : 67 }],
+        } satisfies QuotaSnapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const first = service.getQuotaSnapshots(['anthropic'])
+    await delay(5)
+    service.invalidateForProvider('anthropic')
+
+    const firstSnapshots = await first
+
+    assert.equal(calls, 1)
+    assert.equal(firstSnapshots[0].windows?.[0]?.remainingPercent, 80)
+    assert.equal(
+      state.quotaCache['anthropic#none']?.windows?.[0]?.remainingPercent,
+      81,
+    )
+
+    const secondSnapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(calls, 2)
+    assert.equal(secondSnapshots[0].windows?.[0]?.remainingPercent, 67)
+    assert.equal(
+      state.quotaCache['anthropic#none']?.windows?.[0]?.remainingPercent,
+      67,
+    )
+  })
+
   it('invalidates legacy anthropic unsupported cache entries', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
     tmpDirs.push(tmp)
@@ -726,7 +1344,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(providerListCalls, 1)
     assert.equal(fetchCalls, 1)
@@ -792,7 +1412,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(providerListCalls, 1)
     assert.equal(fetchCalls, 1)
@@ -873,7 +1495,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(snapshots.length, 2)
     assert.deepEqual(calls.sort(), ['rc-a:key-a', 'rc-b:key-b'])
@@ -924,7 +1548,8 @@ describe('quota service', () => {
         config: {
           providers: async () => {
             providerCalls++
-            if (providerCalls === 1) throw new Error('temporary discovery failure')
+            if (providerCalls === 1)
+              throw new Error('temporary discovery failure')
             return {
               data: {
                 providers: [
@@ -1070,7 +1695,9 @@ describe('quota service', () => {
       scheduleSave: () => {},
     })
 
-    const snapshots = await service.getQuotaSnapshots([], { allowDefault: true })
+    const snapshots = await service.getQuotaSnapshots([], {
+      allowDefault: true,
+    })
 
     assert.equal(snapshots.length, 1)
     assert.equal(fetchCalls, 1)
