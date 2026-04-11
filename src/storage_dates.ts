@@ -70,8 +70,11 @@ export function dateStartFromKey(dateKey: string) {
   ).getTime()
 }
 
-/** M7 fix: cap iteration at 400 days (~13 months). */
-const MAX_DATE_RANGE_DAYS = 400
+/**
+ * M7 fix: cap iteration at 731 calendar dates so a rolling 730-day retention
+ * window still covers both boundary days.
+ */
+const MAX_DATE_RANGE_DAYS = 731
 
 export function dateKeysInRange(startAt: number, endAt: number) {
   const startDate = new Date(startAt)
