@@ -2,6 +2,7 @@ import type { Session } from '@opencode-ai/sdk'
 import { type Hooks, type PluginInput } from '@opencode-ai/plugin'
 
 import {
+  renderHistoryMarkdownReport,
   renderMarkdownReport,
   resolveTitleView,
   renderSidebarTitle,
@@ -177,6 +178,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const summarizeSessionUsageForDisplay =
     usageService.summarizeSessionUsageForDisplay
   const summarizeForTool = usageService.summarizeForTool
+  const summarizeHistoryForTool = usageService.summarizeHistoryUsage
 
   const activeSessionUntil = new Map<string, number>()
 
@@ -523,9 +525,11 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         titleApplicator.restoreSessionTitle(sessionID),
       showToast,
       summarizeForTool,
+      summarizeHistoryForTool,
       getQuotaSnapshots,
       renderMarkdownReport,
       renderToastMessage,
+      renderHistoryMarkdownReport,
       config: {
         sidebar: config.sidebar,
         sidebarEnabled: config.sidebar.enabled,

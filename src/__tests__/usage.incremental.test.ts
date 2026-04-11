@@ -5,6 +5,7 @@ import type { Message } from '@opencode-ai/sdk'
 
 import {
   getCacheCoverageMetrics,
+  summarizeMessagesAcrossCompletedRanges,
   summarizeMessages,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
@@ -104,6 +105,32 @@ describe('summarizeMessages', () => {
         (message.tokens.output + message.tokens.reasoning) * 0.01,
     })
     assert.equal(summary.apiCost, 1.9)
+  })
+
+  it('treats completed-range boundaries as half-open intervals', () => {
+    const entries = [
+      { info: assistantMessage('a1', 1000, 2000, { input: 10, output: 20 }) },
+    ]
+
+    const summaries = summarizeMessagesAcrossCompletedRanges(
+      entries,
+      [
+        { startAt: 1000, endAt: 2000 },
+        { startAt: 2000, endAt: 3000 },
+      ],
+      undefined,
+    )
+
+    assert.equal(summaries[0].assistantMessages, 0)
+    assert.equal(summaries[1].assistantMessages, 1)
+
+    const terminalOnly = summarizeMessagesAcrossCompletedRanges(
+      entries,
+      [{ startAt: 1000, endAt: 2000 }],
+      undefined,
+    )
+
+    assert.equal(terminalOnly[0].assistantMessages, 0)
   })
 })
 

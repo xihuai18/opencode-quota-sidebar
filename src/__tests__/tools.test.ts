@@ -19,6 +19,20 @@ function emptyUsage() {
   }
 }
 
+function emptyHistory(period: 'day' | 'week' | 'month', since: string) {
+  const precision = since.length === 7 ? ('month' as const) : ('day' as const)
+  return {
+    period,
+    since: {
+      raw: since,
+      precision,
+      startAt: 0,
+    },
+    rows: [],
+    total: emptyUsage(),
+  }
+}
+
 describe('quota_summary tool', () => {
   it('supports week period with toast enabled', async () => {
     const calls: Array<{
@@ -47,6 +61,9 @@ describe('quota_summary tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: (period) => `markdown:${period}`,
       renderToastMessage: (period) => `toast:${period}`,
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -92,6 +109,9 @@ describe('quota_summary tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: (period) => `markdown:${period}`,
       renderToastMessage: (period) => `toast:${period}`,
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -108,6 +128,122 @@ describe('quota_summary tool', () => {
       { type: 'summary', period: 'month', includeChildren: false },
       { type: 'toast', period: 'month' },
     ])
+  })
+
+  it('uses history summary and skips toast by default when since is provided', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      showToast: async (period) => {
+        calls.push({ type: 'toast', period })
+      },
+      summarizeForTool: async () => {
+        calls.push({ type: 'summary' })
+        return emptyUsage()
+      },
+      summarizeHistoryForTool: async (period, since) => {
+        calls.push({ type: 'history', period, since })
+        return emptyHistory(period, since)
+      },
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => 'unexpected',
+      renderToastMessage: () => 'toast',
+      renderHistoryMarkdownReport: () => 'history:month:2026-01',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    const result = await toolset.quota_summary.execute(
+      { period: 'month', since: '2026-01' },
+      { sessionID: 's1' } as never,
+    )
+
+    assert.equal(result, 'history:month:2026-01')
+    assert.deepEqual(calls, [
+      { type: 'history', period: 'month', since: '2026-01' },
+    ])
+  })
+
+  it('defaults since-only history requests to month period', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      showToast: async () => {},
+      summarizeForTool: async () => emptyUsage(),
+      summarizeHistoryForTool: async (period, since) => {
+        calls.push({ period, since })
+        return emptyHistory(period, since)
+      },
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      renderHistoryMarkdownReport: () => 'history:month:2026-01',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    const result = await toolset.quota_summary.execute({ since: '2026-01' }, {
+      sessionID: 's1',
+    } as never)
+
+    assert.equal(result, 'history:month:2026-01')
+    assert.deepEqual(calls, [{ period: 'month', since: '2026-01' }])
+  })
+
+  it('rejects since for session period', async () => {
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      showToast: async () => {},
+      summarizeForTool: async () => emptyUsage(),
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      renderHistoryMarkdownReport: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    await assert.rejects(
+      toolset.quota_summary.execute({ period: 'session', since: '2026-01' }, {
+        sessionID: 's1',
+      } as never),
+      /`since` is not supported when `period=session`/,
+    )
   })
 })
 
@@ -147,6 +283,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -204,6 +343,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -264,6 +406,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -313,6 +458,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -375,6 +523,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -433,6 +584,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: true,
@@ -482,6 +636,9 @@ describe('quota_show tool', () => {
       getQuotaSnapshots: async () => [],
       renderMarkdownReport: () => '',
       renderToastMessage: () => '',
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      renderHistoryMarkdownReport: () => '',
       config: {
         sidebar: { showCost: true, width: 36, includeChildren: true },
         sidebarEnabled: false,

@@ -20,7 +20,14 @@ import {
   scanAllSessions,
   updateSessionsInDayChunks,
 } from './storage.js'
-import { periodStart } from './period.js'
+import {
+  parseSince,
+  periodRanges,
+  periodStart,
+  type HistoryPeriod,
+  type PeriodRange,
+  type SinceSpec,
+} from './period.js'
 import {
   debug,
   debugError,
@@ -32,12 +39,25 @@ import {
   emptyUsageSummary,
   fromCachedSessionUsage,
   mergeUsage,
+  summarizeMessagesAcrossCompletedRanges,
   summarizeMessagesInCompletedRange,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
   USAGE_BILLING_CACHE_VERSION,
   type UsageSummary,
 } from './usage.js'
+
+export type HistoryUsageRow = {
+  range: PeriodRange
+  usage: UsageSummary
+}
+
+export type HistoryUsageResult = {
+  period: HistoryPeriod
+  since: SinceSpec
+  rows: HistoryUsageRow[]
+  total: UsageSummary
+}
 
 const READ_ONLY_CACHE_PROVIDERS = new Set([
   'openai',
@@ -892,6 +912,229 @@ export function createUsageService(deps: {
     return usage
   }
 
+  const summarizeHistoryUsage = async (
+    period: HistoryPeriod,
+    rawSince: string,
+  ): Promise<HistoryUsageResult> => {
+    const since = parseSince(rawSince)
+    const ranges = periodRanges(period, since)
+    const total = emptyUsageSummary()
+    const rows = ranges.map((range) => ({
+      range,
+      usage: emptyUsageSummary(),
+    }))
+
+    if (ranges.length === 0) {
+      return { period, since, rows, total }
+    }
+
+    const startAt = ranges[0].startAt
+    const endAt = ranges[ranges.length - 1].endAt
+    await deps.persistence.flushSave()
+    const sessions = await scanAllSessions(deps.statePath, deps.state)
+    const modelCostMap = await getModelCostMap()
+    const hasPricing = Object.keys(modelCostMap).length > 0
+
+    if (sessions.length > 0) {
+      const fetched = await mapConcurrent(
+        sessions,
+        RANGE_USAGE_CONCURRENCY,
+        async (session) => {
+          const load = await loadSessionEntries(session.sessionID)
+          if (load.status !== 'ok') {
+            return {
+              sessionID: session.sessionID,
+              dateKey: session.dateKey,
+              lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
+              ranges: rows.map(() => emptyUsageSummary()),
+              totalUsage: emptyUsageSummary(),
+              fullUsage: undefined,
+              loadFailed: load.status === 'error',
+              missing: load.status === 'missing',
+              persist: false,
+              cursor: undefined,
+            }
+          }
+
+          const entries = load.entries
+          const usageOptions = {
+            calcApiCost: (message: AssistantMessage) =>
+              calcEquivalentApiCost(message, modelCostMap),
+            classifyCacheMode: (message: AssistantMessage) =>
+              classifyCacheMode(message, modelCostMap),
+          }
+          const rangeUsage = summarizeMessagesAcrossCompletedRanges(
+            entries,
+            rows.map((row) => ({
+              startAt: row.range.startAt,
+              endAt: row.range.endAt,
+            })),
+            usageOptions,
+          )
+          const totalUsage = emptyUsageSummary()
+          for (const item of rangeUsage) {
+            if (item.assistantMessages > 0) {
+              mergeUsage(totalUsage, item)
+            }
+          }
+          if (totalUsage.assistantMessages > 0) {
+            totalUsage.sessionCount = 1
+          }
+
+          const shouldPersistFullUsage =
+            !session.state.usage ||
+            shouldRecomputeUsageCache(
+              session.state.usage,
+              hasPricing,
+              hasResolvableApiCostMessages(entries, modelCostMap),
+            )
+
+          if (!shouldPersistFullUsage) {
+            return {
+              sessionID: session.sessionID,
+              dateKey: session.dateKey,
+              lastMessageTime: session.state.cursor?.lastMessageTime,
+              dirty: session.state.dirty === true,
+              ranges: rangeUsage,
+              totalUsage,
+              fullUsage: undefined,
+              loadFailed: false,
+              missing: false,
+              persist: false,
+              cursor: session.state.cursor,
+            }
+          }
+
+          const { usage: fullUsage, cursor } = summarizeMessagesIncremental(
+            entries,
+            undefined,
+            undefined,
+            true,
+            usageOptions,
+          )
+          return {
+            sessionID: session.sessionID,
+            dateKey: session.dateKey,
+            lastMessageTime: cursor.lastMessageTime,
+            dirty: false,
+            ranges: rangeUsage,
+            totalUsage,
+            fullUsage,
+            loadFailed: false,
+            missing: false,
+            persist: true,
+            cursor,
+          }
+        },
+      )
+
+      const missingSessions = fetched.filter((item) => item.missing)
+      if (missingSessions.length > 0) {
+        let stateChanged = false
+
+        for (const missing of missingSessions) {
+          deps.state.deletedSessionDateMap[missing.sessionID] = missing.dateKey
+          delete deps.state.sessions[missing.sessionID]
+          delete deps.state.sessionDateMap[missing.sessionID]
+          deps.persistence.markDirty(missing.dateKey)
+          forgetSession(missing.sessionID)
+          stateChanged = true
+        }
+
+        await Promise.all(
+          missingSessions.map(async (missing) => {
+            const deletedFromChunk = await deleteSessionFromDayChunk(
+              deps.statePath,
+              missing.sessionID,
+              missing.dateKey,
+            ).catch((error) => {
+              swallow('deleteSessionFromDayChunk')(error)
+              return false
+            })
+            if (!deletedFromChunk) return
+            delete deps.state.deletedSessionDateMap[missing.sessionID]
+            stateChanged = true
+          }),
+        )
+
+        if (stateChanged) deps.persistence.scheduleSave()
+      }
+
+      const failedLoads = fetched.filter((item) => {
+        if (!item.loadFailed) return false
+        if (item.dirty) return true
+        const lastMessageTime = item.lastMessageTime
+        if (typeof lastMessageTime === 'number' && lastMessageTime < startAt) {
+          return false
+        }
+        return true
+      })
+      if (failedLoads.length > 0) {
+        throw new Error(
+          `history usage unavailable: failed to load ${failedLoads.length} session(s)`,
+        )
+      }
+
+      let dirty = false
+      const diskOnlyUpdates: Array<{
+        sessionID: string
+        dateKey: string
+        usage: CachedSessionUsage
+        cursor: IncrementalCursor | undefined
+      }> = []
+
+      for (const item of fetched) {
+        for (let index = 0; index < rows.length; index++) {
+          if (item.ranges[index].assistantMessages > 0) {
+            mergeUsage(rows[index].usage, item.ranges[index])
+          }
+        }
+        if (item.totalUsage.assistantMessages > 0) {
+          mergeUsage(total, item.totalUsage)
+        }
+        const memoryState = deps.state.sessions[item.sessionID]
+        if (item.persist && item.fullUsage && memoryState) {
+          memoryState.usage = toCachedSessionUsage(item.fullUsage)
+          memoryState.cursor = item.cursor
+          const resolvedDateKey =
+            deps.state.sessionDateMap[item.sessionID] ||
+            dateKeyFromTimestamp(memoryState.createdAt)
+          deps.state.sessionDateMap[item.sessionID] = resolvedDateKey
+          deps.persistence.markDirty(resolvedDateKey)
+          memoryState.dirty = false
+          dirty = true
+        } else if (item.persist && item.fullUsage) {
+          diskOnlyUpdates.push({
+            sessionID: item.sessionID,
+            dateKey: item.dateKey,
+            usage: toCachedSessionUsage(item.fullUsage),
+            cursor: item.cursor,
+          })
+        }
+      }
+
+      if (diskOnlyUpdates.length > 0) {
+        const persisted = await updateSessionsInDayChunks(
+          deps.statePath,
+          diskOnlyUpdates,
+        ).catch((error) => {
+          swallow('updateSessionsInDayChunks')(error)
+          return false
+        })
+        if (!persisted) {
+          throw new Error(
+            `history usage unavailable: failed to persist ${diskOnlyUpdates.length} disk-only session(s)`,
+          )
+        }
+      }
+
+      if (dirty) deps.persistence.scheduleSave()
+    }
+
+    return { period, since, rows, total }
+  }
+
   const summarizeForTool = async (
     period: 'session' | 'day' | 'week' | 'month',
     sessionID: string,
@@ -953,6 +1196,7 @@ export function createUsageService(deps: {
   return {
     summarizeSessionUsageForDisplay,
     summarizeForTool,
+    summarizeHistoryUsage,
     markSessionDirty,
     markForceRescan,
     forgetSession,

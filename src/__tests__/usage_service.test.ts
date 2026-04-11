@@ -72,6 +72,99 @@ function entry(sessionID: string, messageID: string, input: number) {
 }
 
 describe('usage service', () => {
+  it('summarizes history across multiple day rows', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const dayOne = new Date(2026, 3, 10, 12).getTime()
+    const dayTwo = new Date(2026, 3, 11, 12).getTime()
+
+    state.sessions.s1 = {
+      createdAt: dayOne,
+      baseTitle: 'S1',
+      lastAppliedTitle: undefined,
+      cursor: { lastMessageTime: dayTwo },
+    }
+    state.sessionDateMap.s1 = '2026-04-10'
+
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              {
+                info: {
+                  id: 'm1',
+                  sessionID: 's1',
+                  role: 'assistant',
+                  providerID: 'openai',
+                  modelID: 'gpt-5',
+                  time: { created: dayOne, completed: dayOne },
+                  tokens: {
+                    input: 100,
+                    output: 20,
+                    reasoning: 0,
+                    cache: { read: 10, write: 0 },
+                  },
+                  cost: 1,
+                },
+              },
+              {
+                info: {
+                  id: 'm2',
+                  sessionID: 's1',
+                  role: 'assistant',
+                  providerID: 'openai',
+                  modelID: 'gpt-5',
+                  time: { created: dayTwo, completed: dayTwo },
+                  tokens: {
+                    input: 200,
+                    output: 40,
+                    reasoning: 0,
+                    cache: { read: 20, write: 0 },
+                  },
+                  cost: 2,
+                },
+              },
+            ],
+          }),
+        },
+        provider: {
+          list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const realNow = Date.now
+    Date.now = () => new Date(2026, 3, 11, 23, 59, 59).getTime()
+    let result
+    try {
+      result = await service.summarizeHistoryUsage('day', '2026-04-10')
+    } finally {
+      Date.now = realNow
+    }
+
+    assert.equal(result.rows.length, 2)
+    assert.equal(result.rows[0].range.label, '2026-04-10')
+    assert.equal(result.rows[0].usage.input, 100)
+    assert.equal(result.rows[1].range.label, '2026-04-11')
+    assert.equal(result.rows[1].usage.input, 200)
+    assert.equal(result.total.input, 300)
+    assert.equal(result.total.assistantMessages, 2)
+    assert.equal(result.total.sessionCount, 1)
+  })
+
   it('keeps session measured cost root-only while apiCost includes children', async () => {
     const state = makeState()
     const config = makeConfig()

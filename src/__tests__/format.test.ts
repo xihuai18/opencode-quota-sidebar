@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
 import {
+  renderHistoryMarkdownReport,
   renderSidebarContextLine,
   renderSidebarQuotaLines,
   renderMarkdownReport,
@@ -1709,6 +1710,144 @@ describe('renderMarkdownReport', () => {
     )
 
     assert.match(report, /- RightCode: ok \\| balance -\$2\.50/)
+  })
+})
+
+describe('renderHistoryMarkdownReport', () => {
+  it('keeps zero-usage periods in the breakdown and marks the current row', () => {
+    const report = renderHistoryMarkdownReport(
+      {
+        period: 'day',
+        since: {
+          raw: '2026-02-18',
+          precision: 'day',
+          startAt: new Date(2026, 1, 18).getTime(),
+        },
+        rows: [
+          {
+            range: {
+              period: 'day',
+              startAt: new Date(2026, 1, 18).getTime(),
+              endAt: new Date(2026, 1, 19).getTime(),
+              label: '2026-02-18',
+              shortLabel: '02-18',
+              isCurrent: false,
+              isPartial: false,
+              index: 0,
+            },
+            usage: makeUsage({
+              assistantMessages: 0,
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+              cost: 0,
+              apiCost: 0,
+            }),
+          },
+          {
+            range: {
+              period: 'day',
+              startAt: new Date(2026, 1, 19).getTime(),
+              endAt: new Date(2026, 1, 20).getTime(),
+              label: '2026-02-19',
+              shortLabel: '02-19',
+              isCurrent: true,
+              isPartial: true,
+              index: 1,
+            },
+            usage: makeUsage({
+              assistantMessages: 2,
+              input: 100,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 120,
+              cost: 0,
+              apiCost: 1.25,
+            }),
+          },
+        ],
+        total: makeUsage({
+          assistantMessages: 2,
+          input: 100,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 120,
+          cost: 0,
+          apiCost: 1.25,
+          sessionCount: 1,
+        }),
+      },
+      [],
+      { showCost: true },
+    )
+
+    assert.match(report, /\| 2026-02-18 \| 0 \| 0 \| 0 \| 0 \| 0 \| \$0\.00 \|/)
+    assert.match(
+      report,
+      /\| 2026-02-19\* \| 2 \| 100 \| 0 \| 0 \| 120 \| \$1\.25 \|/,
+    )
+    assert.match(report, /2026-02-18 \|[# ]+\| \$0\.00/)
+  })
+
+  it('omits API cost column and chart when showCost=false', () => {
+    const report = renderHistoryMarkdownReport(
+      {
+        period: 'month',
+        since: {
+          raw: '2026-01',
+          precision: 'month',
+          startAt: new Date(2026, 0, 1).getTime(),
+        },
+        rows: [
+          {
+            range: {
+              period: 'month',
+              startAt: new Date(2026, 0, 1).getTime(),
+              endAt: new Date(2026, 1, 1).getTime(),
+              label: 'Jan 2026',
+              shortLabel: '2026-01',
+              isCurrent: false,
+              isPartial: false,
+              index: 0,
+            },
+            usage: makeUsage({
+              assistantMessages: 3,
+              input: 300,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 360,
+              cost: 0,
+              apiCost: 2.5,
+            }),
+          },
+        ],
+        total: makeUsage({
+          assistantMessages: 3,
+          input: 300,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 360,
+          cost: 0,
+          apiCost: 2.5,
+          sessionCount: 1,
+        }),
+      },
+      [],
+      { showCost: false },
+    )
+
+    assert.doesNotMatch(report, /API Cost/)
+    assert.doesNotMatch(report, /### Chart \(API Cost\)/)
+    assert.match(
+      report,
+      /\| Period \| Requests \| Input \| Output \| Cache \| Total \|/,
+    )
   })
 })
 

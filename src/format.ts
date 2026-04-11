@@ -1,4 +1,5 @@
 import type { QuotaSidebarConfig, QuotaSnapshot } from './types.js'
+import type { HistoryUsageResult } from './usage_service.js'
 import {
   getCacheCoverageMetrics,
   getProviderCacheCoverageMetrics,
@@ -1031,6 +1032,77 @@ function periodLabel(period: string) {
   if (period === 'week') return 'This Week'
   if (period === 'month') return 'This Month'
   return 'Current Session'
+}
+
+function historyPeriodLabel(period: string) {
+  if (period === 'day') return 'Daily'
+  if (period === 'week') return 'Weekly'
+  if (period === 'month') return 'Monthly'
+  return 'Session'
+}
+
+function renderHistoryApiCostChart(result: HistoryUsageResult) {
+  const rows = result.rows
+  if (rows.length === 0) return ['- no API cost activity in selected range']
+  const maxValue = Math.max(...rows.map((row) => row.usage.apiCost), 0)
+  const barWidth = 24
+  return rows.map((row) => {
+    const ratio = maxValue > 0 ? row.usage.apiCost / maxValue : 0
+    const filled = Math.max(0, Math.round(ratio * barWidth))
+    return `${row.range.label} |${'#'.repeat(filled)}${' '.repeat(barWidth - filled)}| ${formatApiCostValue(row.usage.apiCost)}`
+  })
+}
+
+export function renderHistoryMarkdownReport(
+  result: HistoryUsageResult,
+  quotas: QuotaSnapshot[],
+  options?: { showCost?: boolean },
+) {
+  const showCost = options?.showCost !== false
+  const rows = result.rows
+  const tableRows = rows.length
+    ? rows.map((row) => {
+        const cells = [
+          `${row.range.label}${row.range.isCurrent ? '*' : ''}`,
+          shortNumber(row.usage.assistantMessages),
+          shortNumber(row.usage.input),
+          shortNumber(row.usage.output),
+          shortNumber(row.usage.cacheRead + row.usage.cacheWrite),
+          shortNumber(row.usage.total),
+        ]
+        if (showCost) cells.push(formatApiCostValue(row.usage.apiCost))
+        return `| ${cells.join(' | ')} |`
+      })
+    : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - | - |']
+  const totalReport = renderMarkdownReport(
+    result.period,
+    result.total,
+    quotas,
+    options,
+  ).split('\n')
+  totalReport[0] = '### Total Summary'
+
+  return [
+    `## Quota History - ${historyPeriodLabel(result.period)} since ${result.since.raw}`,
+    '',
+    '### Breakdown',
+    '',
+    showCost
+      ? '| Period | Requests | Input | Output | Cache | Total | API Cost |'
+      : '| Period | Requests | Input | Output | Cache | Total |',
+    showCost
+      ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: |'
+      : '| --- | ---: | ---: | ---: | ---: | ---: |',
+    ...tableRows,
+    ...(result.rows.some((row) => row.range.isCurrent)
+      ? ['', '* `*` marks the current partial period.']
+      : []),
+    ...(showCost
+      ? ['', '### Chart (API Cost)', '', ...renderHistoryApiCostChart(result)]
+      : []),
+    '',
+    ...totalReport,
+  ].join('\n')
 }
 
 export function renderMarkdownReport(

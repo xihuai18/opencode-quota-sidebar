@@ -404,6 +404,55 @@ export function summarizeMessagesInCompletedRange(
   return summary
 }
 
+function rangeIndexForCompletedAt(
+  ranges: Array<{ startAt: number; endAt: number }>,
+  completedAt: number,
+) {
+  let low = 0
+  let high = ranges.length - 1
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const range = ranges[mid]
+    if (completedAt < range.startAt) {
+      high = mid - 1
+      continue
+    }
+    if (completedAt >= range.endAt) {
+      low = mid + 1
+      continue
+    }
+    return mid
+  }
+  return -1
+}
+
+export function summarizeMessagesAcrossCompletedRanges(
+  entries: Array<{ info: Message }>,
+  ranges: Array<{ startAt: number; endAt: number }>,
+  options?: UsageOptions,
+) {
+  const summaries = ranges.map(() => emptyUsageSummary())
+  const touched = new Set<number>()
+
+  if (ranges.length === 0) return summaries
+
+  for (const entry of entries) {
+    if (!isAssistant(entry.info)) continue
+    const completed = completedTimeOf(entry.info)
+    if (completed === undefined) continue
+    const index = rangeIndexForCompletedAt(ranges, completed)
+    if (index < 0) continue
+    addMessageUsage(summaries[index], entry.info, options)
+    touched.add(index)
+  }
+
+  for (const index of touched) {
+    summaries[index].sessionCount = 1
+  }
+
+  return summaries
+}
+
 /**
  * P1: Incremental usage aggregation.
  * Only processes messages newer than the cursor. Returns updated cursor.

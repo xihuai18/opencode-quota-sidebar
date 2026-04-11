@@ -1,6 +1,8 @@
 import * as z from 'zod'
 import type { QuotaSnapshot } from './types.js'
 import type { UsageSummary } from './usage.js'
+import type { HistoryPeriod } from './period.js'
+import type { HistoryUsageResult } from './usage_service.js'
 
 type ToolContext = {
   sessionID: string
@@ -39,6 +41,10 @@ export function createQuotaSidebarTools(deps: {
     sessionID: string,
     includeChildren: boolean,
   ) => Promise<UsageSummary>
+  summarizeHistoryForTool: (
+    period: HistoryPeriod,
+    since: string,
+  ) => Promise<HistoryUsageResult>
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
@@ -54,6 +60,11 @@ export function createQuotaSidebarTools(deps: {
     usage: UsageSummary,
     quotas: QuotaSnapshot[],
     options?: { showCost?: boolean; width?: number },
+  ) => string
+  renderHistoryMarkdownReport: (
+    result: HistoryUsageResult,
+    quotas: QuotaSnapshot[],
+    options?: { showCost?: boolean },
   ) => string
   config: {
     sidebar: { showCost: boolean; width: number; includeChildren: boolean }
@@ -76,6 +87,10 @@ export function createQuotaSidebarTools(deps: {
         'Show usage and quota summary for session/day/week/month. Returns the full markdown report with totals, highlights, provider table, and subscription quota so callers can present the report directly to the user.',
       args: {
         period: z.enum(['session', 'day', 'week', 'month']).optional(),
+        since: z
+          .string()
+          .optional()
+          .describe('Historical start date: `YYYY-MM` or `YYYY-MM-DD`.'),
         toast: z.boolean().optional(),
         includeChildren: z
           .boolean()
@@ -85,7 +100,34 @@ export function createQuotaSidebarTools(deps: {
           ),
       },
       execute: async (args, context) => {
-        const period = args.period || 'session'
+        const period = args.period || (args.since ? 'month' : 'session')
+        const since = args.since?.trim()
+        if (period === 'session' && since) {
+          throw new Error('`since` is not supported when `period=session`')
+        }
+
+        if (period !== 'session' && since) {
+          const history = await deps.summarizeHistoryForTool(period, since)
+          const quotas = await deps.getQuotaSnapshots([], {
+            allowDefault: true,
+          })
+          const markdown = deps.renderHistoryMarkdownReport(history, quotas, {
+            showCost: deps.config.sidebar.showCost,
+          })
+
+          if (args.toast === true) {
+            await deps.showToast(
+              period,
+              deps.renderToastMessage(period, history.total, quotas, {
+                showCost: deps.config.sidebar.showCost,
+                width: Math.max(44, deps.config.sidebar.width + 18),
+              }),
+            )
+          }
+
+          return markdown
+        }
+
         const includeChildren =
           period === 'session'
             ? (args.includeChildren ?? deps.config.sidebar.includeChildren)
