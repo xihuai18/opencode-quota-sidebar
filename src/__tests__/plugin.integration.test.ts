@@ -728,21 +728,15 @@ describe('plugin integration', () => {
         },
       } as never)
 
-      const output = { parts: [] as any[] }
-      await hooks['command.execute.before']?.(
-        { command: 'qday', arguments: '', sessionID: 's1' },
-        output,
-      )
+      const tool = (hooks.tool as any).quota_summary
+      await tool.execute({ period: 'day', toast: false }, { sessionID: 's1' })
       assert.equal(quotaCalls, 1)
 
       await hooks.event!({
         event: { type: 'message.updated', properties: { info: msg } },
       } as never)
 
-      await hooks['command.execute.before']?.(
-        { command: 'qday', arguments: '', sessionID: 's1' },
-        output,
-      )
+      await tool.execute({ period: 'day', toast: false }, { sessionID: 's1' })
       assert.equal(quotaCalls, 2)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome

@@ -19,6 +19,7 @@ import {
 } from './cost.js'
 import { mapConcurrent } from './helpers.js'
 import { parseSince, periodRanges, type HistoryPeriod } from './period.js'
+import { createHistoryCommands } from './tui_commands.js'
 import {
   fallbackQuotaGroupsFromTitle,
   quotaGroupsAreCollapsible,
@@ -891,29 +892,9 @@ const tui: TuiPlugin = async (api) => {
       .catch(() => undefined)
   })
 
-  const unregisterCommands = api.command.register(() => [
-    {
-      title: 'Quota Day History',
-      value: 'quota.history.day',
-      description: 'Open daily usage history chart',
-      slash: { name: 'qday' },
-      onSelect: () => openHistoryPrompt(api, 'day'),
-    },
-    {
-      title: 'Quota Week History',
-      value: 'quota.history.week',
-      description: 'Open weekly usage history chart',
-      slash: { name: 'qweek' },
-      onSelect: () => openHistoryPrompt(api, 'week'),
-    },
-    {
-      title: 'Quota Month History',
-      value: 'quota.history.month',
-      description: 'Open monthly usage history chart',
-      slash: { name: 'qmonth' },
-      onSelect: () => openHistoryPrompt(api, 'month'),
-    },
-  ])
+  const unregisterCommands = api.command.register(() =>
+    createHistoryCommands((period) => openHistoryPrompt(api, period)),
+  )
   api.lifecycle.onDispose(unregisterCommands)
 
   api.slots.register({

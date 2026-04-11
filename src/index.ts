@@ -305,6 +305,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     period: 'session' | 'day' | 'week' | 'month' | 'toggle',
     message: string,
   ) => {
+    if (!input.client.tui?.showToast) return
     await input.client.tui
       .showToast({
         query: { directory: input.directory },
@@ -380,37 +381,6 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
     } finally {
       expiryToastInflight.delete(sessionID)
     }
-  }
-
-  const runQuotaHistoryCommand = async (
-    command: string,
-    rawArguments: string,
-    sessionID: string,
-  ) => {
-    const normalized = command.replace(/^\//, '')
-    const period =
-      normalized === 'qday'
-        ? 'day'
-        : normalized === 'qweek'
-          ? 'week'
-          : normalized === 'qmonth'
-            ? 'month'
-            : undefined
-    if (!period) return undefined
-
-    const since = rawArguments.trim()
-    const quotas = await getQuotaSnapshots([], { allowDefault: true })
-    if (since) {
-      const history = await summarizeHistoryForTool(period, since)
-      return renderHistoryMarkdownReport(history, quotas, {
-        showCost: config.sidebar.showCost,
-      })
-    }
-
-    const usage = await summarizeForTool(period, sessionID, false)
-    return renderMarkdownReport(period, usage, quotas, {
-      showCost: config.sidebar.showCost,
-    })
   }
 
   const dispatchEvent = createEventDispatcher({
@@ -542,32 +512,6 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         await dispatchEvent(event)
       } catch (error) {
         debug(`event handler failed: ${String(error)}`)
-      }
-    },
-    'command.execute.before': async (input, output) => {
-      const normalized = input.command.replace(/^\//, '')
-      if (
-        normalized !== 'qday' &&
-        normalized !== 'qweek' &&
-        normalized !== 'qmonth'
-      ) {
-        return
-      }
-      try {
-        const body = await runQuotaHistoryCommand(
-          input.command,
-          input.arguments || '',
-          input.sessionID,
-        )
-        if (!body) return
-        output.parts = [{ type: 'text', text: body } as any]
-      } catch (error) {
-        output.parts = [
-          {
-            type: 'text',
-            text: error instanceof Error ? error.message : String(error),
-          } as any,
-        ]
       }
     },
     tool: createQuotaSidebarTools({
