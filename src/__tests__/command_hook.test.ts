@@ -87,7 +87,6 @@ describe('quota history command routing', () => {
 
   it('registers qday qweek and qmonth as TUI slash commands', () => {
     const opened: string[] = []
-    const fakeDialog = { replace: () => {} }
     const commands = createHistoryCommands((period) => opened.push(period))
 
     assert.deepEqual(
@@ -103,9 +102,7 @@ describe('quota history command routing', () => {
     )
 
     for (const command of commands) {
-      ;(command.onSelect as ((dialog?: unknown) => void) | undefined)?.(
-        fakeDialog,
-      )
+      command.onSelect?.()
     }
 
     assert.deepEqual(opened, ['day', 'week', 'month'])

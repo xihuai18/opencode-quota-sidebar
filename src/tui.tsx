@@ -4,7 +4,14 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
 } from '@opencode-ai/plugin/tui'
-import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import {
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
 
 import { fitLine, renderSidebarUsageLines } from './format.js'
 import {
@@ -79,11 +86,6 @@ type HistoryDialogData = {
   rows: HistoryDialogRow[]
   total: UsageSummary
   warning?: string
-}
-
-type HistoryDialogTarget = {
-  replace: (render: () => unknown, onClose?: () => void) => void
-  clear?: () => void
 }
 
 const HISTORY_METRIC_OPTIONS: Array<{
@@ -697,7 +699,6 @@ function HistoryDialogView(props: {
   api: TuiPluginApi
   period: HistoryPeriod
   sinceInput: string
-  dialog: HistoryDialogTarget
 }) {
   const [metric, setMetric] = createSignal<HistoryMetric>(
     resolvedHistoryMetric(props.api),
@@ -771,6 +772,10 @@ function HistoryDialogView(props: {
     timers.clear()
   })
 
+  onMount(() => {
+    props.api.ui.dialog.setSize('large')
+  })
+
   const rows = createMemo(() => data()?.rows || [])
   const maxValue = createMemo(() =>
     rows().reduce(
@@ -780,111 +785,95 @@ function HistoryDialogView(props: {
   )
   const total = createMemo(() => data()?.total || emptyUsageSummary())
 
-  return props.api.ui.Dialog({
-    size: 'large',
-    onClose: () => props.dialog.clear?.(),
-    children: (
-      <box flexDirection="column" gap={1}>
-        <text fg={props.api.theme.current.text}>
-          <b>{`${historyPeriodLabel(props.period)} Usage since ${props.sinceInput.trim()}`}</b>
-        </text>
-        <tab_select
-          ref={(value) => {
-            metricTabs = value as { setSelectedIndex: (index: number) => void }
-            syncMetricTabs(metric())
-          }}
-          focused={true}
-          options={HISTORY_METRIC_OPTIONS}
-          onChange={(_index, option) => {
-            const value = (option?.value || 'apiCost') as HistoryMetric
-            metricChangedByUser = true
-            applyMetric(value, true)
-          }}
-        />
+  return (
+    <box flexDirection="column" gap={1}>
+      <text fg={props.api.theme.current.text}>
+        <b>{`${historyPeriodLabel(props.period)} Usage since ${props.sinceInput.trim()}`}</b>
+      </text>
+      <tab_select
+        ref={(value) => {
+          metricTabs = value as { setSelectedIndex: (index: number) => void }
+          syncMetricTabs(metric())
+        }}
+        focused={true}
+        options={HISTORY_METRIC_OPTIONS}
+        onChange={(_index, option) => {
+          const value = (option?.value || 'apiCost') as HistoryMetric
+          metricChangedByUser = true
+          applyMetric(value, true)
+        }}
+      />
+      <Show
+        when={!error()}
+        fallback={<text fg={props.api.theme.current.error}>{error()}</text>}
+      >
         <Show
-          when={!error()}
-          fallback={<text fg={props.api.theme.current.error}>{error()}</text>}
-        >
-          <Show
-            when={data()}
-            fallback={
-              <text fg={props.api.theme.current.textMuted}>
-                Loading history...
-              </text>
-            }
-          >
-            <scrollbox height={Math.max(6, Math.min(14, rows().length + 1))}>
-              <box flexDirection="column" gap={0}>
-                <For each={rows()}>
-                  {(row) => (
-                    <text
-                      fg={
-                        row.isCurrent
-                          ? props.api.theme.current.text
-                          : props.api.theme.current.textMuted
-                      }
-                    >
-                      {historyChartLine(
-                        row.isCurrent ? `${row.label}*` : row.label,
-                        metricValue(row.usage, metric()),
-                        maxValue(),
-                        metricLabel(row.usage, metric()),
-                        historyDialogWidth(),
-                      )}
-                    </text>
-                  )}
-                </For>
-              </box>
-            </scrollbox>
-            <text fg={props.api.theme.current.text}>
-              <b>Total</b>
-            </text>
-            <text
-              fg={props.api.theme.current.textMuted}
-            >{`Requests ${total().assistantMessages}`}</text>
-            <text
-              fg={props.api.theme.current.textMuted}
-            >{`Tokens ${total().total}`}</text>
-            <text
-              fg={props.api.theme.current.textMuted}
-            >{`API Cost ${formatDialogUsd(total().apiCost)}`}</text>
-            <Show when={data()?.warning}>
-              <text fg={props.api.theme.current.warning}>
-                {data()?.warning}
-              </text>
-            </Show>
+          when={data()}
+          fallback={
             <text fg={props.api.theme.current.textMuted}>
-              ESC close, Left/Right switch metric
+              Loading history...
             </text>
+          }
+        >
+          <scrollbox height={Math.max(6, Math.min(14, rows().length + 1))}>
+            <box flexDirection="column" gap={0}>
+              <For each={rows()}>
+                {(row) => (
+                  <text
+                    fg={
+                      row.isCurrent
+                        ? props.api.theme.current.text
+                        : props.api.theme.current.textMuted
+                    }
+                  >
+                    {historyChartLine(
+                      row.isCurrent ? `${row.label}*` : row.label,
+                      metricValue(row.usage, metric()),
+                      maxValue(),
+                      metricLabel(row.usage, metric()),
+                      historyDialogWidth(),
+                    )}
+                  </text>
+                )}
+              </For>
+            </box>
+          </scrollbox>
+          <text fg={props.api.theme.current.text}>
+            <b>Total</b>
+          </text>
+          <text
+            fg={props.api.theme.current.textMuted}
+          >{`Requests ${total().assistantMessages}`}</text>
+          <text
+            fg={props.api.theme.current.textMuted}
+          >{`Tokens ${total().total}`}</text>
+          <text
+            fg={props.api.theme.current.textMuted}
+          >{`API Cost ${formatDialogUsd(total().apiCost)}`}</text>
+          <Show when={data()?.warning}>
+            <text fg={props.api.theme.current.warning}>{data()?.warning}</text>
           </Show>
+          <text fg={props.api.theme.current.textMuted}>
+            ESC close, Left/Right switch metric
+          </text>
         </Show>
-      </box>
-    ),
-  })
+      </Show>
+    </box>
+  )
 }
 
 function openHistoryDialog(
   api: TuiPluginApi,
   period: HistoryPeriod,
   sinceInput: string,
-  dialog: HistoryDialogTarget = api.ui.dialog,
 ) {
-  dialog.replace(() => (
-    <HistoryDialogView
-      api={api}
-      period={period}
-      sinceInput={sinceInput}
-      dialog={dialog}
-    />
+  api.ui.dialog.replace(() => (
+    <HistoryDialogView api={api} period={period} sinceInput={sinceInput} />
   ))
 }
 
-function openHistoryPrompt(
-  api: TuiPluginApi,
-  period: HistoryPeriod,
-  dialog: HistoryDialogTarget = api.ui.dialog,
-) {
-  openHistoryDialog(api, period, defaultSinceInput(period), dialog)
+function openHistoryPrompt(api: TuiPluginApi, period: HistoryPeriod) {
+  openHistoryDialog(api, period, defaultSinceInput(period))
 }
 
 const tui: TuiPlugin = async (api) => {
@@ -911,9 +900,7 @@ const tui: TuiPlugin = async (api) => {
   })
 
   const unregisterCommands = api.command.register(() =>
-    createHistoryCommands((period, dialog) =>
-      openHistoryPrompt(api, period, dialog),
-    ),
+    createHistoryCommands((period) => openHistoryPrompt(api, period)),
   )
   api.lifecycle.onDispose(unregisterCommands)
 
