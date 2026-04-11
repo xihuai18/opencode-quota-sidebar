@@ -46,21 +46,22 @@ Session-scoped aggregation can include descendant subagent sessions when `sideba
 
 Built-in quota adapters:
 
-| Provider            | Endpoint family                                            | Auth    | Quota shape                | Notes                                                     |
-| ------------------- | ---------------------------------------------------------- | ------- | -------------------------- | --------------------------------------------------------- |
-| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth   | Multi-window subscription  | Reads ChatGPT usage windows such as short-term + weekly   |
-| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth   | Monthly subscription       | Uses the Copilot internal user endpoint                   |
-| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth   | Multi-window subscription  | Supports plan-based usage windows                         |
-| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key | Multi-window subscription  | Typically `5h` + weekly windows                           |
-| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key | Token quota                | Coding-plan style quota window                            |
-| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key | Multi-window subscription  | Typically `5h` + weekly windows                           |
-| RightCode           | `www.right.codes/account/summary`                          | API key | Daily quota and/or balance | Prefix-based subscription matching, with balance fallback |
+| Provider            | Endpoint family                                            | Auth    | Quota shape                | Notes                                                                                                                            |
+| ------------------- | ---------------------------------------------------------- | ------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth   | Multi-window subscription  | Reads ChatGPT usage windows such as short-term + weekly; Pro plans may also expose Codex Spark limits (`additional_rate_limits`) |
+| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth   | Monthly subscription       | Uses the Copilot internal user endpoint                                                                                          |
+| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth   | Multi-window subscription  | Supports plan-based usage windows                                                                                                |
+| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key | Multi-window subscription  | Typically `5h` + weekly windows                                                                                                  |
+| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key | Token quota                | Coding-plan style quota window                                                                                                   |
+| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key | Multi-window subscription  | Typically `5h` + weekly windows                                                                                                  |
+| RightCode           | `www.right.codes/account/summary`                          | API key | Daily quota and/or balance | Prefix-based subscription matching, with balance fallback                                                                        |
 
 Generic providers without a built-in quota endpoint can still contribute usage totals, but they will not show quota/balance unless an adapter exists.
 
 Provider notes:
 
 - OpenAI, Copilot, and Anthropic quota support is based on OAuth/session auth, not generic API-key billing endpoints
+- **OpenAI Codex Spark**: OpenAI Pro subscriptions may expose additional per-feature windows (e.g. `GPT-5.3-Codex-Spark`) in the `additional_rate_limits` field of the `wham/usage` response. When present, the plugin automatically parses and renders these as extra windows under the OpenAI quota line. No extra config is required. Code review quota (`code_review_rate_limit`) is not displayed yet.
 - RightCode can show both a daily allowance line and a balance line
 - Copilot quota is supported, but API-equivalent cost is intentionally not shown because runtime pricing is not reliable enough
 
@@ -96,7 +97,7 @@ For OpenCode `>=1.2.15`, keep server plugins in `opencode.json` and TUI plugins 
 
 ## Sidebar Demo
 
-Typical TUI sidebar layout:
+Typical TUI sidebar layout (with Codex Spark windows):
 
 ```text
 TITLE
@@ -108,6 +109,8 @@ USAGE
 QUOTA
   OAI 5h80 R3h20m
       W70 R2D04h
+      Sk5h100 R1h00m
+      SkW100 R3D04h
   Cop M78 R12D00h
   RC D$88.9/$60 E6D00h
      B260
@@ -137,7 +140,7 @@ Example `quota_summary` markdown output shape:
 
 ## Quota
 
-- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h)
+- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h), Spark 5h 100% (reset 1h00m), Spark Weekly 100% (reset 3D04h)
 - Copilot: Monthly 78% (reset 12D00h)
 - RightCode: Daily $88.9/$60 (exp 6D00h), Balance $260
 ```
@@ -179,6 +182,8 @@ Quota tokens:
 - `D`: daily window
 - `W`: weekly window
 - `M`: monthly window
+- `Sk5h`: OpenAI Codex Spark short window (e.g. 5h)
+- `SkW`: OpenAI Codex Spark weekly window
 - `R3h20m`: resets in `3h20m`
 - `R2D04h`: resets in `2D04h`
 - `E6D00h`: expires in `6D00h`
@@ -186,6 +191,8 @@ Quota tokens:
 Example compact quota fragments:
 
 - `OAI 5h80 R3h20m`: OpenAI short window, 80% remaining, resets in `3h20m`
+- `OAI Sk5h100 R1h00m`: OpenAI Codex Spark 5h window, 100% remaining, resets in `1h00m`
+- `OAI SkW100 R3D04h`: OpenAI Codex Spark weekly window, 100% remaining, resets in `3D04h`
 - `Cop M78 R12D00h`: Copilot monthly quota, 78% remaining, resets in `12D00h`
 - `RC D$88.9/$60 E6D00h B260`: RightCode daily quota plus balance
 

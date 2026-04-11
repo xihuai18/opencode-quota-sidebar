@@ -94,7 +94,9 @@ function fallbackQuotaTone(detail: string): SidebarQuotaTone {
   if (/\bB-/.test(safe)) return 'error'
 
   const percents = [
-    ...safe.matchAll(/\b(?:\d+[hdw]|[DWM]|S7d|O7d|OA7d|Co7d)(\d{1,3})\b/gi),
+    ...safe.matchAll(
+      /\b(?:\d+[hdw]|[DWM]|S7d|O7d|OA7d|Co7d|Sk5h|SkW)(\d{1,3})\b/gi,
+    ),
   ]
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value))

@@ -43,20 +43,21 @@ OpenCode 插件：在 TUI sidebar 中显示 token 用量和 provider quota，同
 
 内置 quota adapter 如下：
 
-| Provider            | Endpoint family                                            | 鉴权方式 | 展示形态        | 说明                                         |
-| ------------------- | ---------------------------------------------------------- | -------- | --------------- | -------------------------------------------- |
-| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth    | 多窗口订阅额度  | 读取 ChatGPT usage 窗口，例如短窗口 + 周窗口 |
-| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth    | 月度额度        | 使用 Copilot internal user 接口              |
-| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth    | 多窗口订阅额度  | 支持 plan-based usage windows                |
-| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                         |
-| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key  | token quota     | coding plan 风格额度                         |
-| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                         |
-| RightCode           | `www.right.codes/account/summary`                          | API key  | 日额度和/或余额 | 按 prefix 匹配订阅，失败时回退为 balance     |
+| Provider            | Endpoint family                                            | 鉴权方式 | 展示形态        | 说明                                                                                                            |
+| ------------------- | ---------------------------------------------------------- | -------- | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth    | 多窗口订阅额度  | 读取 ChatGPT usage 窗口，例如短窗口 + 周窗口；Pro 订阅可能额外提供 Codex Spark 限额（`additional_rate_limits`） |
+| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth    | 月度额度        | 使用 Copilot internal user 接口                                                                                 |
+| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth    | 多窗口订阅额度  | 支持 plan-based usage windows                                                                                   |
+| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                                                                                            |
+| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key  | token quota     | coding plan 风格额度                                                                                            |
+| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                                                                                            |
+| RightCode           | `www.right.codes/account/summary`                          | API key  | 日额度和/或余额 | 按 prefix 匹配订阅，失败时回退为 balance                                                                        |
 
 补充说明：
 
 - 没有内置 quota adapter 的 generic provider 仍然可以参与 usage 聚合，但不会显示 quota/balance
 - OpenAI、Copilot、Anthropic 的 quota 支持依赖 OAuth / session auth，而不是通用 API key 账单接口
+- **OpenAI Codex Spark**：OpenAI Pro 订阅的 `wham/usage` 响应中可能包含 `additional_rate_limits` 字段，其中带有 `GPT-5.3-Codex-Spark` 等额外功能窗口。插件会自动解析并将其显示在 OpenAI quota 行下，无需额外配置。`code_review_rate_limit`（代码审查额度）目前暂不展示。
 - RightCode 可能同时显示 daily allowance 和 balance 两行
 - Copilot 支持 quota 展示，但当前不会显示 API-equivalent cost，因为 pricing metadata 不够稳定
 
@@ -77,7 +78,7 @@ title 相关补充：
 
 ## Sidebar 示例
 
-典型的 TUI sidebar 布局：
+典型的 TUI sidebar 布局（含 Codex Spark 窗口）：
 
 ```text
 TITLE
@@ -89,6 +90,8 @@ USAGE
 QUOTA
   OAI 5h80 R3h20m
       W70 R2D04h
+      Sk5h100 R1h00m
+      SkW100 R3D04h
   Cop M78 R12D00h
   RC D$88.9/$60 E6D00h
      B260
@@ -118,7 +121,7 @@ Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | C
 
 ## Quota
 
-- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h)
+- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h), Spark 5h 100% (reset 1h00m), Spark Weekly 100% (reset 3D04h)
 - Copilot: Monthly 78% (reset 12D00h)
 - RightCode: Daily $88.9/$60 (exp 6D00h), Balance $260
 ```
@@ -164,6 +167,8 @@ Quota token：
 - `D`：daily window
 - `W`：weekly window
 - `M`：monthly window
+- `Sk5h`：OpenAI Codex Spark 短窗口（如 5h）
+- `SkW`：OpenAI Codex Spark 周窗口
 - `R3h20m`：还剩 `3h20m` 重置
 - `R2D04h`：还剩 `2D04h` 重置
 - `E6D00h`：还剩 `6D00h` 到期
@@ -171,6 +176,8 @@ Quota token：
 compact quota 片段示例：
 
 - `OAI 5h80 R3h20m`：OpenAI 短窗口剩余 80%，还剩 `3h20m` 重置
+- `OAI Sk5h100 R1h00m`：OpenAI Codex Spark 5h 窗口剩余 100%，还剩 `1h00m` 重置
+- `OAI SkW100 R3D04h`：OpenAI Codex Spark 周窗口剩余 100%，还剩 `3D04h` 重置
 - `Cop M78 R12D00h`：Copilot 月额度剩余 78%，还剩 `12D00h` 重置
 - `RC D$88.9/$60 E6D00h B260`：RightCode 日额度 + 余额
 

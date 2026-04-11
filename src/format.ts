@@ -293,6 +293,8 @@ function compactQuotaPercentToken(
     return rounded ? `OA7d${rounded}` : 'OA7d'
   }
   if (/^cowork\s+7d$/i.test(safe)) return rounded ? `Co7d${rounded}` : 'Co7d'
+  if (/^spark\s+5h$/i.test(safe)) return rounded ? `Sk5h${rounded}` : 'Sk5h'
+  if (/^spark\s+weekly$/i.test(safe)) return rounded ? `SkW${rounded}` : 'SkW'
   const token = compactWindowToken(safe).replace(/\s+/g, '')
   if (!rounded) return token
   if (/^(?:D|W|M|\d+[hdw])$/i.test(token)) return `${token}${rounded}`

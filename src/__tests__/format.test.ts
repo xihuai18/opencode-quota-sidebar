@@ -562,6 +562,32 @@ describe('renderSidebarTitle', () => {
     assert.ok(lines.includes('Cop M60'))
   })
 
+  it('renders OpenAI Spark windows in compact quota tokens', () => {
+    const quotas: QuotaSnapshot[] = [
+      {
+        providerID: 'openai',
+        label: 'OpenAI Codex',
+        status: 'ok',
+        checkedAt: Date.now(),
+        windows: [
+          { label: '5h', remainingPercent: 80 },
+          { label: 'Weekly', remainingPercent: 70 },
+          { label: 'Spark 5h', remainingPercent: 100 },
+          { label: 'Spark Weekly', remainingPercent: 100 },
+        ],
+      },
+    ]
+
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      quotas,
+      makeConfig(60),
+    )
+    const lines = title.split('\n')
+    assert.ok(lines.includes('OAI 5h80 W70 Sk5h100 SkW100'))
+  })
+
   it('ignores unsupported provider snapshots in sidebar rendering', () => {
     const title = renderSidebarTitle(
       'Session',

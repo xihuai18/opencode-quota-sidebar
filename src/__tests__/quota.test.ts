@@ -107,6 +107,144 @@ describe('fetchQuotaSnapshot', () => {
     assert.equal(snapshot!.windows![1].remainingPercent, 70)
   })
 
+  it('parses OpenAI Spark additional rate limits separately from the main quota', async () => {
+    setFetch(async (input) => {
+      assert.equal(String(input), 'https://chatgpt.com/backend-api/wham/usage')
+      return jsonResponse({
+        rate_limit: {
+          primary_window: {
+            used_percent: 20,
+            limit_window_seconds: 18_000,
+            reset_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+          secondary_window: {
+            remaining_percent: 70,
+            limit_window_seconds: 604_800,
+            reset_at: Math.floor(Date.now() / 1000) + 86_400,
+          },
+        },
+        additional_rate_limits: [
+          {
+            limit_name: 'GPT-5.3-Codex-Spark',
+            metered_feature: 'codex_bengalfox',
+            rate_limit: {
+              primary_window: {
+                used_percent: 0,
+                limit_window_seconds: 18_000,
+                reset_at: Math.floor(Date.now() / 1000) + 18_000,
+              },
+              secondary_window: {
+                used_percent: 0,
+                limit_window_seconds: 604_800,
+                reset_at: Math.floor(Date.now() / 1000) + 604_800,
+              },
+            },
+          },
+        ],
+      })
+    })
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'oauth', access: 'access-token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.equal(snapshot!.status, 'ok')
+    assert.equal(snapshot!.remainingPercent, 80)
+    assert.deepEqual(
+      snapshot!.windows?.map((window) => window.label),
+      ['5h', 'Weekly', 'Spark 5h', 'Spark Weekly'],
+    )
+    assert.equal(snapshot!.windows?.[2]?.remainingPercent, 100)
+    assert.equal(snapshot!.windows?.[3]?.remainingPercent, 100)
+  })
+
+  it('ignores non-bengalfox additional OpenAI Spark limits', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        rate_limit: {
+          primary_window: {
+            used_percent: 20,
+            limit_window_seconds: 18_000,
+            reset_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+        },
+        additional_rate_limits: [
+          {
+            limit_name: 'GPT-5.3-Codex-Spark',
+            metered_feature: 'code_review_spark',
+            rate_limit: {
+              primary_window: {
+                used_percent: 0,
+                limit_window_seconds: 18_000,
+                reset_at: Math.floor(Date.now() / 1000) + 18_000,
+              },
+            },
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'oauth', access: 'access-token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.deepEqual(
+      snapshot!.windows?.map((window) => window.label),
+      ['5h'],
+    )
+  })
+
+  it('prefers the bengalfox metered feature even if limit_name changes', async () => {
+    setFetch(async () =>
+      jsonResponse({
+        rate_limit: {
+          primary_window: {
+            used_percent: 20,
+            limit_window_seconds: 18_000,
+            reset_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+        },
+        additional_rate_limits: [
+          {
+            limit_name: 'Research Preview Bucket',
+            metered_feature: 'codex_bengalfox',
+            rate_limit: {
+              primary_window: {
+                used_percent: 0,
+                limit_window_seconds: 18_000,
+                reset_at: Math.floor(Date.now() / 1000) + 18_000,
+              },
+            },
+          },
+        ],
+      }),
+    )
+
+    const snapshot = await quota.fetchQuotaSnapshot(
+      'openai',
+      {
+        openai: { type: 'oauth', access: 'access-token' },
+      },
+      makeConfig(),
+    )
+
+    assert.ok(snapshot)
+    assert.deepEqual(
+      snapshot!.windows?.map((window) => window.label),
+      ['5h', 'Spark 5h'],
+    )
+  })
+
   it('derives ChatGPT account id from OpenAI oauth jwt when auth metadata is missing', async () => {
     const token = jwtToken({
       'https://api.openai.com/auth': {

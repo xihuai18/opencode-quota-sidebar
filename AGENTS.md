@@ -191,18 +191,39 @@ OpenAI wham/usage 响应结构（三个社区插件一致确认）：
 - `rate_limit.secondary_window` — 长期窗口（**单数对象，不是数组**），结构同上
 - 窗口标签从 `limit_window_seconds` 推导（10800→3h, 604800→Weekly），不从 `reset_at` 推导
 
+**Codex Spark（Pro 订阅额外窗口）**：
+
+响应顶层还可能包含 `additional_rate_limits` 数组。当 Pro 订阅包含 Codex Spark 功能时，该数组中会出现类似如下的条目：
+
+```json
+{
+  "limit_name": "GPT-5.3-Codex-Spark",
+  "metered_feature": "codex_bengalfox",
+  "rate_limit": {
+    "primary_window": { ... },
+    "secondary_window": { ... }
+  }
+}
+```
+
+- 窗口结构与 `rate_limit` 主窗口完全相同
+- compact token 前缀：短窗口用 `Sk5h`，周窗口用 `SkW`（例如 `Sk5h100 R1h00m`、`SkW100 R3D04h`）
+- full-form 标签：`Spark 5h`、`Spark Weekly`
+- 此功能**无需额外配置**，插件自动解析并渲染到 OpenAI quota 行下
+- `code_review_rate_limit` 顶层字段目前**不展示**
+
 ### 5.5 Provider 支持状态
 
-| Provider                   | Quota 端点                                                 | 状态              |
-| -------------------------- | ---------------------------------------------------------- | ----------------- |
-| OpenAI Codex (OAuth)       | `chatgpt.com/backend-api/wham/usage`                       | 支持，多窗口      |
-| GitHub Copilot (OAuth)     | `api.github.com/copilot_internal/user`                     | 支持，月度        |
-| Kimi For Coding            | `api.kimi.com/coding/v1/usages`                            | 支持，5h+周窗口   |
-| Zhipu Coding Plan          | `bigmodel.cn/api/monitor/usage/quota/limit`                | 支持，5h额度      |
-| MiniMax Coding Plan        | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | 支持，5h+周窗口   |
-| RightCode                  | `www.right.codes/account/summary`                          | 支持，日额度/余额 |
-| Anthropic                  | `api.anthropic.com/api/oauth/usage`                        | 支持，多窗口      |
-| 其他通用 API Key providers | 通常无 quota 端点                                          | 仅显示 token 用量 |
+| Provider                   | Quota 端点                                                 | 状态                                                |
+| -------------------------- | ---------------------------------------------------------- | --------------------------------------------------- |
+| OpenAI Codex (OAuth)       | `chatgpt.com/backend-api/wham/usage`                       | 支持，多窗口；Pro 订阅自动解析 Codex Spark 额外窗口 |
+| GitHub Copilot (OAuth)     | `api.github.com/copilot_internal/user`                     | 支持，月度                                          |
+| Kimi For Coding            | `api.kimi.com/coding/v1/usages`                            | 支持，5h+周窗口                                     |
+| Zhipu Coding Plan          | `bigmodel.cn/api/monitor/usage/quota/limit`                | 支持，5h额度                                        |
+| MiniMax Coding Plan        | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | 支持，5h+周窗口                                     |
+| RightCode                  | `www.right.codes/account/summary`                          | 支持，日额度/余额                                   |
+| Anthropic                  | `api.anthropic.com/api/oauth/usage`                        | 支持，多窗口                                        |
+| 其他通用 API Key providers | 通常无 quota 端点                                          | 仅显示 token 用量                                   |
 
 - 注意：Kimi / RightCode 虽然使用 API Key，但仍有 quota / balance 展示。
 
@@ -448,7 +469,7 @@ Anthropic 现已通过 `GET https://api.anthropic.com/api/oauth/usage` 接入 OA
 
 ### 9.4 OpenAI wham/usage 稳定性
 
-这是 ChatGPT 内部 API，未公开文档。响应结构可能随时变化。当前解析逻辑对缺失字段做了 graceful fallback。
+这是 ChatGPT 内部 API，未公开文档。响应结构可能随时变化。当前解析逻辑对缺失字段做了 graceful fallback。Codex Spark 窗口来自 `additional_rate_limits` 字段（实地验证字段名为 `GPT-5.3-Codex-Spark` / `codex_bengalfox`），同样可能随时调整；缺失时会静默跳过。
 
 ### 9.5 多客户端 title ownership
 

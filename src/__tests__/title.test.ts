@@ -76,6 +76,10 @@ describe('title', () => {
       true,
     )
     assert.equal(
+      looksDecorated('Session | R12 I18.9k O53 | OAI 5h80 W70 Sk5h100 SkW100'),
+      true,
+    )
+    assert.equal(
       looksDecorated('Session | R12 I18.9k O53 | Ant 5h80 St | Est$0.12'),
       true,
     )
@@ -114,6 +118,10 @@ describe('title', () => {
     )
     assert.equal(
       normalizeBaseTitle('Session | LEGACYAI D$58.3/$90 R22:18 | Est$0.12'),
+      'Session',
+    )
+    assert.equal(
+      normalizeBaseTitle('Session | OAI 5h80 W70 Sk5h100 SkW100 | Est$0.12'),
       'Session',
     )
     assert.equal(

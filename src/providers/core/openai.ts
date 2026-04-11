@@ -60,6 +60,7 @@ function windowResetAt(
 function parseOpenAIWindow(
   win: Record<string, unknown>,
   fallbackLabel: string,
+  labelPrefix = '',
 ): QuotaWindow | undefined {
   const usedPercent = normalizeOpenAIQuotaPercent(win.used_percent)
   const remainingPercent =
@@ -67,11 +68,22 @@ function parseOpenAIWindow(
     (usedPercent === undefined ? undefined : 100 - usedPercent)
   if (remainingPercent === undefined) return undefined
   return {
-    label: windowLabel(win, fallbackLabel),
+    label: `${labelPrefix}${windowLabel(win, fallbackLabel)}`.trim(),
     remainingPercent,
     usedPercent,
     resetAt: windowResetAt(win),
   }
+}
+
+function additionalRateLimitPrefix(
+  limitName: unknown,
+  meteredFeature: unknown,
+) {
+  if (meteredFeature === 'codex_bengalfox') return 'Spark '
+  if (typeof meteredFeature === 'string' && meteredFeature) return undefined
+  if (typeof limitName !== 'string' || !limitName) return undefined
+  if (/codex-spark/i.test(limitName)) return 'Spark '
+  return undefined
 }
 
 async function fetchOpenAIQuota(ctx: {
@@ -264,6 +276,38 @@ async function fetchOpenAIQuota(ctx: {
   if (isRecord(rateLimit.secondary_window)) {
     const secondaryWin = parseOpenAIWindow(rateLimit.secondary_window, 'Weekly')
     if (secondaryWin) windows.push(secondaryWin)
+  }
+
+  const additionalRateLimits = Array.isArray(payload.additional_rate_limits)
+    ? payload.additional_rate_limits
+    : []
+  for (const item of additionalRateLimits) {
+    if (!isRecord(item)) continue
+    const prefix = additionalRateLimitPrefix(
+      item.limit_name,
+      item.metered_feature,
+    )
+    if (!prefix) continue
+    const itemRateLimit = isRecord(item.rate_limit)
+      ? item.rate_limit
+      : undefined
+    if (!itemRateLimit) continue
+    if (isRecord(itemRateLimit.primary_window)) {
+      const primaryWin = parseOpenAIWindow(
+        itemRateLimit.primary_window,
+        '',
+        prefix,
+      )
+      if (primaryWin) windows.push(primaryWin)
+    }
+    if (isRecord(itemRateLimit.secondary_window)) {
+      const secondaryWin = parseOpenAIWindow(
+        itemRateLimit.secondary_window,
+        'Weekly',
+        prefix,
+      )
+      if (secondaryWin) windows.push(secondaryWin)
+    }
   }
 
   return {
