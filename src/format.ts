@@ -256,7 +256,6 @@ function compactProviderLabel(quota: QuotaSnapshot) {
   if (canonical === 'zhipuai-coding-plan') return 'Zhipu'
   if (canonical === 'minimax-cn-coding-plan') return 'MiniMax'
   if (canonical === 'rightcode') return 'RC'
-  if (canonical === 'xyai') return 'XYAI'
   return sanitizeLine(quotaDisplayLabel(quota))
 }
 

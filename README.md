@@ -16,7 +16,7 @@ The screenshot above comes from [`./assets/OpenCode-Quota-Sidebar.png`](./assets
 - Renders dedicated `TITLE`, `USAGE`, and `QUOTA` blocks in the TUI sidebar
 - Keeps the shared `session.title` on a compact single line instead of pushing multiline telemetry into every client
 - Aggregates usage for `session`, `day`, `week`, and `month`
-- Supports provider quota/balance fetchers for OpenAI, Copilot, Anthropic, Kimi, Zhipu, MiniMax, RightCode, and XYAI
+- Supports provider quota/balance fetchers for OpenAI, Copilot, Anthropic, Kimi, Zhipu, MiniMax, and RightCode
 - Can include descendant subagent sessions in session-scoped usage/quota totals
 - Exposes `quota_summary` and `quota_show` tools for reports and title toggling
 
@@ -46,16 +46,15 @@ Session-scoped aggregation can include descendant subagent sessions when `sideba
 
 Built-in quota adapters:
 
-| Provider            | Endpoint family                                            | Auth                  | Quota shape                | Notes                                                     |
-| ------------------- | ---------------------------------------------------------- | --------------------- | -------------------------- | --------------------------------------------------------- |
-| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth                 | Multi-window subscription  | Reads ChatGPT usage windows such as short-term + weekly   |
-| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth                 | Monthly subscription       | Uses the Copilot internal user endpoint                   |
-| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth                 | Multi-window subscription  | Supports plan-based usage windows                         |
-| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key               | Multi-window subscription  | Typically `5h` + weekly windows                           |
-| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key               | Token quota                | Coding-plan style quota window                            |
-| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key               | Multi-window subscription  | Typically `5h` + weekly windows                           |
-| RightCode           | `www.right.codes/account/summary`                          | API key               | Daily quota and/or balance | Prefix-based subscription matching, with balance fallback |
-| XYAI                | `new.xychatai.com/frontend-api/*`                          | Login -> session auth | Daily balance              | Disabled by default, configured in `quota.providers.xyai` |
+| Provider            | Endpoint family                                            | Auth    | Quota shape                | Notes                                                     |
+| ------------------- | ---------------------------------------------------------- | ------- | -------------------------- | --------------------------------------------------------- |
+| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth   | Multi-window subscription  | Reads ChatGPT usage windows such as short-term + weekly   |
+| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth   | Monthly subscription       | Uses the Copilot internal user endpoint                   |
+| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth   | Multi-window subscription  | Supports plan-based usage windows                         |
+| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key | Multi-window subscription  | Typically `5h` + weekly windows                           |
+| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key | Token quota                | Coding-plan style quota window                            |
+| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key | Multi-window subscription  | Typically `5h` + weekly windows                           |
+| RightCode           | `www.right.codes/account/summary`                          | API key | Daily quota and/or balance | Prefix-based subscription matching, with balance fallback |
 
 Generic providers without a built-in quota endpoint can still contribute usage totals, but they will not show quota/balance unless an adapter exists.
 
@@ -63,7 +62,6 @@ Provider notes:
 
 - OpenAI, Copilot, and Anthropic quota support is based on OAuth/session auth, not generic API-key billing endpoints
 - RightCode can show both a daily allowance line and a balance line
-- XYAI requires login credentials in config so the plugin can obtain and cache session auth
 - Copilot quota is supported, but API-equivalent cost is intentionally not shown because runtime pricing is not reliable enough
 
 ## Display Rules
@@ -122,10 +120,6 @@ Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | C
 ```
 
 Another compact title example with multiple providers:
-
-```text
-Add XYAI quota adapter | Ant 5h100 W77 O7d60 | Cop M78 R04-01 | Cd52% | Est$2.34
-```
 
 ## Tool Report Demo
 
@@ -226,10 +220,7 @@ Important config notes:
 - `sidebar.showCost`: controls API-equivalent cost in sidebar, title, markdown report, and toast
 - `sidebar.wrapQuotaLines`: wraps long quota lines with indentation instead of dropping fields
 - `sidebar.includeChildren`: includes descendant subagent sessions for `period=session`
-- `quota.providers.xyai.enabled`: must be explicitly enabled if you want XYAI quota
-- `quota.providers.xyai.login.username/password`: used to fetch and refresh XYAI session auth
-
-Config is layered. The later source overrides the earlier one:
+  Config is layered. The later source overrides the earlier one:
 
 1. global config
 2. worktree config

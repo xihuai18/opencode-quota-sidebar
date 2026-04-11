@@ -1,4 +1,5 @@
 import { asNumber, isRecord } from './helpers.js'
+import { isSupportedQuotaSnapshot } from './supported_quota.js'
 import { normalizeTimestampMs } from './storage_dates.js'
 import type {
   CacheUsageBucket,
@@ -212,7 +213,7 @@ function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
       })()
     : undefined
 
-  return {
+  const parsed: QuotaSnapshot = {
     providerID: typeof value.providerID === 'string' ? value.providerID : label,
     adapterID,
     label,
@@ -234,6 +235,8 @@ function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
     windows,
     stale: stale && stale.staleAt > 0 && stale.staleReason ? stale : undefined,
   }
+
+  return isSupportedQuotaSnapshot(parsed) ? parsed : undefined
 }
 
 function parseQuotaSnapshots(value: unknown): QuotaSnapshot[] | undefined {

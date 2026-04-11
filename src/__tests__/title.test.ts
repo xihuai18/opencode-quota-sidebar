@@ -52,7 +52,7 @@ describe('title', () => {
     assert.equal(looksDecorated('Session\nCached 66%'), true)
     assert.equal(looksDecorated('Session\nEst$0.12'), true)
     assert.equal(
-      looksDecorated('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
+      looksDecorated('Session\nLEGACYAI Daily $58.3/$90 Rst 22:18'),
       true,
     )
     assert.equal(looksDecorated('Session\nKimi\n  5h 100% Rst 23:44'), true)
@@ -77,6 +77,10 @@ describe('title', () => {
     )
     assert.equal(
       looksDecorated('Session | R12 I18.9k O53 | Ant 5h80 St | Est$0.12'),
+      true,
+    )
+    assert.equal(
+      looksDecorated('Session | LEGACYAI D$58.3/$90 R22:18 | Est$0.12'),
       true,
     )
     assert.equal(looksDecorated('Session\nAnthropic 5h 80% stale'), true)
@@ -105,12 +109,16 @@ describe('title', () => {
     assert.equal(normalizeBaseTitle('Session\nCached 66%'), 'Session')
     assert.equal(normalizeBaseTitle('Session\nEst$0.12'), 'Session')
     assert.equal(
-      normalizeBaseTitle('Project notes\nCache Coverage plan'),
-      'Project notes\nCache Coverage plan',
+      normalizeBaseTitle('Session\nLEGACYAI Daily $58.3/$90 Rst 22:18'),
+      'Session',
     )
     assert.equal(
-      normalizeBaseTitle('Session\nXYAI Daily $58.3/$90 Rst 22:18'),
+      normalizeBaseTitle('Session | LEGACYAI D$58.3/$90 R22:18 | Est$0.12'),
       'Session',
+    )
+    assert.equal(
+      normalizeBaseTitle('Project notes\nCache Coverage plan'),
+      'Project notes\nCache Coverage plan',
     )
     assert.equal(
       normalizeBaseTitle('Session\nAnthropic 5h 80% stale'),

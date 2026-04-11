@@ -338,10 +338,10 @@ describe('usage service', () => {
               },
               {
                 info: {
-                  id: 'm-xyai-openai',
+                  id: 'm-openai',
                   sessionID,
                   role: 'assistant',
-                  providerID: 'xyai-openai',
+                  providerID: 'openai',
                   modelID: 'gpt-5',
                   time: { created: completedAt - 5, completed: completedAt },
                   tokens: {
@@ -399,7 +399,7 @@ describe('usage service', () => {
     assert.ok(
       Math.abs(usage.providers['rightcode-openai'].apiCost - 0.0825) < 1e-9,
     )
-    assert.ok(Math.abs(usage.providers['xyai-openai'].apiCost - 0.04125) < 1e-9)
+    assert.ok(Math.abs(usage.providers.openai.apiCost - 0.04125) < 1e-9)
   })
 
   it('schedules save for refreshed root usage even when includeChildren has no descendants', async () => {

@@ -14,26 +14,6 @@ describe('provider registry', () => {
     assert.equal(adapter!.id, 'rightcode')
   })
 
-  it('matches canonical xyai provider', () => {
-    const registry = createDefaultProviderRegistry()
-    const adapter = registry.resolve({
-      providerID: 'xyai',
-      providerOptions: {},
-    })
-    assert.ok(adapter)
-    assert.equal(adapter!.id, 'xyai')
-  })
-
-  it('prefers xyai adapter when baseURL matches site endpoint', () => {
-    const registry = createDefaultProviderRegistry()
-    const adapter = registry.resolve({
-      providerID: 'openai',
-      providerOptions: { baseURL: 'https://new.xychatai.com/v1' },
-    })
-    assert.ok(adapter)
-    assert.equal(adapter!.id, 'xyai')
-  })
-
   it('matches built-in kimi-for-coding provider', () => {
     const registry = createDefaultProviderRegistry()
     const adapter = registry.resolve({
@@ -112,7 +92,6 @@ describe('provider registry', () => {
       registry.normalizeProviderID('minimax-cn-coding-plan'),
       'minimax-cn-coding-plan',
     )
-    assert.equal(registry.normalizeProviderID('xyai-vibe'), 'xyai')
     assert.equal(registry.normalizeProviderID('openai'), 'openai')
   })
 

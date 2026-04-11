@@ -8,7 +8,6 @@
 - Parse Kimi's `5h` and `Weekly` windows, including reset timestamps, and render them like other subscription providers.
 - Accept OpenCode provider discovery responses that expose Kimi API keys through provider `key` fields.
 - Add built-in MiniMax Coding Plan quota support, including global endpoint matching and pricing aliases.
-- Add built-in XYAI quota support with login-based session auth and legacy alias compatibility.
 - Keep session measured cost aligned with OpenCode root-session `message.cost` while still including descendant subagent usage in API-equivalent cost.
 - Support OpenCode long-context pricing tiers via `context_over_200k` when estimating API-equivalent cost.
 - Bump the usage billing cache version so `/qday`, `/qweek`, and `/qmonth` recompute historical API cost with the updated rules.

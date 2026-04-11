@@ -108,6 +108,18 @@ describe('tui quota helpers', () => {
     assert.equal(groups[2]?.tone, 'muted')
   })
 
+  it('ignores unsupported quota tokens in compact title fallback', () => {
+    const groups = fallbackQuotaGroupsFromTitle(
+      'Session | LEGACYAI D$70.2/$90 | OAI 5h80 W70 | Cd63% | Est$2.34',
+      36,
+    )
+
+    assert.deepEqual(
+      groups.map((group) => `${group.shortLabel} ${group.detail}`.trim()),
+      ['OAI 5h80 W70'],
+    )
+  })
+
   it('marks low quota groups with warning tone', () => {
     const config = makeConfig(38)
     const groups = renderSidebarQuotaGroups(

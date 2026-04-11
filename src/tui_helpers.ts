@@ -1,5 +1,9 @@
 import { fitLine, renderSidebarQuotaLineGroups } from './format.js'
 import { collapseQuotaSnapshots } from './quota_render.js'
+import {
+  isSupportedQuotaSnapshot,
+  isSupportedQuotaTitleLabel,
+} from './supported_quota.js'
 import type {
   QuotaSidebarConfig,
   QuotaSnapshot,
@@ -134,7 +138,9 @@ export function renderSidebarQuotaGroups(
 }
 
 export function sidebarPanelQuotaSnapshots(panel?: SidebarPanelState) {
-  return panel?.panelQuotas || panel?.quotas || []
+  return (panel?.panelQuotas || panel?.quotas || []).filter((quota) =>
+    isSupportedQuotaSnapshot(quota),
+  )
 }
 
 export function fallbackQuotaGroupsFromTitle(title: string, width: number) {
@@ -149,18 +155,21 @@ export function fallbackQuotaGroupsFromTitle(title: string, width: number) {
 
   const contentWidth = quotaParts.length > 1 ? Math.max(1, width - 2) : width
 
-  return quotaParts.map((part, index) => {
+  const groups: SidebarQuotaGroup[] = []
+  for (const [index, part] of quotaParts.entries()) {
     const line = fitLine(part, contentWidth)
     const parsed = parseQuotaLineParts([line])
-    return {
+    if (!isSupportedQuotaTitleLabel(parsed.shortLabel)) continue
+    groups.push({
       providerID: `fallback:${index}`,
-      status: 'ok' as const,
+      status: 'ok',
       tone: fallbackQuotaTone(parsed.detail),
       shortLabel: parsed.shortLabel,
       detail: parsed.detail,
       continuationLines: parsed.continuationLines,
-    }
-  })
+    })
+  }
+  return groups
 }
 
 export function quotaGroupsUseBullets(groups: SidebarQuotaGroup[]) {

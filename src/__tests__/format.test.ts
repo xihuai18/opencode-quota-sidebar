@@ -493,10 +493,10 @@ describe('renderSidebarTitle', () => {
       }),
       [
         {
-          providerID: 'xyai',
-          adapterID: 'xyai',
-          label: 'XYAI',
-          shortLabel: 'XYAI',
+          providerID: 'rightcode-openai',
+          adapterID: 'rightcode',
+          label: 'RightCode OpenAI',
+          shortLabel: 'RC-openai',
           status: 'ok',
           checkedAt: Date.now(),
           windows: [
@@ -515,7 +515,7 @@ describe('renderSidebarTitle', () => {
     assert.ok(lines.includes('R3 I16.3k O916'))
     assert.ok(lines.includes('CR31.4k Cd66%'))
     assert.ok(lines.includes('Est$0.12'))
-    assert.ok(lines.includes('XYAI D$31.3/$90'))
+    assert.ok(lines.includes('RC D$31.3/$90'))
     assert.ok(lines.some((line) => /^\s+R/.test(line)))
     assert.equal(
       lines.some((line) => /Cd.*~|Est\$.*~/.test(line)),
@@ -560,6 +560,35 @@ describe('renderSidebarTitle', () => {
     const lines = title.split('\n')
     assert.ok(lines.includes('OAI 5h80 W70'))
     assert.ok(lines.includes('Cop M60'))
+  })
+
+  it('ignores unsupported provider snapshots in sidebar rendering', () => {
+    const title = renderSidebarTitle(
+      'Session',
+      makeUsage(),
+      [
+        {
+          providerID: 'openai',
+          adapterID: 'openai',
+          label: 'OpenAI',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: '5h', remainingPercent: 80 }],
+        },
+        {
+          providerID: 'legacy-provider',
+          adapterID: 'legacy-provider',
+          label: 'Legacy',
+          status: 'ok',
+          checkedAt: Date.now(),
+          windows: [{ label: 'Daily', remainingPercent: 50 }],
+        },
+      ],
+      makeConfig(60),
+    )
+
+    assert.match(title, /OAI 5h80/)
+    assert.doesNotMatch(title, /Legacy/)
   })
 
   it('renders Anthropic multi-window quota lines for all supported 7-day buckets', () => {
@@ -884,41 +913,6 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
     assert.match(title, /RC B258\.3/)
-  })
-
-  it('renders XYAI reset time without compact expiry noise in sidebar', () => {
-    const sameDayReset = new Date(
-      Date.now() + (10 * 60 + 18) * 60_000,
-    ).toISOString()
-    const quotas: QuotaSnapshot[] = [
-      {
-        providerID: 'xyai',
-        adapterID: 'xyai',
-        label: 'XYAI',
-        shortLabel: 'XYAI',
-        status: 'ok',
-        checkedAt: Date.now(),
-        note: 'exp 04-15',
-        windows: [
-          {
-            label: 'Daily $70.2/$90',
-            showPercent: false,
-            resetAt: sameDayReset,
-            resetLabel: 'Rst',
-          },
-        ],
-      },
-    ]
-
-    const title = renderSidebarTitle(
-      'Session',
-      makeUsage(),
-      quotas,
-      makeConfig(60),
-    )
-
-    assert.match(title, /XYAI D\$70\.2\/\$90 R\d+h\d{2}m/)
-    assert.doesNotMatch(title, /exp 04-15/i)
   })
 
   it('renders reset time and indented multi-window lines', () => {
@@ -1551,41 +1545,6 @@ describe('renderMarkdownReport', () => {
     assert.match(report, /- API cost: \$0\.06/)
   })
 
-  it('includes XYAI expiry as secondary note in markdown report', () => {
-    const sameDayReset = new Date(
-      Date.now() + (10 * 60 + 18) * 60_000,
-    ).toISOString()
-    const report = renderMarkdownReport(
-      'session',
-      makeUsage(),
-      [
-        {
-          providerID: 'xyai',
-          adapterID: 'xyai',
-          label: 'XYAI',
-          shortLabel: 'XYAI',
-          status: 'ok',
-          checkedAt: Date.now(),
-          note: 'exp 04-15',
-          windows: [
-            {
-              label: 'Daily $70.2/$90',
-              showPercent: false,
-              resetAt: sameDayReset,
-              resetLabel: 'Rst',
-            },
-          ],
-        },
-      ],
-      { showCost: true },
-    )
-
-    assert.match(
-      report,
-      /- XYAI \(Daily \$70\.2\/\$90\): ok \\\| reset \d+h\d{2}m \\\| exp 04-15/,
-    )
-  })
-
   it('hides unsupported and unavailable quota snapshots in markdown', () => {
     const report = renderMarkdownReport(
       'session',
@@ -1972,29 +1931,10 @@ describe('renderToastMessage', () => {
           },
         ],
       },
-      {
-        providerID: 'xyai',
-        adapterID: 'xyai',
-        label: 'XYAI',
-        shortLabel: 'XYAI',
-        status: 'ok',
-        checkedAt: Date.now(),
-        expiresAt: soonIso,
-        note: 'exp 04-15',
-        windows: [
-          {
-            label: 'Daily $70.2/$90',
-            showPercent: false,
-            resetAt: soonIso,
-            resetLabel: 'Rst',
-          },
-        ],
-      },
     ])
 
     assert.match(toast, /Expiry Soon/)
     assert.match(toast, /RC-openai\s+Exp \d+D\d{2}h/)
-    assert.match(toast, /XYAI\s+Exp \d+D\d{2}h/)
   })
 
   it('does not show expiry reminders in toast when expiry is beyond 3 days', () => {
@@ -2003,10 +1943,10 @@ describe('renderToastMessage', () => {
     ).toISOString()
     const toast = renderToastMessage('session', makeUsage(), [
       {
-        providerID: 'xyai',
-        adapterID: 'xyai',
-        label: 'XYAI',
-        shortLabel: 'XYAI',
+        providerID: 'rightcode-openai',
+        adapterID: 'rightcode',
+        label: 'RightCode OpenAI',
+        shortLabel: 'RC-openai',
         status: 'ok',
         checkedAt: Date.now(),
         expiresAt: laterIso,

@@ -81,6 +81,47 @@ describe('storage state persistence', () => {
     assert.equal(loaded.quotaCache.openai.windows![1].label, 'Weekly')
   })
 
+  it('drops unsupported quota snapshots when loading persisted state', async () => {
+    const dir = await makeTempDir()
+    const statePath = stateFilePath(dir)
+    const state = defaultState()
+    const createdAt = Date.now()
+    const dateKey = dateKeyFromTimestamp(createdAt)
+
+    state.quotaCache.legacy = {
+      providerID: 'legacy-provider',
+      adapterID: 'legacy-provider',
+      label: 'Legacy',
+      status: 'ok',
+      checkedAt: createdAt,
+      windows: [{ label: 'Daily', remainingPercent: 50 }],
+    }
+    state.sessions.s1 = {
+      ...makeSession(createdAt, 'Session'),
+      sidebarPanel: {
+        version: 1,
+        updatedAt: createdAt,
+        panelQuotas: [
+          {
+            providerID: 'legacy-provider',
+            adapterID: 'legacy-provider',
+            label: 'Legacy',
+            status: 'ok',
+            checkedAt: createdAt,
+            windows: [{ label: 'Daily', remainingPercent: 50 }],
+          },
+        ],
+      },
+    }
+    state.sessionDateMap.s1 = dateKey
+
+    await saveState(statePath, state, { writeAll: true })
+    const loaded = await loadState(statePath)
+
+    assert.equal(loaded.quotaCache.legacy, undefined)
+    assert.deepEqual(loaded.sessions.s1?.sidebarPanel?.panelQuotas, [])
+  })
+
   it('round-trips session parentID through saveState/loadState', async () => {
     const dir = await makeTempDir()
     const statePath = stateFilePath(dir)

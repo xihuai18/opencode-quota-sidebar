@@ -163,7 +163,6 @@ describe('cost', () => {
     assert.equal(canonicalApiCostProviderID('openai'), 'openai')
     assert.equal(canonicalApiCostProviderID('OpenAI-Codex'), 'openai')
     assert.equal(canonicalApiCostProviderID('rightcode-openai'), 'openai')
-    assert.equal(canonicalApiCostProviderID('xyai-openai'), 'openai')
     assert.equal(
       canonicalApiCostProviderID('github-copilot-enterprise'),
       'github-copilot',

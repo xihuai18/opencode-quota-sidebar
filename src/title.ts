@@ -68,14 +68,15 @@ function isQuotaDecoratedDetail(line: string) {
   if (!line) return false
   const resetValue = '[-:\\dhmD]+'
   const compactResetValue = '\\d[\\d:.\\-hmD]*'
+  const legacyProvider = '[A-Z][A-Z0-9-]{1,15}'
   if (
-    /^(OAI|Cop|Ant|Kimi|XYAI|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|stale|St|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
+    /^(OAI|Cop|Ant|Kimi|RC(?:-[^\s]+)?)(?:\s+(?:\?|unsupported|unavailable|error|stale|St|(?:\d+h|D|W|M)\d{1,3}|D[\d.,]+\/[\d.,]+|B(?:[￥$-])?[\d.,]+))+$/i.test(
       line,
     )
   ) {
     return true
   }
-  if (/^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\s]+)?)\s*$/.test(line)) {
+  if (/^(OpenAI|Copilot|Anthropic|Kimi|RC(?:-[^\s]+)?)\s*$/.test(line)) {
     return true
   }
   if (
@@ -94,14 +95,14 @@ function isQuotaDecoratedDetail(line: string) {
   }
   if (
     new RegExp(
-      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:Daily\\s+\\$[\\d.,]+\\/\\$[\\d.,]+|\\$[\\d.,]+\\/\\$[\\d.,]+)(?:\\s+(?:Rst|Exp\\+?)\\s+${resetValue})?|(?:\\d+[hdw]|Weekly|Monthly)\\s+\\d{1,3}%(?:\\s+Rst\\s+${resetValue})?)(?:\\s+stale)?|(?:error|unsupported|unavailable|stale))$`,
+      `^(OpenAI|Copilot|Anthropic|Kimi|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:Daily\\s+\\$[\\d.,]+\\/\\$[\\d.,]+|\\$[\\d.,]+\\/\\$[\\d.,]+)(?:\\s+(?:Rst|Exp\\+?)\\s+${resetValue})?|(?:\\d+[hdw]|Weekly|Monthly)\\s+\\d{1,3}%(?:\\s+Rst\\s+${resetValue})?)(?:\\s+stale)?|(?:error|unsupported|unavailable|stale))$`,
     ).test(line)
   ) {
     return true
   }
   if (
     new RegExp(
-      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|St)(?:\\s+(?:R|E\\+?)${compactResetValue})?)$`,
+      `^(OpenAI|Copilot|Anthropic|Kimi|RC(?:-[^\\s]+)?)(?:\\s+(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|St)(?:\\s+(?:R|E\\+?)${compactResetValue})?)$`,
     ).test(line)
   ) {
     return true
@@ -115,7 +116,21 @@ function isQuotaDecoratedDetail(line: string) {
   }
   if (
     new RegExp(
-      `^(OpenAI|Copilot|Anthropic|Kimi|XYAI|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|St|(?:R|E\\+?)${compactResetValue})))*$`,
+      `^(OpenAI|Copilot|Anthropic|Kimi|RC(?:-[^\\s]+)?)(?:\\s+(?:(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|St|(?:R|E\\+?)${compactResetValue})))*$`,
+    ).test(line)
+  ) {
+    return true
+  }
+  if (
+    new RegExp(
+      `^${legacyProvider}(?:\\s+(?:(?:Daily\\s+\\$[\\d.,]+\\/\\$[\\d.,]+|\\$[\\d.,]+\\/\\$[\\d.,]+)(?:\\s+(?:Rst|Exp\\+?)\\s+${resetValue})?|(?:\\d+[hdw]|Weekly|Monthly)\\s+\\d{1,3}%(?:\\s+Rst\\s+${resetValue})?|(?:error|unsupported|unavailable|stale)))$`,
+    ).test(line)
+  ) {
+    return true
+  }
+  if (
+    new RegExp(
+      `^${legacyProvider}(?:\\s+(?:D\\$?[\\d.,]+\\/\\$?[\\d.,]+|B(?:[￥$-])?[\\d.,]+|(?:\\d+[hdw]|[DWM])\\d{1,3}|(?:S7d|O7d|OA7d|Co7d)\\d{1,3}|St|(?:R|E\\+?)${compactResetValue}))*$`,
     ).test(line)
   ) {
     return true

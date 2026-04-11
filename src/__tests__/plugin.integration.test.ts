@@ -994,6 +994,16 @@ describe('plugin integration', () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()
     await fs.writeFile(
+      path.join(dataHome, 'auth.json'),
+      JSON.stringify(
+        {
+          'rightcode-openai': { type: 'api', key: 'rc-key' },
+        },
+        null,
+        2,
+      ),
+    )
+    await fs.writeFile(
       path.join(projectDir, 'quota-sidebar.config.json'),
       JSON.stringify(
         {
@@ -1002,11 +1012,6 @@ describe('plugin integration', () => {
             multilineTitle: true,
             showCost: true,
             showQuota: true,
-          },
-          quota: {
-            providers: {
-              xyai: { enabled: true },
-            },
           },
         },
         null,
@@ -1019,14 +1024,14 @@ describe('plugin integration', () => {
       let title = [
         '交叉验证Phase 1完成度与文档更新需求',
         'Session',
-        'XYAI Daily $58.3/$90 Rst 22:18',
+        'RC-openai Daily $58.3/$90 Exp 22:18',
       ].join('\n')
       const updates: string[] = []
       const createdAt = Date.now() - 10_000
       const msg = {
         id: 'm-heal',
         role: 'assistant',
-        providerID: 'xyai',
+        providerID: 'rightcode-openai',
         modelID: 'gpt-5',
         sessionID: 's-heal',
         time: { created: Date.now() - 1000, completed: Date.now() - 900 },
@@ -1042,10 +1047,10 @@ describe('plugin integration', () => {
       const providerListData = {
         all: [
           {
-            id: 'xyai',
-            name: 'XYAI',
+            id: 'rightcode-openai',
+            name: 'RightCode OpenAI',
             env: [],
-            options: { baseURL: 'https://new.xychatai.com/frontend-api' },
+            options: { baseURL: 'https://www.right.codes/codex/v1' },
             models: {
               'gpt-5': {
                 id: 'gpt-5',
@@ -1068,7 +1073,7 @@ describe('plugin integration', () => {
           },
         ],
         default: {},
-        connected: ['xyai'],
+        connected: ['rightcode-openai'],
       }
 
       const originalFetch = globalThis.fetch
@@ -1076,12 +1081,22 @@ describe('plugin integration', () => {
         input,
       ) => {
         const url = String(input)
-        if (url.includes('/vibe-code/quota')) {
+        if (url.includes('www.right.codes/account/summary')) {
           return new Response(
             JSON.stringify({
-              remaining_balance: 58.3,
-              total_balance: 90,
-              reset_at: '22:18',
+              balance: 248.4,
+              subscriptions: [
+                {
+                  name: 'Codex Plan',
+                  total_quota: 60,
+                  remaining_quota: 58.3,
+                  reset_today: true,
+                  expired_at: new Date(
+                    Date.now() + 2 * 24 * 60 * 60 * 1000,
+                  ).toISOString(),
+                  available_prefixes: ['/codex'],
+                },
+              ],
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           )

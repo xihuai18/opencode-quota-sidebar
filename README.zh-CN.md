@@ -13,7 +13,7 @@ OpenCode 插件：在 TUI sidebar 中显示 token 用量和 provider quota，同
 - 在 TUI sidebar 中渲染结构化的 `TITLE`、`USAGE`、`QUOTA` 三个区块
 - 让共享 `session.title` 保持紧凑单行，而不是把多行遥测数据写进所有客户端都共用的标题
 - 统计 `session`、`day`、`week`、`month` 四种范围的 usage
-- 内置支持 OpenAI、Copilot、Anthropic、Kimi、Zhipu、MiniMax、RightCode、XYAI 的 quota / balance 获取
+- 内置支持 OpenAI、Copilot、Anthropic、Kimi、Zhipu、MiniMax、RightCode 的 quota / balance 获取
 - session 级统计可选聚合 descendant subagent sessions
 - 提供 `quota_summary` 和 `quota_show` 两个工具
 
@@ -43,23 +43,21 @@ OpenCode 插件：在 TUI sidebar 中显示 token 用量和 provider quota，同
 
 内置 quota adapter 如下：
 
-| Provider            | Endpoint family                                            | 鉴权方式            | 展示形态        | 说明                                               |
-| ------------------- | ---------------------------------------------------------- | ------------------- | --------------- | -------------------------------------------------- |
-| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth               | 多窗口订阅额度  | 读取 ChatGPT usage 窗口，例如短窗口 + 周窗口       |
-| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth               | 月度额度        | 使用 Copilot internal user 接口                    |
-| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth               | 多窗口订阅额度  | 支持 plan-based usage windows                      |
-| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key             | 多窗口订阅额度  | 通常为 `5h` + weekly                               |
-| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key             | token quota     | coding plan 风格额度                               |
-| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key             | 多窗口订阅额度  | 通常为 `5h` + weekly                               |
-| RightCode           | `www.right.codes/account/summary`                          | API key             | 日额度和/或余额 | 按 prefix 匹配订阅，失败时回退为 balance           |
-| XYAI                | `new.xychatai.com/frontend-api/*`                          | 登录态 session auth | 日额度 / 日余额 | 默认关闭，需要在 `quota.providers.xyai` 中显式开启 |
+| Provider            | Endpoint family                                            | 鉴权方式 | 展示形态        | 说明                                         |
+| ------------------- | ---------------------------------------------------------- | -------- | --------------- | -------------------------------------------- |
+| OpenAI Codex        | `chatgpt.com/backend-api/wham/usage`                       | OAuth    | 多窗口订阅额度  | 读取 ChatGPT usage 窗口，例如短窗口 + 周窗口 |
+| GitHub Copilot      | `api.github.com/copilot_internal/user`                     | OAuth    | 月度额度        | 使用 Copilot internal user 接口              |
+| Anthropic           | `api.anthropic.com/api/oauth/usage`                        | OAuth    | 多窗口订阅额度  | 支持 plan-based usage windows                |
+| Kimi For Coding     | `api.kimi.com/coding/v1/usages`                            | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                         |
+| Zhipu Coding Plan   | `bigmodel.cn/api/monitor/usage/quota/limit`                | API key  | token quota     | coding plan 风格额度                         |
+| MiniMax Coding Plan | `www.minimaxi.com/v1/api/openplatform/coding_plan/remains` | API key  | 多窗口订阅额度  | 通常为 `5h` + weekly                         |
+| RightCode           | `www.right.codes/account/summary`                          | API key  | 日额度和/或余额 | 按 prefix 匹配订阅，失败时回退为 balance     |
 
 补充说明：
 
 - 没有内置 quota adapter 的 generic provider 仍然可以参与 usage 聚合，但不会显示 quota/balance
 - OpenAI、Copilot、Anthropic 的 quota 支持依赖 OAuth / session auth，而不是通用 API key 账单接口
 - RightCode 可能同时显示 daily allowance 和 balance 两行
-- XYAI 需在配置中提供登录信息，插件会自行获取并缓存 session auth
 - Copilot 支持 quota 展示，但当前不会显示 API-equivalent cost，因为 pricing metadata 不够稳定
 
 ## 展示规则
@@ -103,10 +101,6 @@ Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | C
 ```
 
 另一个多 provider 示例：
-
-```text
-Add XYAI quota adapter | Ant 5h100 W77 O7d60 | Cop M78 R04-01 | Cd52% | Est$2.34
-```
 
 ## Tool Report 示例
 
@@ -233,10 +227,7 @@ OpenCode `>=1.2.15` 时，server 插件放在 `opencode.json`，TUI 插件放在
 - `sidebar.showCost`：控制 sidebar、title、markdown report、toast 中的 API-equivalent cost 可见性
 - `sidebar.wrapQuotaLines`：长 quota 行是否自动续行并缩进
 - `sidebar.includeChildren`：`period=session` 时是否聚合 descendant subagent sessions
-- `quota.providers.xyai.enabled`：是否启用 XYAI quota
-- `quota.providers.xyai.login.username/password`：XYAI 登录信息，用于换取和刷新 session auth
-
-配置采用分层覆盖，后层配置覆盖前层配置：
+  配置采用分层覆盖，后层配置覆盖前层配置：
 
 1. 全局配置
 2. worktree 配置
