@@ -883,7 +883,7 @@ describe('quota service', () => {
       quotaCacheKey: (id: string) => id,
       fetchQuotaSnapshot: async (providerID: string) => {
         const attempt = ++calls
-        await delay(40)
+        await delay(80)
         return {
           providerID,
           adapterID: 'anthropic',
@@ -923,7 +923,7 @@ describe('quota service', () => {
     })
 
     const first = service.getQuotaSnapshots(['anthropic'])
-    await delay(5)
+    await delay(20)
     service.invalidateForProvider('anthropic')
     const second = service.getQuotaSnapshots(['anthropic'])
 
@@ -949,7 +949,7 @@ describe('quota service', () => {
       quotaCacheKey: (id: string) => id,
       fetchQuotaSnapshot: async (providerID: string) => {
         const attempt = ++calls
-        await delay(40)
+        await delay(80)
         return {
           providerID,
           adapterID: 'anthropic',
@@ -978,7 +978,7 @@ describe('quota service', () => {
     })
 
     const first = service.getQuotaSnapshots(['anthropic'])
-    await delay(5)
+    await delay(20)
     service.invalidateForProvider('anthropic')
     const second = service.getQuotaSnapshots(['anthropic'])
 
@@ -1005,7 +1005,7 @@ describe('quota service', () => {
       quotaCacheKey: (id: string) => id,
       fetchQuotaSnapshot: async (providerID: string) => {
         const attempt = ++calls
-        await delay(40)
+        await delay(80)
         return {
           providerID,
           adapterID: 'anthropic',
@@ -1045,7 +1045,7 @@ describe('quota service', () => {
     })
 
     const first = service.getQuotaSnapshots(['anthropic'])
-    await delay(5)
+    await delay(20)
     service.invalidateForProvider('anthropic')
 
     const firstSnapshots = await first

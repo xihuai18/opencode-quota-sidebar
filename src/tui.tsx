@@ -8,6 +8,18 @@ import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { fitLine, renderSidebarUsageLines } from './format.js'
 import {
+  API_COST_ENABLED_PROVIDERS,
+  calcEquivalentApiCostForMessage,
+  canonicalApiCostProviderID,
+  getBundledModelCostMap,
+  modelCostKey,
+  modelCostLookupKeys,
+  parseModelCostRates,
+  type ModelCostRates,
+} from './cost.js'
+import { mapConcurrent } from './helpers.js'
+import { parseSince, periodRanges, type HistoryPeriod } from './period.js'
+import {
   fallbackQuotaGroupsFromTitle,
   quotaGroupsAreCollapsible,
   quotaGroupsSummary,
@@ -21,11 +33,19 @@ import {
   loadState,
   quotaConfigPaths,
   resolveOpencodeDataDir,
+  scanAllSessions,
   stateFilePath,
 } from './storage.js'
 import { looksDecorated, normalizeBaseTitle } from './title.js'
 import type { QuotaSidebarConfig } from './types.js'
-import { fromCachedSessionUsage, summarizeMessages } from './usage.js'
+import {
+  emptyUsageSummary,
+  fromCachedSessionUsage,
+  mergeUsage,
+  summarizeMessages,
+  summarizeMessagesAcrossCompletedRanges,
+  type UsageSummary,
+} from './usage.js'
 
 const id = 'leo.quota-sidebar'
 const INTERNAL_CONTEXT_PLUGIN_ID = 'internal:sidebar-context'
@@ -42,6 +62,258 @@ type SidebarPanelData = {
 
 const latestCompactTitles = new Map<string, string>()
 const [compactTitleVersion, setCompactTitleVersion] = createSignal(0)
+const HISTORY_FETCH_CONCURRENCY = 5
+
+type HistoryMetric = 'apiCost' | 'tokens' | 'requests'
+
+type HistoryDialogRow = {
+  label: string
+  isCurrent: boolean
+  usage: UsageSummary
+}
+
+type HistoryDialogData = {
+  period: HistoryPeriod
+  since: string
+  rows: HistoryDialogRow[]
+  total: UsageSummary
+  warning?: string
+}
+
+const HISTORY_METRIC_OPTIONS: Array<{
+  name: string
+  description: string
+  value: HistoryMetric
+}> = [
+  { name: 'API Cost', description: 'API cost', value: 'apiCost' },
+  { name: 'Tokens', description: 'Total tokens', value: 'tokens' },
+  { name: 'Requests', description: 'Assistant requests', value: 'requests' },
+]
+
+function pad2(value: number) {
+  return `${value}`.padStart(2, '0')
+}
+
+function defaultSinceInput(period: HistoryPeriod, now = Date.now()) {
+  const date = new Date(now)
+  if (period === 'month') {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
+  }
+  if (period === 'week') {
+    const day = date.getDay()
+    const shift = day === 0 ? 6 : day - 1
+    const monday = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate() - shift,
+    )
+    return `${monday.getFullYear()}-${pad2(monday.getMonth() + 1)}-${pad2(monday.getDate())}`
+  }
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
+
+function metricValue(usage: UsageSummary, metric: HistoryMetric) {
+  if (metric === 'requests') return usage.assistantMessages
+  if (metric === 'tokens') return usage.total
+  return usage.apiCost
+}
+
+function formatDialogUsd(value: number) {
+  const safe = Number.isFinite(value) ? value : 0
+  if (safe < 10) return `$${safe.toFixed(2)}`
+  const one = safe.toFixed(1)
+  return `$${one.endsWith('.0') ? one.slice(0, -2) : one}`
+}
+
+function resolvedHistoryMetric(api: TuiPluginApi): HistoryMetric {
+  const raw = api.kv.ready
+    ? api.kv.get<HistoryMetric>('quota-history-metric', 'apiCost')
+    : 'apiCost'
+  return HISTORY_METRIC_OPTIONS.some((option) => option.value === raw)
+    ? raw
+    : 'apiCost'
+}
+
+function historyPeriodLabel(period: HistoryPeriod) {
+  if (period === 'day') return 'Daily'
+  if (period === 'week') return 'Weekly'
+  return 'Monthly'
+}
+
+function metricLabel(usage: UsageSummary, metric: HistoryMetric) {
+  if (metric === 'requests') return `${usage.assistantMessages}`
+  if (metric === 'tokens') return `${usage.total}`
+  return formatDialogUsd(usage.apiCost)
+}
+
+function historyChartLine(
+  label: string,
+  value: number,
+  maxValue: number,
+  display: string,
+  width: number,
+) {
+  const barWidth = Math.max(
+    8,
+    Math.min(24, width - label.length - display.length - 4),
+  )
+  const filled = maxValue > 0 ? Math.round((value / maxValue) * barWidth) : 0
+  return fitLine(
+    `${label} |${'#'.repeat(filled)}${' '.repeat(barWidth - filled)}| ${display}`,
+    width,
+  )
+}
+
+async function getDialogModelCostMap(api: TuiPluginApi) {
+  const fallbackMap = getBundledModelCostMap()
+  const all = api.state.provider || []
+  return all.reduce<Record<string, ModelCostRates>>((acc, provider) => {
+    const rawProviderID =
+      typeof provider.id === 'string' ? provider.id : undefined
+    if (
+      !rawProviderID ||
+      !provider.models ||
+      typeof provider.models !== 'object'
+    ) {
+      return acc
+    }
+
+    for (const [modelKey, modelValue] of Object.entries(provider.models)) {
+      if (!modelValue || typeof modelValue !== 'object') continue
+      const record = modelValue as Record<string, unknown>
+      const rates = parseModelCostRates(record.cost)
+      if (!rates) continue
+      const modelID = typeof record.id === 'string' ? record.id : modelKey
+      const lookupKeys = new Set([
+        ...modelCostLookupKeys(rawProviderID, modelID),
+        ...modelCostLookupKeys(rawProviderID, modelKey),
+        modelCostKey(rawProviderID, modelID),
+      ])
+      for (const key of lookupKeys) {
+        acc[key] = rates
+      }
+    }
+    return acc
+  }, fallbackMap)
+}
+
+function calcDialogApiCost(
+  message: Parameters<typeof calcEquivalentApiCostForMessage>[0],
+  modelCostMap: Record<string, ModelCostRates>,
+) {
+  const providerID = canonicalApiCostProviderID(message.providerID)
+  if (!API_COST_ENABLED_PROVIDERS.has(providerID)) return 0
+  for (const key of modelCostLookupKeys(providerID, message.modelID)) {
+    const rates = modelCostMap[key]
+    if (!rates) continue
+    return calcEquivalentApiCostForMessage(message, rates)
+  }
+  return 0
+}
+
+async function loadHistoryDialogData(
+  api: TuiPluginApi,
+  period: HistoryPeriod,
+  sinceInput: string,
+): Promise<HistoryDialogData> {
+  const statePath = stateFilePath(resolveOpencodeDataDir())
+  const state = await loadState(statePath)
+  const since = parseSince(sinceInput)
+  const ranges = periodRanges(period, since)
+  const rows = ranges.map((range) => ({ range, usage: emptyUsageSummary() }))
+  const total = emptyUsageSummary()
+  const modelCostMap = await getDialogModelCostMap(api)
+  const sessions = (await scanAllSessions(statePath, state)).filter(
+    (session) => {
+      if (session.state.createdAt > Date.now()) return false
+      const lastMessageTime = session.state.cursor?.lastMessageTime
+      if (
+        typeof lastMessageTime === 'number' &&
+        lastMessageTime < ranges[0]?.startAt
+      ) {
+        return false
+      }
+      return true
+    },
+  )
+
+  const fetched = await mapConcurrent(
+    sessions,
+    HISTORY_FETCH_CONCURRENCY,
+    async ({ sessionID }) => {
+      try {
+        const response = await api.client.session
+          .messages({
+            sessionID,
+            directory: directoryPath(api),
+          })
+          .catch(() => undefined)
+        const entries = Array.isArray(response?.data)
+          ? response.data.map((item) => ({
+              info: item.info,
+            }))
+          : []
+        const normalizedEntries = entries as unknown as Parameters<
+          typeof summarizeMessagesAcrossCompletedRanges
+        >[0]
+        const rangeUsage = summarizeMessagesAcrossCompletedRanges(
+          normalizedEntries,
+          rows.map((row) => ({
+            startAt: row.range.startAt,
+            endAt: row.range.endAt,
+          })),
+          {
+            calcApiCost: (message) => calcDialogApiCost(message, modelCostMap),
+          },
+        )
+        const sessionTotal = emptyUsageSummary()
+        for (const usage of rangeUsage) {
+          if (usage.assistantMessages > 0) mergeUsage(sessionTotal, usage)
+        }
+        if (sessionTotal.assistantMessages > 0) sessionTotal.sessionCount = 1
+        return {
+          rangeUsage,
+          sessionTotal,
+          failed: !Array.isArray(response?.data),
+        }
+      } catch {
+        return {
+          rangeUsage: rows.map(() => emptyUsageSummary()),
+          sessionTotal: emptyUsageSummary(),
+          failed: true,
+        }
+      }
+    },
+  )
+
+  const failedSessions = fetched.filter((item) => item.failed).length
+
+  for (const item of fetched) {
+    for (let index = 0; index < rows.length; index++) {
+      if (item.rangeUsage[index].assistantMessages > 0) {
+        mergeUsage(rows[index].usage, item.rangeUsage[index])
+      }
+    }
+    if (item.sessionTotal.assistantMessages > 0) {
+      mergeUsage(total, item.sessionTotal)
+    }
+  }
+
+  return {
+    period,
+    since: since.raw,
+    rows: rows.map((row) => ({
+      label: row.range.label,
+      isCurrent: row.range.isCurrent,
+      usage: row.usage,
+    })),
+    total,
+    warning:
+      failedSessions > 0
+        ? `Skipped ${failedSessions} session(s) that could not be loaded.`
+        : undefined,
+  }
+}
 
 function directoryPath(api: TuiPluginApi) {
   return api.state.path.directory || process.cwd()
@@ -409,6 +681,157 @@ function SidebarTitleView(props: {
   )
 }
 
+function HistoryDialogView(props: {
+  api: TuiPluginApi
+  period: HistoryPeriod
+  sinceInput: string
+}) {
+  const [metric, setMetric] = createSignal<HistoryMetric>(
+    resolvedHistoryMetric(props.api),
+  )
+  const [data, setData] = createSignal<HistoryDialogData | undefined>()
+  const [error, setError] = createSignal<string | undefined>()
+  let metricTabs: { setSelectedIndex: (index: number) => void } | undefined
+
+  let disposed = false
+  void loadHistoryDialogData(props.api, props.period, props.sinceInput)
+    .then((value) => {
+      if (disposed) return
+      setData(value)
+    })
+    .catch((reason) => {
+      if (disposed) return
+      setError(reason instanceof Error ? reason.message : String(reason))
+    })
+
+  onCleanup(() => {
+    disposed = true
+  })
+
+  const rows = createMemo(() => data()?.rows || [])
+  const maxValue = createMemo(() =>
+    rows().reduce(
+      (max, row) => Math.max(max, metricValue(row.usage, metric())),
+      0,
+    ),
+  )
+  const total = createMemo(() => data()?.total || emptyUsageSummary())
+
+  return props.api.ui.Dialog({
+    size: 'large',
+    onClose: () => props.api.ui.dialog.clear(),
+    children: (
+      <box flexDirection="column" gap={1}>
+        <text fg={props.api.theme.current.text}>
+          <b>{`${historyPeriodLabel(props.period)} Usage since ${props.sinceInput.trim()}`}</b>
+        </text>
+        <tab_select
+          ref={(value) => {
+            metricTabs = value as { setSelectedIndex: (index: number) => void }
+            const index = Math.max(
+              0,
+              HISTORY_METRIC_OPTIONS.findIndex(
+                (option) => option.value === metric(),
+              ),
+            )
+            queueMicrotask(() => metricTabs?.setSelectedIndex(index))
+          }}
+          focused={true}
+          options={HISTORY_METRIC_OPTIONS}
+          onChange={(_index, option) => {
+            const value = (option?.value || 'apiCost') as HistoryMetric
+            setMetric(value)
+            if (props.api.kv.ready) {
+              props.api.kv.set('quota-history-metric', value)
+            }
+          }}
+        />
+        <Show
+          when={!error()}
+          fallback={<text fg={props.api.theme.current.error}>{error()}</text>}
+        >
+          <Show
+            when={data()}
+            fallback={
+              <text fg={props.api.theme.current.textMuted}>
+                Loading history...
+              </text>
+            }
+          >
+            <scrollbox height={Math.max(6, Math.min(14, rows().length + 1))}>
+              <box flexDirection="column" gap={0}>
+                <For each={rows()}>
+                  {(row) => (
+                    <text
+                      fg={
+                        row.isCurrent
+                          ? props.api.theme.current.text
+                          : props.api.theme.current.textMuted
+                      }
+                    >
+                      {historyChartLine(
+                        row.isCurrent ? `${row.label}*` : row.label,
+                        metricValue(row.usage, metric()),
+                        maxValue(),
+                        metricLabel(row.usage, metric()),
+                        56,
+                      )}
+                    </text>
+                  )}
+                </For>
+              </box>
+            </scrollbox>
+            <text fg={props.api.theme.current.text}>
+              <b>Total</b>
+            </text>
+            <text
+              fg={props.api.theme.current.textMuted}
+            >{`Requests ${total().assistantMessages}`}</text>
+            <text
+              fg={props.api.theme.current.textMuted}
+            >{`Tokens ${total().total}`}</text>
+            <text
+              fg={props.api.theme.current.textMuted}
+            >{`API Cost ${formatDialogUsd(total().apiCost)}`}</text>
+            <Show when={data()?.warning}>
+              <text fg={props.api.theme.current.warning}>
+                {data()?.warning}
+              </text>
+            </Show>
+            <text fg={props.api.theme.current.textMuted}>
+              ESC close, Left/Right switch metric
+            </text>
+          </Show>
+        </Show>
+      </box>
+    ),
+  })
+}
+
+function openHistoryDialog(
+  api: TuiPluginApi,
+  period: HistoryPeriod,
+  sinceInput: string,
+) {
+  api.ui.dialog.replace(() => HistoryDialogView({ api, period, sinceInput }))
+}
+
+function openHistoryPrompt(api: TuiPluginApi, period: HistoryPeriod) {
+  const initialValue = defaultSinceInput(period)
+  api.ui.dialog.replace(() =>
+    api.ui.DialogPrompt({
+      title: `${historyPeriodLabel(period)} History`,
+      placeholder: period === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD',
+      value: initialValue,
+      onConfirm: (value) => {
+        const nextValue = String(value).trim() || initialValue
+        openHistoryDialog(api, period, nextValue)
+      },
+      onCancel: () => api.ui.dialog.clear(),
+    }),
+  )
+}
+
 const tui: TuiPlugin = async (api) => {
   const config = await loadConfig(
     quotaConfigPaths(worktreePath(api), directoryPath(api)),
@@ -431,6 +854,31 @@ const tui: TuiPlugin = async (api) => {
       .then(() => undefined)
       .catch(() => undefined)
   })
+
+  const unregisterCommands = api.command.register(() => [
+    {
+      title: 'Quota Day History',
+      value: 'quota.history.day',
+      description: 'Open daily usage history chart',
+      slash: { name: 'qday' },
+      onSelect: () => openHistoryPrompt(api, 'day'),
+    },
+    {
+      title: 'Quota Week History',
+      value: 'quota.history.week',
+      description: 'Open weekly usage history chart',
+      slash: { name: 'qweek' },
+      onSelect: () => openHistoryPrompt(api, 'week'),
+    },
+    {
+      title: 'Quota Month History',
+      value: 'quota.history.month',
+      description: 'Open monthly usage history chart',
+      slash: { name: 'qmonth' },
+      onSelect: () => openHistoryPrompt(api, 'month'),
+    },
+  ])
+  api.lifecycle.onDispose(unregisterCommands)
 
   api.slots.register({
     order: 100,
