@@ -42,6 +42,10 @@ function anthropicFetchErrorNote(error: unknown) {
   return 'network request failed'
 }
 
+function isRetryableAnthropicStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500
+}
+
 async function fetchAnthropicUsage(
   accessToken: string,
   timeoutMs: number,
@@ -65,7 +69,11 @@ async function fetchAnthropicUsage(
         timeoutMs,
       )
 
-      if (response.ok || response.status < 500 || attempt > 0) {
+      if (
+        response.ok ||
+        !isRetryableAnthropicStatus(response.status) ||
+        attempt > 0
+      ) {
         return { response }
       }
       lastErrorNote = `http ${response.status}`

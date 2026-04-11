@@ -197,6 +197,7 @@ function parseQuotaSnapshot(value: unknown): QuotaSnapshot | undefined {
           value.stale.staleReasonKind === 'timeout' ||
           value.stale.staleReasonKind === 'network' ||
           value.stale.staleReasonKind === 'http_5xx' ||
+          value.stale.staleReasonKind === 'http_transient' ||
           value.stale.staleReasonKind === 'invalid_response' ||
           value.stale.staleReasonKind === 'unknown'
             ? value.stale.staleReasonKind

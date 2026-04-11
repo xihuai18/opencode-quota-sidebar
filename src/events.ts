@@ -13,7 +13,7 @@ export function createEventDispatcher(handlers: {
   onSessionCreated: (session: Session) => Promise<void>
   onSessionUpdated: (session: Session) => Promise<void>
   onSessionDeleted: (session: Session) => Promise<void>
-  onTuiActivity: () => Promise<void>
+  onTuiActivity: (sessionID?: string) => Promise<void>
   onTuiSessionSelect: (sessionID: string) => Promise<void>
   onMessageRemoved: (info: {
     sessionID: string
@@ -46,14 +46,14 @@ export function createEventDispatcher(handlers: {
       tui.type === 'tui.prompt.append' ||
       tui.type === 'tui.command.execute'
     ) {
-      await handlers.onTuiActivity()
+      await handlers.onTuiActivity(tui.properties?.sessionID)
       return
     }
 
     if (tui.type === 'tui.session.select') {
       if (typeof tui.properties?.sessionID !== 'string') return
       await handlers.onTuiSessionSelect(tui.properties.sessionID)
-      await handlers.onTuiActivity()
+      await handlers.onTuiActivity(tui.properties.sessionID)
       return
     }
 

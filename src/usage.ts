@@ -366,7 +366,7 @@ function isCompletedAssistantInRange(
   if (!isAssistant(message)) return false
   const completed = completedTimeOf(message)
   if (completed === undefined) return false
-  return completed >= startAt && completed <= endAt
+  return completed >= startAt && completed < endAt
 }
 
 export function summarizeMessages(

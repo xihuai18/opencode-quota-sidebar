@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { parseSince, periodRanges } from '../period.js'
+import { parseSince, periodRanges, periodStart } from '../period.js'
 
 describe('parseSince', () => {
   it('parses month and day inputs', () => {
@@ -57,5 +57,12 @@ describe('periodRanges', () => {
     assert.equal(rows[0].label, '2026-04-11')
     assert.equal(rows[0].isCurrent, false)
     assert.equal(rows[0].isPartial, false)
+  })
+
+  it('computes periodStart from an injected now value', () => {
+    const now = new Date(2026, 3, 11, 15, 30).getTime()
+    assert.equal(periodStart('day', now), new Date(2026, 3, 11).getTime())
+    assert.equal(periodStart('week', now), new Date(2026, 3, 6).getTime())
+    assert.equal(periodStart('month', now), new Date(2026, 3, 1).getTime())
   })
 })

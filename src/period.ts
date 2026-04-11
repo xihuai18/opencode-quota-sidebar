@@ -229,6 +229,6 @@ export function periodRanges(
   return ranges
 }
 
-export function periodStart(period: HistoryPeriod) {
-  return periodBoundaryStart(period, Date.now())
+export function periodStart(period: HistoryPeriod, now = Date.now()) {
+  return periodBoundaryStart(period, now)
 }

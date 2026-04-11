@@ -576,12 +576,13 @@ export async function scanSessionsByCreatedRange(
   startAt: number,
   endAt = Date.now(),
   memoryState?: QuotaSidebarState,
+  retentionDays = 730,
 ) {
   const rootPath = chunkRootPathFromStateFile(statePath)
   const deletedSessionIDs = new Set(
     Object.keys(memoryState?.deletedSessionDateMap || {}),
   )
-  const dateKeys = dateKeysInRange(startAt, endAt)
+  const dateKeys = dateKeysInRange(startAt, endAt, retentionDays + 1)
   if (!dateKeys.length) {
     return [] as Array<{
       sessionID: string

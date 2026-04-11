@@ -706,8 +706,9 @@ export function createUsageService(deps: {
   const RANGE_USAGE_CONCURRENCY = 5
 
   const summarizeRangeUsage = async (period: 'day' | 'week' | 'month') => {
-    const startAt = periodStart(period)
-    const endAt = Date.now()
+    const now = Date.now()
+    const startAt = periodStart(period, now)
+    const endAt = now
     await deps.persistence.flushSave()
     const sessions = await scanAllSessions(deps.statePath, deps.state)
     const usage = emptyUsageSummary()
@@ -916,8 +917,9 @@ export function createUsageService(deps: {
     period: HistoryPeriod,
     rawSince: string,
   ): Promise<HistoryUsageResult> => {
-    const since = parseSince(rawSince)
-    const ranges = periodRanges(period, since)
+    const now = Date.now()
+    const since = parseSince(rawSince, now)
+    const ranges = periodRanges(period, since, now)
     const total = emptyUsageSummary()
     const rows = ranges.map((range) => ({
       range,

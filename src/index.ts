@@ -181,6 +181,7 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
   const summarizeHistoryForTool = usageService.summarizeHistoryUsage
 
   const activeSessionUntil = new Map<string, number>()
+  let lastTuiSessionID: string | undefined
 
   const markSessionActive = (sessionID: string, now = Date.now()) => {
     activeSessionUntil.set(sessionID, now + SESSION_ACTIVE_GRACE_MS)
@@ -491,11 +492,16 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       }
     },
 
-    onTuiActivity: async () => {
-      return
+    onTuiActivity: async (sessionID) => {
+      const target = sessionID || lastTuiSessionID
+      if (!target) return
+      lastTuiSessionID = target
+      markSessionActive(target)
     },
 
     onTuiSessionSelect: async (sessionID) => {
+      lastTuiSessionID = sessionID
+      markSessionActive(sessionID)
       scheduleActiveTitleRefresh(sessionID, 0)
     },
 
@@ -516,6 +522,8 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
         return
       }
 
+      invalidateQuotaForProvider(message.providerID)
+
       const wasActive = isSessionActive(message.sessionID, now)
       if (!wasActive) {
         return
@@ -523,7 +531,6 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
 
       markSessionActive(message.sessionID, now)
       usageService.markSessionDirty(message.sessionID)
-      invalidateQuotaForProvider(message.providerID)
       scheduleActiveTitleRefresh(message.sessionID, 100)
       void maybeShowExpiryToast(message.sessionID)
     },

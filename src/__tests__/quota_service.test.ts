@@ -518,6 +518,68 @@ describe('quota service', () => {
     assert.equal(scheduled, 1)
   })
 
+  it('reuses a recent ok snapshot as stale after an http 429 quota error', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
+    tmpDirs.push(tmp)
+    const authPath = path.join(tmp, 'auth.json')
+    await fs.writeFile(authPath, '{}\n', 'utf8')
+
+    const state = defaultState()
+    const config = makeConfig({ refreshMs: 60_000 })
+
+    const quotaRuntime = {
+      normalizeProviderID: (id: string) => id,
+      resolveQuotaAdapter: (_id: string) => ({ id: 'anthropic' }),
+      quotaCacheKey: (id: string) => id,
+      fetchQuotaSnapshot: async (providerID: string) => {
+        const snapshot: QuotaSnapshot = {
+          providerID,
+          adapterID: 'anthropic',
+          label: 'Anthropic',
+          shortLabel: 'Anthropic',
+          sortOrder: 30,
+          status: 'error',
+          checkedAt: Date.now(),
+          note: 'http 429',
+        }
+        return snapshot
+      },
+    }
+
+    state.quotaCache['anthropic#none'] = {
+      providerID: 'anthropic',
+      adapterID: 'anthropic',
+      label: 'Anthropic',
+      shortLabel: 'Anthropic',
+      sortOrder: 30,
+      status: 'ok',
+      checkedAt: Date.now() - 70_000,
+      windows: [{ label: '5h', remainingPercent: 81 }],
+    }
+
+    const service = createQuotaService({
+      quotaRuntime,
+      config,
+      state,
+      authPath,
+      client: {
+        auth: {
+          set: async () => ({ data: { ok: true } }) as any,
+        },
+      } as any,
+      directory: tmp,
+      scheduleSave: () => {},
+    })
+
+    const snapshots = await service.getQuotaSnapshots(['anthropic'])
+
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].status, 'ok')
+    assert.equal(snapshots[0].windows?.[0]?.remainingPercent, 81)
+    assert.equal(snapshots[0].stale?.staleReason, 'http 429')
+    assert.equal(snapshots[0].stale?.staleReasonKind, 'http_transient')
+  })
+
   it('does not reuse stale quota for auth failures', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'quota-service-'))
     tmpDirs.push(tmp)

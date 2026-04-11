@@ -420,6 +420,9 @@ export function createQuotaService(deps: {
     if (/^http\s+5\d\d\b/i.test(note)) {
       return { kind: 'http_5xx' as const, text: note }
     }
+    if (/^http\s+(408|429)\b/i.test(note)) {
+      return { kind: 'http_transient' as const, text: note }
+    }
     if (
       normalized.includes('invalid response') ||
       normalized.includes('missing quota fields')

@@ -564,6 +564,192 @@ describe('plugin integration', () => {
     }
   })
 
+  it('treats a selected TUI session as active for completed-only assistant updates', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    try {
+      let title = 'Greeting and quick check-in'
+      const updates: string[] = []
+
+      const msg = {
+        id: 'm-complete-only',
+        role: 'assistant',
+        providerID: 'openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 18_900,
+          output: 53,
+          reasoning: 0,
+          cache: { read: 1500, write: 0 },
+        },
+        cost: 0.02,
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            get: async () => ({
+              data: { id: 's1', title, time: { created: Date.now() - 10_000 } },
+            }),
+            update: async (args: { body: { title: string } }) => {
+              title = args.body.title
+              updates.push(title)
+              return { data: { ok: true } }
+            },
+            messages: async () => ({ data: [{ info: msg }] }),
+            list: async () => ({ data: [{ id: 's1' }] }),
+          },
+          tui: {
+            showToast: async () => ({ data: { ok: true } }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+          provider: {
+            list: async () => ({
+              data: { all: [], default: {}, connected: [] },
+            }),
+          },
+        },
+      } as never)
+
+      await hooks.event!({
+        event: {
+          type: 'tui.session.select',
+          properties: { sessionID: 's1' },
+        },
+      } as never)
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await waitFor(() => updates.length > 0)
+      assert.match(title, /Cd7%/)
+      assert.equal(title.includes('\n'), false)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+    }
+  })
+
+  it('invalidates provider quota cache after completed updates even for inactive sessions', async () => {
+    const dataHome = await makeTempDir()
+    const projectDir = await makeTempDir()
+    const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
+    process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
+    const originalFetch = globalThis.fetch
+
+    await fs.writeFile(
+      path.join(dataHome, 'auth.json'),
+      JSON.stringify(
+        {
+          'rightcode-openai': { type: 'api', key: 'rc-key' },
+        },
+        null,
+        2,
+      ),
+    )
+
+    let quotaCalls = 0
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = async (
+      input,
+    ) => {
+      const url = String(input)
+      if (url.includes('www.right.codes/account/summary')) {
+        quotaCalls++
+        return new Response(
+          JSON.stringify({
+            balance: 248.4,
+            subscriptions: [
+              {
+                name: 'Codex Plan',
+                total_quota: 60,
+                remaining_quota: 45,
+                reset_today: true,
+                available_prefixes: ['/codex'],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('{}', { status: 404 })
+    }
+
+    try {
+      const msg = {
+        id: 'm-inactive-quota',
+        role: 'assistant',
+        providerID: 'rightcode-openai',
+        modelID: 'gpt-5',
+        sessionID: 's1',
+        time: { created: Date.now() - 1000, completed: Date.now() - 900 },
+        tokens: {
+          input: 100,
+          output: 20,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
+        cost: 0.01,
+      }
+
+      const providerListData = {
+        all: [
+          {
+            id: 'rightcode-openai',
+            name: 'RightCode OpenAI',
+            env: [],
+            options: { baseURL: 'https://www.right.codes/codex/v1' },
+            models: {},
+          },
+        ],
+        default: {},
+        connected: ['rightcode-openai'],
+      }
+
+      const hooks = await QuotaSidebarPlugin({
+        directory: projectDir,
+        worktree: projectDir,
+        client: {
+          session: {
+            messages: async () => ({ data: [{ info: msg }] }),
+          },
+          provider: {
+            list: async () => ({ data: providerListData }),
+          },
+          auth: {
+            set: async () => ({ data: { ok: true } }),
+          },
+        },
+      } as never)
+
+      const output = { parts: [] as any[] }
+      await hooks['command.execute.before']?.(
+        { command: 'qday', arguments: '', sessionID: 's1' },
+        output,
+      )
+      assert.equal(quotaCalls, 1)
+
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
+      await hooks['command.execute.before']?.(
+        { command: 'qday', arguments: '', sessionID: 's1' },
+        output,
+      )
+      assert.equal(quotaCalls, 2)
+    } finally {
+      process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
+    }
+  })
+
   it('uses compact single-line titles for cli/web sessions without TUI selection', async () => {
     const dataHome = await makeTempDir()
     const projectDir = await makeTempDir()

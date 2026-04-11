@@ -7,6 +7,7 @@ import {
   getCacheCoverageMetrics,
   summarizeMessagesAcrossCompletedRanges,
   summarizeMessages,
+  summarizeMessagesInCompletedRange,
   summarizeMessagesIncremental,
   toCachedSessionUsage,
 } from '../usage.js'
@@ -131,6 +132,18 @@ describe('summarizeMessages', () => {
     )
 
     assert.equal(terminalOnly[0].assistantMessages, 0)
+  })
+
+  it('uses a half-open interval for single-range summaries too', () => {
+    const entries = [
+      { info: assistantMessage('a1', 1000, 2000, { input: 10, output: 20 }) },
+    ]
+
+    const summary = summarizeMessagesInCompletedRange(entries, 1000, 2000)
+    assert.equal(summary.assistantMessages, 0)
+
+    const included = summarizeMessagesInCompletedRange(entries, 2000, 3000)
+    assert.equal(included.assistantMessages, 1)
   })
 })
 

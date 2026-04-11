@@ -71,4 +71,16 @@ describe('dateKeysInRange', () => {
       dateKeyFromTimestamp(cappedEnd.getTime()),
     )
   })
+
+  it('respects an explicit max-day cap', () => {
+    const start = new Date(2024, 0, 1)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 30)
+
+    const keys = dateKeysInRange(start.getTime(), end.getTime(), 10)
+
+    assert.equal(keys.length, 10)
+    assert.equal(keys[0], '2024-01-01')
+    assert.equal(keys[9], '2024-01-10')
+  })
 })

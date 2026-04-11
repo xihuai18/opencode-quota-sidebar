@@ -164,6 +164,11 @@ function historyChartLine(
   )
 }
 
+function historyDialogWidth() {
+  const columns = process.stdout.columns || 68
+  return Math.max(32, Math.min(72, columns - 12))
+}
+
 async function getDialogModelCostMap(api: TuiPluginApi) {
   const fallbackMap = getBundledModelCostMap()
   const all = api.state.provider || []
@@ -216,16 +221,17 @@ async function loadHistoryDialogData(
   period: HistoryPeriod,
   sinceInput: string,
 ): Promise<HistoryDialogData> {
+  const now = Date.now()
   const statePath = stateFilePath(resolveOpencodeDataDir())
   const state = await loadState(statePath)
-  const since = parseSince(sinceInput)
-  const ranges = periodRanges(period, since)
+  const since = parseSince(sinceInput, now)
+  const ranges = periodRanges(period, since, now)
   const rows = ranges.map((range) => ({ range, usage: emptyUsageSummary() }))
   const total = emptyUsageSummary()
   const modelCostMap = await getDialogModelCostMap(api)
   const sessions = (await scanAllSessions(statePath, state)).filter(
     (session) => {
-      if (session.state.createdAt > Date.now()) return false
+      if (session.state.createdAt > now) return false
       const lastMessageTime = session.state.cursor?.lastMessageTime
       if (
         typeof lastMessageTime === 'number' &&
@@ -694,18 +700,68 @@ function HistoryDialogView(props: {
   let metricTabs: { setSelectedIndex: (index: number) => void } | undefined
 
   let disposed = false
-  void loadHistoryDialogData(props.api, props.period, props.sinceInput)
-    .then((value) => {
+  let loadVersion = 0
+  let kvHydrated = props.api.kv.ready
+  let metricChangedByUser = false
+  const timers = new Set<ReturnType<typeof setTimeout>>()
+
+  const syncMetricTabs = (value: HistoryMetric) => {
+    const index = Math.max(
+      0,
+      HISTORY_METRIC_OPTIONS.findIndex((option) => option.value === value),
+    )
+    queueMicrotask(() => metricTabs?.setSelectedIndex(index))
+  }
+
+  const applyMetric = (value: HistoryMetric, persist = false) => {
+    setMetric(value)
+    syncMetricTabs(value)
+    if (persist && props.api.kv.ready) {
+      props.api.kv.set('quota-history-metric', value)
+    }
+  }
+
+  const reload = () => {
+    const currentVersion = ++loadVersion
+    void loadHistoryDialogData(props.api, props.period, props.sinceInput)
+      .then((value) => {
+        if (disposed || currentVersion !== loadVersion) return
+        setError(undefined)
+        setData(value)
+      })
+      .catch((reason) => {
+        if (disposed || currentVersion !== loadVersion) return
+        setError(reason instanceof Error ? reason.message : String(reason))
+      })
+  }
+
+  const queue = (delay: number, fn: () => void) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer)
       if (disposed) return
-      setData(value)
-    })
-    .catch((reason) => {
-      if (disposed) return
-      setError(reason instanceof Error ? reason.message : String(reason))
-    })
+      fn()
+    }, delay)
+    timers.add(timer)
+  }
+
+  reload()
+  queue(400, reload)
+  queue(1_200, reload)
+  if (!kvHydrated) {
+    const tryHydrateMetric = () => {
+      if (kvHydrated || metricChangedByUser || !props.api.kv.ready) return
+      kvHydrated = true
+      applyMetric(resolvedHistoryMetric(props.api))
+    }
+    queue(150, tryHydrateMetric)
+    queue(600, tryHydrateMetric)
+    queue(1_500, tryHydrateMetric)
+  }
 
   onCleanup(() => {
     disposed = true
+    for (const timer of timers) clearTimeout(timer)
+    timers.clear()
   })
 
   const rows = createMemo(() => data()?.rows || [])
@@ -728,22 +784,14 @@ function HistoryDialogView(props: {
         <tab_select
           ref={(value) => {
             metricTabs = value as { setSelectedIndex: (index: number) => void }
-            const index = Math.max(
-              0,
-              HISTORY_METRIC_OPTIONS.findIndex(
-                (option) => option.value === metric(),
-              ),
-            )
-            queueMicrotask(() => metricTabs?.setSelectedIndex(index))
+            syncMetricTabs(metric())
           }}
           focused={true}
           options={HISTORY_METRIC_OPTIONS}
           onChange={(_index, option) => {
             const value = (option?.value || 'apiCost') as HistoryMetric
-            setMetric(value)
-            if (props.api.kv.ready) {
-              props.api.kv.set('quota-history-metric', value)
-            }
+            metricChangedByUser = true
+            applyMetric(value, true)
           }}
         />
         <Show
@@ -774,7 +822,7 @@ function HistoryDialogView(props: {
                         metricValue(row.usage, metric()),
                         maxValue(),
                         metricLabel(row.usage, metric()),
-                        56,
+                        historyDialogWidth(),
                       )}
                     </text>
                   )}

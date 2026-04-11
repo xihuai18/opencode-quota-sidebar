@@ -74,9 +74,13 @@ export function dateStartFromKey(dateKey: string) {
  * M7 fix: cap iteration at 731 calendar dates so a rolling 730-day retention
  * window still covers both boundary days.
  */
-const MAX_DATE_RANGE_DAYS = 731
+const DEFAULT_MAX_DATE_RANGE_DAYS = 731
 
-export function dateKeysInRange(startAt: number, endAt: number) {
+export function dateKeysInRange(
+  startAt: number,
+  endAt: number,
+  maxDays = DEFAULT_MAX_DATE_RANGE_DAYS,
+) {
   const startDate = new Date(startAt)
   if (Number.isNaN(startDate.getTime())) return []
 
@@ -95,11 +99,9 @@ export function dateKeysInRange(startAt: number, endAt: number) {
   )
 
   const keys: string[] = []
+  const safeMaxDays = Math.max(1, Math.floor(maxDays))
   let iterations = 0
-  while (
-    cursor.getTime() <= endDay.getTime() &&
-    iterations < MAX_DATE_RANGE_DAYS
-  ) {
+  while (cursor.getTime() <= endDay.getTime() && iterations < safeMaxDays) {
     keys.push(dateKeyFromTimestamp(cursor.getTime()))
     cursor.setDate(cursor.getDate() + 1)
     iterations++

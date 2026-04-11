@@ -19,6 +19,7 @@ export type QuotaStaleReasonKind =
   | 'timeout'
   | 'network'
   | 'http_5xx'
+  | 'http_transient'
   | 'invalid_response'
   | 'unknown'
 
