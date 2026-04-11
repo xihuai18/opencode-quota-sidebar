@@ -865,19 +865,7 @@ function openHistoryDialog(
 }
 
 function openHistoryPrompt(api: TuiPluginApi, period: HistoryPeriod) {
-  const initialValue = defaultSinceInput(period)
-  api.ui.dialog.replace(() =>
-    api.ui.DialogPrompt({
-      title: `${historyPeriodLabel(period)} History`,
-      placeholder: period === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD',
-      value: initialValue,
-      onConfirm: (value) => {
-        const nextValue = String(value).trim() || initialValue
-        openHistoryDialog(api, period, nextValue)
-      },
-      onCancel: () => api.ui.dialog.clear(),
-    }),
-  )
+  openHistoryDialog(api, period, defaultSinceInput(period))
 }
 
 const tui: TuiPlugin = async (api) => {
