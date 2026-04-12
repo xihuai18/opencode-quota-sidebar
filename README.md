@@ -326,6 +326,12 @@ Examples:
 The package exposes a standalone CLI dashboard. After installing globally or making the `bin` available:
 
 ```bash
+npm install -g @leo000001/opencode-quota-sidebar
+```
+
+If you prefer not to install globally, you can also run it with `npx @leo000001/opencode-quota-sidebar <args>`.
+
+```bash
 # Current period (single snapshot)
 opencode-quota day          # today
 opencode-quota week         # this week (Monday-based)
