@@ -5,7 +5,6 @@ import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
 import { QuotaSidebarPlugin } from '../index.js'
-import { createHistoryCommands } from '../tui_commands.js'
 
 const tmpDirs: string[] = []
 
@@ -83,28 +82,5 @@ describe('quota history command routing', () => {
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
     }
-  })
-
-  it('registers qday qweek and qmonth as TUI slash commands', () => {
-    const opened: string[] = []
-    const commands = createHistoryCommands((period) => opened.push(period))
-
-    assert.deepEqual(
-      commands.map((command) => ({
-        value: command.value,
-        slash: command.slash?.name,
-      })),
-      [
-        { value: 'quota.history.day', slash: 'qday' },
-        { value: 'quota.history.week', slash: 'qweek' },
-        { value: 'quota.history.month', slash: 'qmonth' },
-      ],
-    )
-
-    for (const command of commands) {
-      command.onSelect?.()
-    }
-
-    assert.deepEqual(opened, ['day', 'week', 'month'])
   })
 })

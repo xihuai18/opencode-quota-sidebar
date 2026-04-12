@@ -212,6 +212,127 @@ describe('quota_summary tool', () => {
     assert.deepEqual(calls, [{ period: 'month', since: '2026-01' }])
   })
 
+  it('supports relative last for day/week/month history requests', async () => {
+    const realNow = Date.now
+    Date.now = () => new Date(2026, 3, 11, 15, 30).getTime()
+    try {
+      const calls: Array<Record<string, unknown>> = []
+      const toolset = createQuotaSidebarTools({
+        getTitleEnabled: () => true,
+        setTitleEnabled: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+        waitForStartupTitleWork: async () => {},
+        refreshSessionTitle: () => {},
+        cancelAllTitleRefreshes: () => {},
+        flushScheduledTitleRefreshes: async () => {},
+        waitForTitleRefreshIdle: async () => {},
+        waitForTitleRefreshQuiescence: async () => {},
+        showToast: async () => {},
+        summarizeForTool: async () => emptyUsage(),
+        summarizeHistoryForTool: async (period, since) => {
+          calls.push({ period, since })
+          return emptyHistory(period, since)
+        },
+        getQuotaSnapshots: async () => [],
+        renderMarkdownReport: () => '',
+        renderToastMessage: () => '',
+        renderHistoryMarkdownReport: (_result) => 'history:last',
+        config: {
+          sidebar: { showCost: true, width: 36, includeChildren: true },
+          sidebarEnabled: true,
+        },
+      })
+
+      await toolset.quota_summary.execute({ period: 'day', last: 7 }, {
+        sessionID: 's1',
+      } as never)
+      await toolset.quota_summary.execute({ period: 'week', last: 4 }, {
+        sessionID: 's1',
+      } as never)
+      await toolset.quota_summary.execute({ period: 'month', last: 6 }, {
+        sessionID: 's1',
+      } as never)
+
+      assert.deepEqual(calls, [
+        { period: 'day', since: '2026-04-05' },
+        { period: 'week', since: '2026-03-16' },
+        { period: 'month', since: '2025-11' },
+      ])
+    } finally {
+      Date.now = realNow
+    }
+  })
+
+  it('rejects using since and last together', async () => {
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      showToast: async () => {},
+      summarizeForTool: async () => emptyUsage(),
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      renderHistoryMarkdownReport: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    await assert.rejects(
+      toolset.quota_summary.execute(
+        { period: 'day', since: '2026-04-01', last: 7 },
+        { sessionID: 's1' } as never,
+      ),
+      /`since` and `last` cannot be used together/,
+    )
+  })
+
+  it('rejects last for session period', async () => {
+    const toolset = createQuotaSidebarTools({
+      getTitleEnabled: () => true,
+      setTitleEnabled: () => {},
+      scheduleSave: () => {},
+      flushSave: async () => {},
+      waitForStartupTitleWork: async () => {},
+      refreshSessionTitle: () => {},
+      cancelAllTitleRefreshes: () => {},
+      flushScheduledTitleRefreshes: async () => {},
+      waitForTitleRefreshIdle: async () => {},
+      waitForTitleRefreshQuiescence: async () => {},
+      showToast: async () => {},
+      summarizeForTool: async () => emptyUsage(),
+      summarizeHistoryForTool: async (period, since) =>
+        emptyHistory(period, since),
+      getQuotaSnapshots: async () => [],
+      renderMarkdownReport: () => '',
+      renderToastMessage: () => '',
+      renderHistoryMarkdownReport: () => '',
+      config: {
+        sidebar: { showCost: true, width: 36, includeChildren: true },
+        sidebarEnabled: true,
+      },
+    })
+
+    await assert.rejects(
+      toolset.quota_summary.execute({ period: 'session', last: 7 }, {
+        sessionID: 's1',
+      } as never),
+      /`last` is not supported when `period=session`/,
+    )
+  })
+
   it('rejects since for session period', async () => {
     const toolset = createQuotaSidebarTools({
       getTitleEnabled: () => true,

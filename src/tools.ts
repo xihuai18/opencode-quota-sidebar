@@ -1,4 +1,9 @@
 import * as z from 'zod'
+import { sinceFromLast } from './period.js'
+import {
+  filterHistoryProvidersForDisplay,
+  filterUsageProvidersForDisplay,
+} from './provider_catalog.js'
 import type { QuotaSnapshot } from './types.js'
 import type { UsageSummary } from './usage.js'
 import type { HistoryPeriod } from './period.js'
@@ -45,6 +50,7 @@ export function createQuotaSidebarTools(deps: {
     period: HistoryPeriod,
     since: string,
   ) => Promise<HistoryUsageResult>
+  listCurrentProviderIDs?: () => Promise<Set<string>>
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
@@ -91,6 +97,14 @@ export function createQuotaSidebarTools(deps: {
           .string()
           .optional()
           .describe('Historical start date: `YYYY-MM` or `YYYY-MM-DD`.'),
+        last: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            'Relative history length. Examples: `period=day,last=7`, `period=week,last=8`, `period=month,last=6`.',
+          ),
         toast: z.boolean().optional(),
         includeChildren: z
           .boolean()
@@ -100,14 +114,37 @@ export function createQuotaSidebarTools(deps: {
           ),
       },
       execute: async (args, context) => {
-        const period = args.period || (args.since ? 'month' : 'session')
+        const period =
+          args.period || (args.since || args.last ? 'month' : 'session')
         const since = args.since?.trim()
+        const last = args.last
+        if (since && last !== undefined) {
+          throw new Error('`since` and `last` cannot be used together')
+        }
         if (period === 'session' && since) {
           throw new Error('`since` is not supported when `period=session`')
         }
+        if (period === 'session' && last !== undefined) {
+          throw new Error('`last` is not supported when `period=session`')
+        }
 
-        if (period !== 'session' && since) {
-          const history = await deps.summarizeHistoryForTool(period, since)
+        const resolvedSince =
+          since ||
+          (period !== 'session' && last !== undefined
+            ? sinceFromLast(period, last)
+            : undefined)
+        const allowedProviderIDs = await deps
+          .listCurrentProviderIDs?.()
+          .catch(() => new Set<string>())
+
+        if (period !== 'session' && resolvedSince) {
+          const historyRaw = await deps.summarizeHistoryForTool(
+            period,
+            resolvedSince,
+          )
+          const history = allowedProviderIDs
+            ? filterHistoryProvidersForDisplay(historyRaw, allowedProviderIDs)
+            : historyRaw
           const quotas = await deps.getQuotaSnapshots([], {
             allowDefault: true,
           })
@@ -133,11 +170,14 @@ export function createQuotaSidebarTools(deps: {
             ? (args.includeChildren ?? deps.config.sidebar.includeChildren)
             : false
 
-        const usage = await deps.summarizeForTool(
+        const usageRaw = await deps.summarizeForTool(
           period,
           context.sessionID,
           includeChildren,
         )
+        const usage = allowedProviderIDs
+          ? filterUsageProvidersForDisplay(usageRaw, allowedProviderIDs)
+          : usageRaw
 
         // For quota_summary, always show all subscription quota balances,
         // regardless of which providers were used in the session.

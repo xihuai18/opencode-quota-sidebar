@@ -895,6 +895,38 @@ describe('renderSidebarTitle', () => {
     assert.doesNotMatch(title, /OpenAI/)
   })
 
+  it('respects sidebar.showQuota=false in compact desktop titles', () => {
+    const previousClient = process.env.OPENCODE_CLIENT
+    process.env.OPENCODE_CLIENT = 'desktop'
+    try {
+      const config = makeConfig(120)
+      config.sidebar.titleMode = 'auto'
+      config.sidebar.showQuota = false
+      const title = renderSidebarTitle(
+        'Session',
+        makeUsage({
+          recentProviders: [{ providerID: 'openai', completedAt: Date.now() }],
+        }),
+        [
+          {
+            providerID: 'openai',
+            adapterID: 'openai',
+            label: 'OpenAI',
+            status: 'ok',
+            checkedAt: Date.now(),
+            windows: [{ label: '5h', remainingPercent: 80 }],
+          },
+        ],
+        config,
+      )
+
+      assert.doesNotMatch(title, /OAI 5h80/)
+      assert.match(title, /Cd63%/)
+    } finally {
+      process.env.OPENCODE_CLIENT = previousClient
+    }
+  })
+
   it('keeps multi-detail providers in wrapped layout when wrapQuotaLines=false', () => {
     const config = makeConfig(60)
     config.sidebar.wrapQuotaLines = false
@@ -1186,7 +1218,7 @@ describe('renderMarkdownReport', () => {
       report,
       /\| --- \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \|/,
     )
-    assert.match(report, /### Subscription Quota\n\n-/)
+    assert.match(report, /### Quota Status\n\n-/)
   })
 
   it('uses N/A values when only Copilot usage exists', () => {
@@ -1601,7 +1633,7 @@ describe('renderMarkdownReport', () => {
     assert.doesNotMatch(report, /Kimi: unavailable/)
     assert.match(
       report,
-      /### Subscription Quota\n\n- no provider quota data available/,
+      /### Quota Status\n\n- no provider quota data available/,
     )
   })
 
@@ -1700,6 +1732,18 @@ describe('renderMarkdownReport', () => {
 
 describe('renderHistoryMarkdownReport', () => {
   it('keeps zero-usage periods in the breakdown and marks the current row', () => {
+    const openaiProvider = {
+      providerID: 'openai',
+      input: 100,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 50,
+      cacheWrite: 0,
+      total: 150,
+      cost: 0,
+      apiCost: 1.25,
+      assistantMessages: 2,
+    }
     const report = renderHistoryMarkdownReport(
       {
         period: 'day',
@@ -1746,11 +1790,14 @@ describe('renderHistoryMarkdownReport', () => {
               assistantMessages: 2,
               input: 100,
               output: 0,
-              cacheRead: 0,
+              cacheRead: 50,
               cacheWrite: 0,
-              total: 120,
+              total: 150,
               cost: 0,
               apiCost: 1.25,
+              providers: {
+                openai: openaiProvider,
+              },
             }),
           },
         ],
@@ -1758,24 +1805,47 @@ describe('renderHistoryMarkdownReport', () => {
           assistantMessages: 2,
           input: 100,
           output: 0,
-          cacheRead: 0,
+          cacheRead: 50,
           cacheWrite: 0,
-          total: 120,
+          total: 150,
           cost: 0,
           apiCost: 1.25,
           sessionCount: 1,
+          providers: {
+            openai: openaiProvider,
+          },
         }),
       },
       [],
       { showCost: true },
     )
 
-    assert.match(report, /\| 2026-02-18 \| 0 \| 0 \| 0 \| 0 \| 0 \| \$0\.00 \|/)
     assert.match(
       report,
-      /\| 2026-02-19\* \| 2 \| 100 \| 0 \| 0 \| 120 \| \$1\.25 \|/,
+      /\| 2026-02-18 \| 0 \| 0 \| 0 \| 0 \| - \| 0 \| \$0\.00 \|/,
     )
-    assert.match(report, /2026-02-18 \|[# ]+\| \$0\.00/)
+    assert.match(
+      report,
+      /\| 2026-02-19\* \| 2 \| 100 \| 0 \| 50 \| 33\.3% \| 150 \| \$1\.25 \|/,
+    )
+    assert.match(report, /### Quota Status/)
+    assert.match(report, /### Totals/)
+    assert.match(report, /\| Requests \| 2 \| 1 \|/)
+    assert.match(report, /\| Total Tokens \| 150 \| 75 \|/)
+    assert.match(report, /\| Cache Hit \| 33\.3% \| 33\.3% \|/)
+    assert.match(report, /\| API Cost \| \$1\.25 \| \$0\.63 \|/)
+    assert.match(report, /### Provider Breakdown/)
+    assert.match(
+      report,
+      /\| OpenAI \| 2 \| 100 \| 0 \| 150 \| 100% \| 33\.3% \| \$1\.25 \|/,
+    )
+    assert.match(report, /### Period Detail/)
+    assert.doesNotMatch(
+      report,
+      /### Summary|### Metrics|### Trend|### Provider Mix/,
+    )
+    assert.doesNotMatch(report, /### Chart \(/)
+    assert.doesNotMatch(report, /### Total Summary/)
   })
 
   it('omits API cost column and chart when showCost=false', () => {
@@ -1828,10 +1898,18 @@ describe('renderHistoryMarkdownReport', () => {
     )
 
     assert.doesNotMatch(report, /API Cost/)
-    assert.doesNotMatch(report, /### Chart \(API Cost\)/)
+    assert.match(report, /### Quota Status/)
+    assert.match(report, /### Totals/)
+    assert.match(report, /### Provider Breakdown/)
+    assert.match(report, /### Period Detail/)
     assert.match(
       report,
-      /\| Period \| Requests \| Input \| Output \| Cache \| Total \|/,
+      /\| Period \| Requests \| Input \| Output \| Cache \| Cache Hit \| Total \|/,
+    )
+    assert.doesNotMatch(report, /### Chart \(/)
+    assert.doesNotMatch(
+      report,
+      /### Summary|### Metrics|### Trend|### Provider Mix|### Total Summary/,
     )
   })
 })
@@ -2094,6 +2172,7 @@ describe('renderToastMessage', () => {
     assert.match(toast, /OpenAI\s+Cached 75%/)
     assert.match(toast, /Anthropic\s+Cached 42\.9%/)
     assert.match(toast, /mixed\s+Cached 45\.5%/i)
+    assert.ok(toast.indexOf('Provider Cache') < toast.indexOf('Cost as API'))
   })
 
   it('does not render RightCode expiry labels inline in toast when multiple expiries exist', () => {
@@ -2280,7 +2359,7 @@ describe('renderToastMessage', () => {
     )
 
     assert.match(toast, /Cost as API/)
-    assert.match(toast, /\n  N\/A\n/)
+    assert.match(toast, /Cost as API\n  N\/A$/)
     assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
   })
 

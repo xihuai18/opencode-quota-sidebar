@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { parseSince, periodRanges, periodStart } from '../period.js'
+import {
+  parseSince,
+  periodRanges,
+  periodStart,
+  sinceFromLast,
+} from '../period.js'
 
 describe('parseSince', () => {
   it('parses month and day inputs', () => {
@@ -64,5 +69,21 @@ describe('periodRanges', () => {
     assert.equal(periodStart('day', now), new Date(2026, 3, 11).getTime())
     assert.equal(periodStart('week', now), new Date(2026, 3, 6).getTime())
     assert.equal(periodStart('month', now), new Date(2026, 3, 1).getTime())
+  })
+
+  it('derives absolute since inputs from relative last values', () => {
+    const now = new Date(2026, 3, 11, 15, 30).getTime()
+    assert.equal(sinceFromLast('day', 1, now), '2026-04-11')
+    assert.equal(sinceFromLast('day', 7, now), '2026-04-05')
+    assert.equal(sinceFromLast('week', 1, now), '2026-04-06')
+    assert.equal(sinceFromLast('week', 4, now), '2026-03-16')
+    assert.equal(sinceFromLast('month', 1, now), '2026-04')
+    assert.equal(sinceFromLast('month', 6, now), '2025-11')
+  })
+
+  it('rejects non-positive relative last values', () => {
+    const now = new Date(2026, 3, 11, 15, 30).getTime()
+    assert.throws(() => sinceFromLast('day', 0, now), /positive integer/)
+    assert.throws(() => sinceFromLast('week', -1, now), /positive integer/)
   })
 })

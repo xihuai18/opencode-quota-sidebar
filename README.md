@@ -122,27 +122,41 @@ Compact shared title example:
 Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | Est$12.8
 ```
 
-Another compact title example with multiple providers:
-
 ## Tool Report Demo
 
-Example `quota_summary` markdown output shape:
+Example historical `quota_summary` markdown output shape:
 
 ```md
-## Session Usage
+## Quota History - Daily since 2026-02-18
 
-- Requests: 184
-- Input: 189k
-- Output: 53.2k
-- Cache Read: 31.4k
-- Cache Write: 3.2k
-- Cost as API: $12.8
+### Quota Status
 
-## Quota
+- OpenAI: 5h | 80.0% | reset 3h20m; Weekly | 70.0% | reset 2D04h
+- Copilot: Monthly | 78.0% | reset 12D00h
+- RightCode: Daily $88.9/$60 | reset 6D00h
 
-- OpenAI: 5h 80% (reset 3h20m), Weekly 70% (reset 2D04h), Spark 5h 100% (reset 1h00m), Spark Weekly 100% (reset 3D04h)
-- Copilot: Monthly 78% (reset 12D00h)
-- RightCode: Daily $88.9/$60 (exp 6D00h), Balance $260
+### Totals
+
+| Metric       | Total | Avg/Period |
+| ------------ | ----: | ---------: |
+| Requests     |   184 |       26.3 |
+| Total Tokens |  277k |      39.6k |
+| Cache Hit    | 63.1% |      58.4% |
+| API Cost     | $12.8 |      $1.83 |
+
+### Provider Breakdown
+
+| Provider  | Req | Input | Output | Total | Share | Cache Hit | API Cost |
+| --------- | --: | ----: | -----: | ----: | ----: | --------: | -------: |
+| OpenAI    | 140 |  160k |    61k |  221k | 79.8% |     66.2% |    $10.4 |
+| Anthropic |  44 |   29k |  27.1k | 56.1k | 20.2% |     51.3% |    $2.34 |
+
+### Period Detail
+
+| Period       | Requests | Input | Output | Cache | Cache Hit | Total | API Cost |
+| ------------ | -------: | ----: | -----: | ----: | --------: | ----: | -------: |
+| 2026-02-18   |       12 | 18.3k |   4.2k |  8.9k |     32.7% | 31.4k |    $1.12 |
+| 2026-02-24\* |       17 |  8.1k |   2.0k |  3.4k |     66.0% | 13.5k |    $0.88 |
 ```
 
 The tool already returns full markdown. Clients should display that report directly instead of replacing it with a short summary.
@@ -224,7 +238,7 @@ See [`quota-sidebar.config.example.json`](./quota-sidebar.config.example.json) f
 Important config notes:
 
 - `sidebar.titleMode`: `auto`, `compact`, or `multiline`
-- `sidebar.showCost`: controls API-equivalent cost in sidebar, title, markdown report, and toast
+- `sidebar.showCost`: controls API-equivalent cost in sidebar, title, markdown report, toast, and CLI output
 - `sidebar.wrapQuotaLines`: wraps long quota lines with indentation instead of dropping fields
 - `sidebar.includeChildren`: includes descendant subagent sessions for `period=session`
   Config is layered. The later source overrides the earlier one:
@@ -256,25 +270,48 @@ Behavior notes:
 
 - `quota_summary` returns the full markdown report body
 - `quota_summary` can show a toast in addition to returning markdown
+- `quota_summary` accepts `period`, `since`, `last`, `toast`, and `includeChildren`
 - `quota_summary(includeChildren=true)` only changes `period=session`
+- `day/week/month` scans all sessions in the selected time range, so child sessions are included when they have activity in that range
+- `day/week/month` does not do parent-tree rollup; child sessions are counted as independent sessions, not merged through `includeChildren`
+- `since` and `last` are mutually exclusive
+- `period=session` does not accept `since` or `last`
 - `quota_show(enabled=true|false)` can explicitly force a state instead of toggling
+- Historical reports support both absolute `since` and relative `last`
+- `since` accepts `YYYY-MM` or `YYYY-MM-DD`
+- `last` accepts a positive integer and is relative to the current period: `day=7`, `week=8`, `month=6`
+- Empty `period=day|week|month` means the current natural day/week/month
 
 Example command aliases:
+
+For direct in-chat history output, define command aliases that call `quota_summary`.
+The old TUI history popup path was removed; history now goes through the tool report directly.
+These aliases are still OpenCode command templates, so they expand into prompt text before the model/tool chain runs. For the cleanest direct output path, prefer the standalone CLI.
+
+Examples:
+
+- `quota_summary(period=day)` -> today
+- `quota_summary(period=week)` -> this week
+- `quota_summary(period=month)` -> this month
+- `quota_summary(period=day,last=7)` -> last 7 days
+- `quota_summary(period=week,last=8)` -> last 8 weeks
+- `quota_summary(period=month,last=6)` -> last 6 months
+- `quota_summary(period=month,since=2026-01)` -> since Jan 2026
 
 ```json
 {
   "command": {
     "qday": {
-      "description": "Show today's usage and quota",
-      "template": "Call tool quota_summary with period=day and toast=true."
+      "description": "Today / last N days / since date",
+      "template": "Run /qday for opencode-quota-sidebar. Call tool quota_summary exactly once and return its full report directly. If `$ARGUMENTS` is empty: period=day, toast=true. If `$ARGUMENTS` is a positive integer: period=day, last=<that integer>, toast=true. If `$ARGUMENTS` matches YYYY-MM-DD: period=day, since=<that date>, toast=true. Otherwise briefly explain: empty, positive integer, or YYYY-MM-DD."
     },
     "qweek": {
-      "description": "Show this week's usage and quota",
-      "template": "Call tool quota_summary with period=week and toast=true."
+      "description": "This week / last N weeks / since date",
+      "template": "Run /qweek for opencode-quota-sidebar. Call tool quota_summary exactly once and return its full report directly. If `$ARGUMENTS` is empty: period=week, toast=true. If `$ARGUMENTS` is a positive integer: period=week, last=<that integer>, toast=true. If `$ARGUMENTS` matches YYYY-MM-DD: period=week, since=<that date>, toast=true. Otherwise briefly explain: empty, positive integer, or YYYY-MM-DD."
     },
     "qmonth": {
-      "description": "Show this month's usage and quota",
-      "template": "Call tool quota_summary with period=month and toast=true."
+      "description": "This month / last N months / since month",
+      "template": "Run /qmonth for opencode-quota-sidebar. Call tool quota_summary exactly once and return its full report directly. If `$ARGUMENTS` is empty: period=month, toast=true. If `$ARGUMENTS` is a positive integer: period=month, last=<that integer>, toast=true. If `$ARGUMENTS` matches YYYY-MM: period=month, since=<that month>, toast=true. Otherwise briefly explain: empty, positive integer, or YYYY-MM."
     },
     "qtoggle": {
       "description": "Toggle sidebar usage display on/off",
@@ -283,6 +320,86 @@ Example command aliases:
   }
 }
 ```
+
+## CLI
+
+The package exposes a standalone CLI dashboard. After installing globally or making the `bin` available:
+
+```bash
+# Current period (single snapshot)
+opencode-quota day          # today
+opencode-quota week         # this week (Monday-based)
+opencode-quota month        # this month
+
+# Multi-period history
+opencode-quota day 7        # last 7 days
+opencode-quota week 8       # last 8 weeks
+opencode-quota month 6      # last 6 months
+
+# Absolute start date
+opencode-quota day --since 2026-04-01
+opencode-quota week --since 2026-04-01
+opencode-quota month --since 2026-01
+
+# Also accepted as positional (equivalent to --since)
+opencode-quota day 2026-04-01
+opencode-quota month 2026-01
+```
+
+When called without `last` or `--since`, the CLI renders a single-period snapshot (`QUOTA + TOTALS + PROVIDERS`). When called with `last` or `--since`, it renders multi-period history with a larger multi-line `TREND` block.
+
+### CLI semantics
+
+- `day` = current natural day; `week` = current natural week (Monday-based); `month` = current natural month
+- A positional integer maps to `last=<N>` (number of periods back from now)
+- A positional date string maps to `--since` (`YYYY-MM-DD` for day/week, `YYYY-MM` for month)
+- `--since` and `--last` are mutually exclusive
+- `last` is limited to 90 for day, reasonable ranges for week/month
+
+### Trend section
+
+The `TREND` block appears only in multi-period mode. Each metric (`Requests`, `Tokens`, `Cache`, `Cost`) is rendered as a small multi-line bar chart:
+
+- one summary line: the current value only
+- one bar row per visible period (latest 8 periods max), ordered oldest-to-newest
+- the current period is marked with `*`
+
+Interpretation example:
+
+```text
+Requests 12.3k
+  04-08   | ███░░░░░░░░░░░░░░░ | 4.1k
+  04-09   | ██████░░░░░░░░░░░░ | 8.2k
+  04-10*  | █████████████░░░░░ | 12.3k
+```
+
+This means the current bucket has `12.3k` requests, and the bar rows below show the relative size of each visible bucket from oldest to newest.
+
+### Connection behavior
+
+- The CLI talks to the local OpenCode API at `http://localhost:4096` by default
+- Set `OPENCODE_BASE_URL` to override (e.g. `http://192.168.1.10:4096`)
+- If no server is running and `OPENCODE_BASE_URL` is not set, the CLI attempts to start one:
+  - **Linux/macOS**: runs `opencode serve --hostname=127.0.0.1 --port=4096`
+  - **Windows**: tries `opencode.cmd`, then `opencode` via `shell: true`, then `bash -lc opencode`
+- The auto-start waits up to 10 seconds for the server to print `opencode server listening on <url>`
+- If auto-start fails, check that `opencode` is in your `PATH`
+- On Windows, the `shell: true` path is usually the most reliable when `opencode.cmd` is not directly spawnable from Node
+
+### Platform notes
+
+- **Terminal encoding**: the dashboard uses Unicode box-drawing and block elements (`█░`). Requires a UTF-8 capable terminal. Windows users should use Windows Terminal, PowerShell 7+, or a terminal that supports UTF-8. Classic cmd.exe with legacy codepages (CP437/CP850) may render garbled characters.
+- **Alignment**: weekly/monthly trend labels can still be truncated when the visible label is very long (for example long absolute week ranges). This is a known presentation tradeoff in the current terminal renderer.
+- **Windows PATH**: the CLI tries multiple command forms to find `opencode`. If none work, ensure `opencode` or `opencode.cmd` is on your PATH, or start the server manually and set `OPENCODE_BASE_URL`.
+- **Node.js**: requires `>=18`
+
+### Environment variables
+
+| Variable                     | Default                   | Purpose                                                                          |
+| ---------------------------- | ------------------------- | -------------------------------------------------------------------------------- |
+| `OPENCODE_BASE_URL`          | `http://localhost:4096`   | OpenCode API endpoint; set this if the server is remote or on a non-default port |
+| `OPENCODE_QUOTA_CONFIG_HOME` | `~/.config/opencode`      | Global config directory override                                                 |
+| `OPENCODE_QUOTA_DATA_HOME`   | `~/.local/share/opencode` | Global data directory override                                                   |
 
 ## Development
 

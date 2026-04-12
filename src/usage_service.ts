@@ -20,14 +20,7 @@ import {
   scanAllSessions,
   updateSessionsInDayChunks,
 } from './storage.js'
-import {
-  parseSince,
-  periodRanges,
-  periodStart,
-  type HistoryPeriod,
-  type PeriodRange,
-  type SinceSpec,
-} from './period.js'
+import { periodStart, type HistoryPeriod } from './period.js'
 import {
   debug,
   debugError,
@@ -36,8 +29,11 @@ import {
   swallow,
 } from './helpers.js'
 import {
+  accumulateMessagesAcrossCompletedRanges,
+  accumulateMessagesInCompletedRange,
   emptyUsageSummary,
   fromCachedSessionUsage,
+  mergeCursorFromEntries,
   mergeUsage,
   summarizeMessagesAcrossCompletedRanges,
   summarizeMessagesInCompletedRange,
@@ -46,18 +42,16 @@ import {
   USAGE_BILLING_CACHE_VERSION,
   type UsageSummary,
 } from './usage.js'
+import {
+  decodeMessageEntries,
+  isMissingSessionError,
+  nextCursorFromResponse,
+} from './history_messages.js'
+import { computeHistoryUsage } from './history_usage.js'
 
-export type HistoryUsageRow = {
-  range: PeriodRange
-  usage: UsageSummary
-}
-
-export type HistoryUsageResult = {
-  period: HistoryPeriod
-  since: SinceSpec
-  rows: HistoryUsageRow[]
-  total: UsageSummary
-}
+export type { HistoryUsageRow, HistoryUsageResult } from './history_usage.js'
+// Re-import locally for use in function signatures.
+import type { HistoryUsageResult } from './history_usage.js'
 
 const READ_ONLY_CACHE_PROVIDERS = new Set([
   'openai',
@@ -269,170 +263,10 @@ export function createUsageService(deps: {
     | { status: 'ok'; entries: MessageEntry[] }
     | { status: 'missing' }
     | { status: 'error' }
-
-  const isFiniteNumber = (value: unknown): value is number =>
-    typeof value === 'number' && Number.isFinite(value)
-
-  type Tokens = {
-    input: number
-    output: number
-    reasoning: number
-    cache: { read: number; write: number }
-  }
-
-  const decodeTokens = (value: unknown): Tokens | undefined => {
-    if (!isRecord(value)) return undefined
-    if (!isFiniteNumber(value.input)) return undefined
-    if (!isFiniteNumber(value.output)) return undefined
-
-    const reasoning = isFiniteNumber(value.reasoning) ? value.reasoning : 0
-    const cacheRaw = isRecord(value.cache) ? value.cache : {}
-    const read = isFiniteNumber(cacheRaw.read) ? cacheRaw.read : 0
-    const write = isFiniteNumber(cacheRaw.write) ? cacheRaw.write : 0
-    return {
-      input: value.input,
-      output: value.output,
-      reasoning,
-      cache: { read, write },
-    }
-  }
-
-  const decodeMessageInfo = (value: unknown): Message | undefined => {
-    if (!isRecord(value)) return undefined
-    if (typeof value.id !== 'string') return undefined
-    if (typeof value.sessionID !== 'string') return undefined
-    if (typeof value.role !== 'string') return undefined
-    if (!isRecord(value.time)) return undefined
-    if (!isFiniteNumber(value.time.created)) return undefined
-    if (
-      value.time.completed !== undefined &&
-      !isFiniteNumber(value.time.completed)
-    ) {
-      return undefined
-    }
-
-    if (value.role !== 'assistant') {
-      return {
-        ...(value as any),
-        time: {
-          created: value.time.created,
-          completed: value.time.completed,
-        },
-      } as Message
-    }
-
-    if (typeof value.providerID !== 'string') return undefined
-    if (typeof value.modelID !== 'string') return undefined
-
-    const tokens = decodeTokens(value.tokens)
-    if (!tokens) return undefined
-
-    // Normalize token fields to a stable shape (some providers/SDK versions may
-    // omit reasoning/cache.write; treat them as 0).
-    return {
-      ...(value as any),
-      time: {
-        created: value.time.created,
-        completed: value.time.completed,
-      },
-      tokens,
-    } as Message
-  }
-
-  const decodeMessageEntry = (value: unknown): MessageEntry | undefined => {
-    if (!isRecord(value)) return undefined
-    const decoded = decodeMessageInfo(value.info)
-    if (!decoded) return undefined
-    return { info: decoded }
-  }
-
-  const decodeMessageEntries = (value: unknown): MessageEntry[] | undefined => {
-    if (!Array.isArray(value)) return undefined
-    const decoded = value
-      .map((item) => decodeMessageEntry(item))
-      .filter((item): item is MessageEntry => Boolean(item))
-
-    if (decoded.length > 0 && decoded.length < value.length) {
-      debug(
-        `message entries partially decoded: kept ${decoded.length}/${value.length}`,
-      )
-      return undefined
-    }
-
-    // If the API returned entries but none match the expected shape,
-    // treat it as a load failure so we don't silently undercount.
-    if (decoded.length === 0 && value.length > 0) return undefined
-    return decoded
-  }
-
-  const errorStatusCode = (
-    value: unknown,
-    seen = new Set<unknown>(),
-  ): number | undefined => {
-    if (!isRecord(value) || seen.has(value)) return undefined
-    seen.add(value)
-
-    const status = value.status
-    if (typeof status === 'number' && Number.isFinite(status)) return status
-
-    const statusCode = value.statusCode
-    if (typeof statusCode === 'number' && Number.isFinite(statusCode)) {
-      return statusCode
-    }
-
-    return (
-      errorStatusCode(value.response, seen) ||
-      errorStatusCode(value.cause, seen) ||
-      errorStatusCode(value.error, seen)
-    )
-  }
-
-  const errorText = (value: unknown, seen = new Set<unknown>()): string => {
-    if (!value || seen.has(value)) return ''
-    if (typeof value === 'string') return value
-    if (typeof value === 'number' || typeof value === 'boolean')
-      return `${value}`
-    if (value instanceof Error) {
-      seen.add(value)
-      return [
-        value.message,
-        errorText((value as Error & { cause?: unknown }).cause, seen),
-      ]
-        .filter(Boolean)
-        .join('\n')
-    }
-    if (!isRecord(value)) return ''
-
-    seen.add(value)
-    return [
-      typeof value.message === 'string' ? value.message : '',
-      typeof value.error === 'string' ? value.error : '',
-      typeof value.detail === 'string' ? value.detail : '',
-      typeof value.title === 'string' ? value.title : '',
-      errorText(value.response, seen),
-      errorText(value.data, seen),
-      errorText(value.cause, seen),
-    ]
-      .filter(Boolean)
-      .join('\n')
-  }
-
-  const isMissingSessionError = (error: unknown) => {
-    const status = errorStatusCode(error)
-    if (status === 404 || status === 410) return true
-
-    const text = errorText(error).toLowerCase()
-    if (!text) return false
-
-    return (
-      /\b(session|conversation)\b.*\b(not found|missing|deleted|does not exist)\b/.test(
-        text,
-      ) ||
-      /\b(not found|missing|deleted|does not exist)\b.*\b(session|conversation)\b/.test(
-        text,
-      )
-    )
-  }
+  type LoadSessionEntriesPageResult =
+    | { status: 'ok'; entries: MessageEntry[]; nextBefore?: string }
+    | { status: 'missing' }
+    | { status: 'error' }
 
   const loadSessionEntries = async (
     sessionID: string,
@@ -449,6 +283,38 @@ export function createUsageService(deps: {
       return { status: 'ok', entries } as const
     } catch (error) {
       debugError(`loadSessionEntries ${sessionID}`, error)
+      return {
+        status: isMissingSessionError(error) ? 'missing' : 'error',
+      } as const
+    }
+  }
+
+  const MESSAGE_PAGE_LIMIT = 200
+
+  const loadSessionEntriesPage = async (
+    sessionID: string,
+    before?: string,
+  ): Promise<LoadSessionEntriesPageResult> => {
+    try {
+      const response = await deps.client.session.messages({
+        path: { id: sessionID },
+        query: {
+          directory: deps.directory,
+          limit: MESSAGE_PAGE_LIMIT,
+          ...(before ? { before } : {}),
+        },
+        throwOnError: true,
+      })
+      const data = (response as { data?: unknown }).data
+      const entries = decodeMessageEntries(data)
+      if (!entries) return { status: 'error' } as const
+      return {
+        status: 'ok',
+        entries,
+        nextBefore: nextCursorFromResponse(response),
+      } as const
+    } catch (error) {
+      debugError(`loadSessionEntriesPage ${sessionID}`, error)
       return {
         status: isMissingSessionError(error) ? 'missing' : 'error',
       } as const
@@ -510,6 +376,19 @@ export function createUsageService(deps: {
         Boolean(modelCostMap[key]),
       )
     })
+  }
+
+  const shouldTrackFullUsageForRange = (
+    cached: CachedSessionUsage | undefined,
+    hasPricing: boolean,
+  ) => {
+    if (!cached) return true
+    if (!isUsageBillingCurrent(cached)) return true
+    if (!hasPricing) return false
+    if (cached.assistantMessages <= 0) return false
+    if (cached.apiCost > 0) return false
+    if (cached.total <= 0) return false
+    return hasAnySubscriptionProvider(cached)
   }
 
   type SessionUsageResult = { usage: UsageSummary; persist: boolean }
@@ -705,12 +584,40 @@ export function createUsageService(deps: {
 
   const RANGE_USAGE_CONCURRENCY = 5
 
+  const filterRangeSessions = <
+    T extends {
+      state: { createdAt: number; cursor?: IncrementalCursor; dirty?: boolean }
+    },
+  >(
+    sessions: T[],
+    startAt: number,
+    endAt: number,
+  ) => {
+    return sessions.filter((session) => {
+      if (session.state.createdAt > endAt) return false
+      if (session.state.dirty === true) return true
+      const lastMessageTime = session.state.cursor?.lastMessageTime
+      if (
+        typeof lastMessageTime === 'number' &&
+        Number.isFinite(lastMessageTime) &&
+        lastMessageTime < startAt
+      ) {
+        return false
+      }
+      return true
+    })
+  }
+
   const summarizeRangeUsage = async (period: 'day' | 'week' | 'month') => {
     const now = Date.now()
     const startAt = periodStart(period, now)
     const endAt = now
     await deps.persistence.flushSave()
-    const sessions = await scanAllSessions(deps.statePath, deps.state)
+    const sessions = filterRangeSessions(
+      await scanAllSessions(deps.statePath, deps.state),
+      startAt,
+      endAt,
+    )
     const usage = emptyUsageSummary()
     const modelCostMap = await getModelCostMap()
     const hasPricing = Object.keys(modelCostMap).length > 0
@@ -720,85 +627,93 @@ export function createUsageService(deps: {
         sessions,
         RANGE_USAGE_CONCURRENCY,
         async (session) => {
-          const load = await loadSessionEntries(session.sessionID)
-          if (load.status !== 'ok') {
-            return {
-              sessionID: session.sessionID,
-              dateKey: session.dateKey,
-              createdAt: session.state.createdAt,
-              lastMessageTime: session.state.cursor?.lastMessageTime,
-              dirty: session.state.dirty === true,
-              computed: emptyUsageSummary(),
-              fullUsage: undefined,
-              loadFailed: load.status === 'error',
-              missing: load.status === 'missing',
-              persist: false,
-              cursor: undefined,
-            }
+          const usageOptions = {
+            calcApiCost: (message: AssistantMessage) =>
+              calcEquivalentApiCost(message, modelCostMap),
+            classifyCacheMode: (message: AssistantMessage) =>
+              classifyCacheMode(message, modelCostMap),
           }
-
-          const entries = load.entries
-
-          const computed = summarizeMessagesInCompletedRange(
-            entries,
-            startAt,
-            endAt,
-            0,
-            {
-              calcApiCost: (message) =>
-                calcEquivalentApiCost(message, modelCostMap),
-              classifyCacheMode: (message) =>
-                classifyCacheMode(message, modelCostMap),
-            },
+          const computed = emptyUsageSummary()
+          const trackFullUsage = shouldTrackFullUsageForRange(
+            session.state.usage,
+            hasPricing,
           )
+          const fullUsage = trackFullUsage ? emptyUsageSummary() : undefined
+          let cursor: IncrementalCursor | undefined
+          let hasResolvableApiCostMessage = false
+          let before: string | undefined
 
-          const shouldPersistFullUsage =
-            !session.state.usage ||
-            shouldRecomputeUsageCache(
-              session.state.usage,
-              hasPricing,
-              hasResolvableApiCostMessages(entries, modelCostMap),
+          while (true) {
+            const load = await loadSessionEntriesPage(session.sessionID, before)
+            if (load.status !== 'ok') {
+              return {
+                sessionID: session.sessionID,
+                dateKey: session.dateKey,
+                createdAt: session.state.createdAt,
+                lastMessageTime: session.state.cursor?.lastMessageTime,
+                dirty: session.state.dirty === true,
+                computed: emptyUsageSummary(),
+                fullUsage: undefined,
+                loadFailed: load.status === 'error',
+                missing: load.status === 'missing',
+                persist: false,
+                cursor: undefined,
+              }
+            }
+
+            const entries = load.entries
+            if (entries.length === 0) break
+
+            accumulateMessagesInCompletedRange(
+              computed,
+              entries,
+              startAt,
+              endAt,
+              usageOptions,
             )
 
-          if (!shouldPersistFullUsage) {
-            return {
-              sessionID: session.sessionID,
-              dateKey: session.dateKey,
-              createdAt: session.state.createdAt,
-              lastMessageTime: session.state.cursor?.lastMessageTime,
-              dirty: session.state.dirty === true,
-              computed,
-              fullUsage: undefined,
-              loadFailed: false,
-              missing: false,
-              persist: false,
-              cursor: session.state.cursor,
+            if (fullUsage) {
+              accumulateMessagesInCompletedRange(
+                fullUsage,
+                entries,
+                0,
+                Number.POSITIVE_INFINITY,
+                usageOptions,
+              )
+              cursor = mergeCursorFromEntries(cursor, entries)
             }
+
+            if (!hasResolvableApiCostMessage) {
+              hasResolvableApiCostMessage = hasResolvableApiCostMessages(
+                entries,
+                modelCostMap,
+              )
+            }
+
+            if (!load.nextBefore) break
+            before = load.nextBefore
           }
 
-          const { usage: fullUsage, cursor } = summarizeMessagesIncremental(
-            entries,
-            undefined,
-            undefined,
-            true,
-            {
-              calcApiCost: (message) =>
-                calcEquivalentApiCost(message, modelCostMap),
-              classifyCacheMode: (message) =>
-                classifyCacheMode(message, modelCostMap),
-            },
-          )
+          const shouldPersistFullUsage =
+            !!fullUsage &&
+            (!session.state.usage ||
+              shouldRecomputeUsageCache(
+                session.state.usage,
+                hasPricing,
+                hasResolvableApiCostMessage,
+              ))
+
           return {
             sessionID: session.sessionID,
             dateKey: session.dateKey,
             createdAt: session.state.createdAt,
-            lastMessageTime: cursor.lastMessageTime,
-            dirty: false,
+            lastMessageTime: cursor?.lastMessageTime,
+            dirty: session.state.dirty === true,
             computed,
-            fullUsage,
+            fullUsage: shouldPersistFullUsage ? fullUsage : undefined,
             loadFailed: false,
             missing: false,
-            persist: true,
+            persist: shouldPersistFullUsage,
             cursor,
           }
         },
@@ -917,124 +832,43 @@ export function createUsageService(deps: {
     period: HistoryPeriod,
     rawSince: string,
   ): Promise<HistoryUsageResult> => {
-    const now = Date.now()
-    const since = parseSince(rawSince, now)
-    const ranges = periodRanges(period, since, now)
-    const total = emptyUsageSummary()
-    const rows = ranges.map((range) => ({
-      range,
-      usage: emptyUsageSummary(),
-    }))
-
-    if (ranges.length === 0) {
-      return { period, since, rows, total }
-    }
-
-    const startAt = ranges[0].startAt
-    const endAt = ranges[ranges.length - 1].endAt
     await deps.persistence.flushSave()
     const sessions = await scanAllSessions(deps.statePath, deps.state)
-    const modelCostMap = await getModelCostMap()
-    const hasPricing = Object.keys(modelCostMap).length > 0
 
-    if (sessions.length > 0) {
-      const fetched = await mapConcurrent(
+    const result = await computeHistoryUsage(
+      {
         sessions,
-        RANGE_USAGE_CONCURRENCY,
-        async (session) => {
-          const load = await loadSessionEntries(session.sessionID)
-          if (load.status !== 'ok') {
-            return {
-              sessionID: session.sessionID,
-              dateKey: session.dateKey,
-              lastMessageTime: session.state.cursor?.lastMessageTime,
-              dirty: session.state.dirty === true,
-              ranges: rows.map(() => emptyUsageSummary()),
-              totalUsage: emptyUsageSummary(),
-              fullUsage: undefined,
-              loadFailed: load.status === 'error',
-              missing: load.status === 'missing',
-              persist: false,
-              cursor: undefined,
-            }
-          }
-
-          const entries = load.entries
-          const usageOptions = {
-            calcApiCost: (message: AssistantMessage) =>
-              calcEquivalentApiCost(message, modelCostMap),
-            classifyCacheMode: (message: AssistantMessage) =>
-              classifyCacheMode(message, modelCostMap),
-          }
-          const rangeUsage = summarizeMessagesAcrossCompletedRanges(
+        loadMessagesPage: loadSessionEntriesPage,
+        getModelCostMap: getModelCostMap as () => Promise<
+          Record<string, unknown>
+        >,
+        calcApiCost: (message, costMap) =>
+          calcEquivalentApiCost(
+            message,
+            costMap as Record<string, ModelCostRates>,
+          ),
+        classifyCacheMode: (message, costMap) =>
+          classifyCacheMode(message, costMap as Record<string, ModelCostRates>),
+        hasResolvableApiCostMessages: (entries, costMap) =>
+          hasResolvableApiCostMessages(
             entries,
-            rows.map((row) => ({
-              startAt: row.range.startAt,
-              endAt: row.range.endAt,
-            })),
-            usageOptions,
-          )
-          const totalUsage = emptyUsageSummary()
-          for (const item of rangeUsage) {
-            if (item.assistantMessages > 0) {
-              mergeUsage(totalUsage, item)
-            }
-          }
-          if (totalUsage.assistantMessages > 0) {
-            totalUsage.sessionCount = 1
-          }
+            costMap as Record<string, ModelCostRates>,
+          ),
+        shouldTrackFullUsage: shouldTrackFullUsageForRange,
+        shouldRecomputeUsageCache,
+        throwOnLoadFailure: true,
+      },
+      period,
+      rawSince,
+    )
 
-          const shouldPersistFullUsage =
-            !session.state.usage ||
-            shouldRecomputeUsageCache(
-              session.state.usage,
-              hasPricing,
-              hasResolvableApiCostMessages(entries, modelCostMap),
-            )
-
-          if (!shouldPersistFullUsage) {
-            return {
-              sessionID: session.sessionID,
-              dateKey: session.dateKey,
-              lastMessageTime: session.state.cursor?.lastMessageTime,
-              dirty: session.state.dirty === true,
-              ranges: rangeUsage,
-              totalUsage,
-              fullUsage: undefined,
-              loadFailed: false,
-              missing: false,
-              persist: false,
-              cursor: session.state.cursor,
-            }
-          }
-
-          const { usage: fullUsage, cursor } = summarizeMessagesIncremental(
-            entries,
-            undefined,
-            undefined,
-            true,
-            usageOptions,
-          )
-          return {
-            sessionID: session.sessionID,
-            dateKey: session.dateKey,
-            lastMessageTime: cursor.lastMessageTime,
-            dirty: false,
-            ranges: rangeUsage,
-            totalUsage,
-            fullUsage,
-            loadFailed: false,
-            missing: false,
-            persist: true,
-            cursor,
-          }
-        },
-      )
-
-      const missingSessions = fetched.filter((item) => item.missing)
+    // Server-side persistence: persist recomputed full-session usage back to
+    // memory state and day chunks so future queries are faster.
+    const hints = result.persistenceHints
+    if (hints && hints.length > 0) {
+      const missingSessions = hints.filter((item) => item.missing)
       if (missingSessions.length > 0) {
         let stateChanged = false
-
         for (const missing of missingSessions) {
           deps.state.deletedSessionDateMap[missing.sessionID] = missing.dateKey
           delete deps.state.sessions[missing.sessionID]
@@ -1043,7 +877,6 @@ export function createUsageService(deps: {
           forgetSession(missing.sessionID)
           stateChanged = true
         }
-
         await Promise.all(
           missingSessions.map(async (missing) => {
             const deletedFromChunk = await deleteSessionFromDayChunk(
@@ -1059,23 +892,7 @@ export function createUsageService(deps: {
             stateChanged = true
           }),
         )
-
         if (stateChanged) deps.persistence.scheduleSave()
-      }
-
-      const failedLoads = fetched.filter((item) => {
-        if (!item.loadFailed) return false
-        if (item.dirty) return true
-        const lastMessageTime = item.lastMessageTime
-        if (typeof lastMessageTime === 'number' && lastMessageTime < startAt) {
-          return false
-        }
-        return true
-      })
-      if (failedLoads.length > 0) {
-        throw new Error(
-          `history usage unavailable: failed to load ${failedLoads.length} session(s)`,
-        )
       }
 
       let dirty = false
@@ -1086,17 +903,10 @@ export function createUsageService(deps: {
         cursor: IncrementalCursor | undefined
       }> = []
 
-      for (const item of fetched) {
-        for (let index = 0; index < rows.length; index++) {
-          if (item.ranges[index].assistantMessages > 0) {
-            mergeUsage(rows[index].usage, item.ranges[index])
-          }
-        }
-        if (item.totalUsage.assistantMessages > 0) {
-          mergeUsage(total, item.totalUsage)
-        }
+      for (const item of hints) {
+        if (!item.persist || !item.fullUsage) continue
         const memoryState = deps.state.sessions[item.sessionID]
-        if (item.persist && item.fullUsage && memoryState) {
+        if (memoryState) {
           memoryState.usage = toCachedSessionUsage(item.fullUsage)
           memoryState.cursor = item.cursor
           const resolvedDateKey =
@@ -1106,7 +916,7 @@ export function createUsageService(deps: {
           deps.persistence.markDirty(resolvedDateKey)
           memoryState.dirty = false
           dirty = true
-        } else if (item.persist && item.fullUsage) {
+        } else {
           diskOnlyUpdates.push({
             sessionID: item.sessionID,
             dateKey: item.dateKey,
@@ -1134,7 +944,7 @@ export function createUsageService(deps: {
       if (dirty) deps.persistence.scheduleSave()
     }
 
-    return { period, since, rows, total }
+    return result
   }
 
   const summarizeForTool = async (

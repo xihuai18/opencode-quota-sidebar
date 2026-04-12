@@ -32,6 +32,7 @@ import { createPersistenceScheduler } from './persistence.js'
 import { createQuotaService } from './quota_service.js'
 import { createUsageService } from './usage_service.js'
 import { createTitleApplicator } from './title_apply.js'
+import { listCurrentProviderIDs } from './provider_catalog.js'
 import type { SessionState } from './types.js'
 
 const SHUTDOWN_HOOK_KEY = Symbol.for('opencode-quota-sidebar.shutdown-hook')
@@ -488,6 +489,14 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       const now = Date.now()
       const completed = message.time.completed
       if (typeof completed !== 'number' || !Number.isFinite(completed)) {
+        const created = message.time.created
+        if (
+          typeof created === 'number' &&
+          Number.isFinite(created) &&
+          created < now - SESSION_ACTIVE_GRACE_MS
+        ) {
+          return
+        }
         markSessionActive(message.sessionID, now)
         return
       }
@@ -534,6 +543,11 @@ export async function QuotaSidebarPlugin(input: PluginInput): Promise<Hooks> {
       showToast,
       summarizeForTool,
       summarizeHistoryForTool,
+      listCurrentProviderIDs: () =>
+        listCurrentProviderIDs({
+          client: input.client,
+          directory: input.directory,
+        }),
       getQuotaSnapshots,
       renderMarkdownReport,
       renderToastMessage,

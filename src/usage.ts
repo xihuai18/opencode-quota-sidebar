@@ -369,6 +369,21 @@ function isCompletedAssistantInRange(
   return completed >= startAt && completed < endAt
 }
 
+export function accumulateMessagesInCompletedRange(
+  target: UsageSummary,
+  entries: Array<{ info: Message }>,
+  startAt = 0,
+  endAt = Number.POSITIVE_INFINITY,
+  options?: UsageOptions,
+) {
+  for (const entry of entries) {
+    if (!isCompletedAssistantInRange(entry.info, startAt, endAt)) continue
+    addMessageUsage(target, entry.info, options)
+  }
+
+  return target
+}
+
 export function summarizeMessages(
   entries: Array<{ info: Message }>,
   startAt = 0,
@@ -377,12 +392,13 @@ export function summarizeMessages(
 ) {
   const summary = emptyUsageSummary()
   summary.sessionCount = sessionCount
-
-  for (const entry of entries) {
-    if (!isCompletedAssistantInRange(entry.info, startAt)) continue
-    addMessageUsage(summary, entry.info, options)
-  }
-
+  accumulateMessagesInCompletedRange(
+    summary,
+    entries,
+    startAt,
+    Infinity,
+    options,
+  )
   return summary
 }
 
@@ -395,12 +411,7 @@ export function summarizeMessagesInCompletedRange(
 ) {
   const summary = emptyUsageSummary()
   summary.sessionCount = sessionCount
-
-  for (const entry of entries) {
-    if (!isCompletedAssistantInRange(entry.info, startAt, endAt)) continue
-    addMessageUsage(summary, entry.info, options)
-  }
-
+  accumulateMessagesInCompletedRange(summary, entries, startAt, endAt, options)
   return summary
 }
 
@@ -432,9 +443,20 @@ export function summarizeMessagesAcrossCompletedRanges(
   options?: UsageOptions,
 ) {
   const summaries = ranges.map(() => emptyUsageSummary())
+  accumulateMessagesAcrossCompletedRanges(summaries, entries, ranges, options)
+
+  return summaries
+}
+
+export function accumulateMessagesAcrossCompletedRanges(
+  summaries: UsageSummary[],
+  entries: Array<{ info: Message }>,
+  ranges: Array<{ startAt: number; endAt: number }>,
+  options?: UsageOptions,
+) {
   const touched = new Set<number>()
 
-  if (ranges.length === 0) return summaries
+  if (ranges.length === 0) return touched
 
   for (const entry of entries) {
     if (!isAssistant(entry.info)) continue
@@ -450,7 +472,54 @@ export function summarizeMessagesAcrossCompletedRanges(
     summaries[index].sessionCount = 1
   }
 
-  return summaries
+  return touched
+}
+
+export function mergeCursorFromEntries(
+  cursor: IncrementalCursor | undefined,
+  entries: Array<{ info: Message }>,
+): IncrementalCursor | undefined {
+  let bestTime =
+    typeof cursor?.lastMessageTime === 'number' &&
+    Number.isFinite(cursor.lastMessageTime)
+      ? cursor.lastMessageTime
+      : Number.NEGATIVE_INFINITY
+  let bestID = cursor?.lastMessageId || ''
+  const idsAtBestTime = new Set(
+    Array.isArray(cursor?.lastMessageIdsAtTime)
+      ? cursor.lastMessageIdsAtTime
+      : cursor?.lastMessageId && Number.isFinite(bestTime)
+        ? [cursor.lastMessageId]
+        : [],
+  )
+
+  for (const entry of entries) {
+    const msg = entry.info
+    if (!isAssistant(msg)) continue
+    const completed = completedTimeOf(msg)
+    if (completed === undefined) continue
+
+    if (completed > bestTime) {
+      bestTime = completed
+      bestID = msg.id
+      idsAtBestTime.clear()
+      idsAtBestTime.add(msg.id)
+      continue
+    }
+
+    if (completed !== bestTime) continue
+    idsAtBestTime.add(msg.id)
+    if (msg.id.localeCompare(bestID) > 0) {
+      bestID = msg.id
+    }
+  }
+
+  if (!Number.isFinite(bestTime) || !bestID) return undefined
+  return {
+    lastMessageId: bestID,
+    lastMessageTime: bestTime,
+    lastMessageIdsAtTime: Array.from(idsAtBestTime).sort(),
+  }
 }
 
 /**

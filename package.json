@@ -4,6 +4,9 @@
   "description": "OpenCode plugin that shows quota and token usage in TUI sidebar panels and compact session titles",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "opencode-quota": "./dist/cli.js"
+  },
   "types": "dist/index.d.ts",
   "exports": {
     ".": {

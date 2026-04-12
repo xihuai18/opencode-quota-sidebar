@@ -20,6 +20,26 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function pad2(value: number) {
+  return `${value}`.padStart(2, '0')
+}
+
+function dateString(value: Date) {
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`
+}
+
+function monthString(value: Date) {
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}`
+}
+
+function mondayString(value: Date) {
+  const day = value.getDay()
+  const shift = day === 0 ? 6 : day - 1
+  return dateString(
+    new Date(value.getFullYear(), value.getMonth(), value.getDate() - shift),
+  )
+}
+
 async function waitFor(check: () => boolean, timeoutMs = 5000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -27,6 +47,15 @@ async function waitFor(check: () => boolean, timeoutMs = 5000) {
     await delay(25)
   }
   assert.ok(check(), 'condition not met before timeout')
+}
+
+async function waitForAsync(check: () => Promise<boolean>, timeoutMs = 5000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await check()) return
+    await delay(25)
+  }
+  assert.ok(await check(), 'condition not met before timeout')
 }
 
 async function emitAssistantLifecycle(

@@ -437,9 +437,11 @@ function renderDesktopCompactTitle(
   config: QuotaSidebarConfig,
   _width: number,
 ) {
-  const visibleQuotas = collapseQuotaSnapshots(quotas).filter((q) =>
-    ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
-  )
+  const visibleQuotas = config.sidebar.showQuota
+    ? collapseQuotaSnapshots(quotas).filter((q) =>
+        ['ok', 'error', 'unsupported', 'unavailable'].includes(q.status),
+      )
+    : []
   const selectedProviderIDs = new Set(
     selectDesktopCompactProviderIDs(usage, config),
   )
@@ -1042,16 +1044,231 @@ function historyPeriodLabel(period: string) {
   return 'Session'
 }
 
-function renderHistoryApiCostChart(result: HistoryUsageResult) {
-  const rows = result.rows
-  if (rows.length === 0) return ['- no API cost activity in selected range']
-  const maxValue = Math.max(...rows.map((row) => row.usage.apiCost), 0)
-  const barWidth = 24
-  return rows.map((row) => {
-    const ratio = maxValue > 0 ? row.usage.apiCost / maxValue : 0
-    const filled = Math.max(0, Math.round(ratio * barWidth))
-    return `${row.range.label} |${'#'.repeat(filled)}${' '.repeat(barWidth - filled)}| ${formatApiCostValue(row.usage.apiCost)}`
+function historyProviderLabel(providerID: string) {
+  return quotaDisplayLabel({
+    providerID,
+    label: providerID,
+    status: 'ok',
+    checkedAt: 0,
   })
+}
+
+function historyMdCell(value: string) {
+  return sanitizeLine(value).replace(/\|/g, '\\|')
+}
+
+function formatDelta(current: number, previous: number | undefined) {
+  if (previous === undefined) return 'n/a'
+  if (!Number.isFinite(previous) || previous < 0) return 'n/a'
+  if (previous === 0) return current === 0 ? 'flat' : 'new'
+  const delta = ((current - previous) / previous) * 100
+  if (!Number.isFinite(delta)) return 'n/a'
+  const abs = Math.abs(delta)
+  const rounded = (abs >= 10 ? delta.toFixed(0) : delta.toFixed(1)).replace(
+    /\.0$/,
+    '',
+  )
+  return `${delta > 0 ? '+' : ''}${rounded}%`
+}
+
+function currentHistoryRow(result: HistoryUsageResult) {
+  return (
+    [...result.rows].reverse().find((row) => row.range.isCurrent) ||
+    result.rows.at(-1)
+  )
+}
+
+function previousHistoryRow(result: HistoryUsageResult) {
+  const current = currentHistoryRow(result)
+  if (!current) return undefined
+  const index = result.rows.indexOf(current)
+  if (index <= 0) return undefined
+  return result.rows[index - 1]
+}
+
+function historyPeakRow(
+  result: HistoryUsageResult,
+  pick: (row: HistoryUsageResult['rows'][number]) => number,
+) {
+  let peak: HistoryUsageResult['rows'][number] | undefined
+  let peakValue = Number.NEGATIVE_INFINITY
+
+  for (const row of result.rows) {
+    const value = pick(row)
+    if (value > peakValue) {
+      peak = row
+      peakValue = value
+    }
+  }
+
+  return peak
+}
+
+function renderHistoryTotalsTable(
+  result: HistoryUsageResult,
+  options?: { showCost?: boolean },
+) {
+  const rows = result.rows
+  const cacheTotal = getCacheCoverageMetrics(result.total).cachedRatio
+  const cacheValues = rows
+    .map((row) => getCacheCoverageMetrics(row.usage).cachedRatio)
+    .filter((value): value is number => value !== undefined)
+  const cacheAverage =
+    cacheValues.length > 0
+      ? cacheValues.reduce((sum, value) => sum + value, 0) / cacheValues.length
+      : undefined
+  const metricRows: Array<{
+    label: string
+    total: string
+    average: string
+  }> = [
+    {
+      label: 'Requests',
+      total: shortNumber(result.total.assistantMessages),
+      average: rows.length
+        ? shortNumber(result.total.assistantMessages / rows.length)
+        : '-',
+    },
+    {
+      label: 'Total Tokens',
+      total: shortNumber(result.total.total),
+      average: rows.length
+        ? shortNumber(result.total.total / rows.length)
+        : '-',
+    },
+    {
+      label: 'Cache Hit',
+      total: cacheTotal !== undefined ? formatPercent(cacheTotal, 1) : '-',
+      average:
+        cacheAverage !== undefined ? formatPercent(cacheAverage, 1) : '-',
+    },
+    ...(options?.showCost !== false
+      ? [
+          {
+            label: 'API Cost',
+            total: formatApiCostValue(result.total.apiCost),
+            average: rows.length
+              ? formatApiCostValue(result.total.apiCost / rows.length)
+              : '-',
+          },
+        ]
+      : []),
+  ]
+
+  return [
+    '| Metric | Total | Avg/Period |',
+    '| --- | ---: | ---: |',
+    ...metricRows.map(
+      (metric) => `| ${metric.label} | ${metric.total} | ${metric.average} |`,
+    ),
+  ]
+}
+
+function renderHistoryProviderBreakdown(
+  result: HistoryUsageResult,
+  options?: { showCost?: boolean },
+) {
+  const providers = Object.values(result.total.providers)
+  if (providers.length === 0)
+    return ['- no provider activity in selected range']
+
+  const sorted = [...providers].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total
+    return b.assistantMessages - a.assistantMessages
+  })
+  return [
+    options?.showCost !== false
+      ? '| Provider | Req | Input | Output | Total | Share | Cache Hit | API Cost |'
+      : '| Provider | Req | Input | Output | Total | Share | Cache Hit |',
+    options?.showCost !== false
+      ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+      : '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...sorted.map((provider) => {
+      const cache = getProviderCacheCoverageMetrics(provider).cachedRatio
+      const share =
+        result.total.total > 0
+          ? formatPercent(provider.total / result.total.total, 1)
+          : '-'
+      const cells = [
+        historyMdCell(historyProviderLabel(provider.providerID)),
+        shortNumber(provider.assistantMessages),
+        shortNumber(provider.input),
+        shortNumber(provider.output),
+        shortNumber(provider.total),
+        share,
+        cache !== undefined ? formatPercent(cache, 1) : '-',
+      ]
+      if (options?.showCost !== false) {
+        cells.push(
+          provider.apiCost > 0 ? formatApiCostValue(provider.apiCost) : '-',
+        )
+      }
+      return `| ${cells.join(' | ')} |`
+    }),
+  ]
+}
+
+function renderHistoryQuotaSnapshot(quotas: QuotaSnapshot[]) {
+  const visible = toolVisibleQuotaSnapshots(quotas).slice(0, 5)
+  if (visible.length === 0) return ['- no provider quota data available']
+
+  return visible.map((quota) => {
+    const label = quotaDisplayLabel(quota)
+    if (quota.status === 'error') {
+      return `- ${label}: error${quota.note ? ` | ${quota.note}` : ''}`
+    }
+    if (quota.windows && quota.windows.length > 0) {
+      const summary = quota.windows
+        .slice(0, 2)
+        .map((window) => {
+          const remaining =
+            window.showPercent === false
+              ? undefined
+              : formatQuotaPercent(window.remainingPercent)
+          const reset = reportResetLine(
+            window.resetAt,
+            window.resetLabel,
+            window.label,
+          )
+          return [window.label || 'Quota', remaining, `reset ${reset}`]
+            .filter(Boolean)
+            .join(' | ')
+        })
+        .join('; ')
+      return `- ${label}: ${summary}`
+    }
+    if (quota.balance) {
+      return `- ${label}: balance ${formatCurrency(quota.balance.amount, quota.balance.currency)}`
+    }
+    return `- ${label}: ${formatQuotaPercent(quota.remainingPercent)} | reset ${reportResetLine(quota.resetAt)}`
+  })
+}
+
+function renderHistoryPeriodDetailRows(
+  result: HistoryUsageResult,
+  options?: { showCost?: boolean },
+) {
+  const showCost = options?.showCost !== false
+  return result.rows.length
+    ? result.rows.map((row) => {
+        const cache = getCacheCoverageMetrics(row.usage).cachedRatio
+        const cells = [
+          `${row.range.label}${row.range.isCurrent ? '*' : ''}`,
+          shortNumber(row.usage.assistantMessages),
+          shortNumber(row.usage.input),
+          shortNumber(row.usage.output),
+          shortNumber(row.usage.cacheRead + row.usage.cacheWrite),
+          cache !== undefined ? formatPercent(cache, 1) : '-',
+          shortNumber(row.usage.total),
+        ]
+        if (showCost) cells.push(formatApiCostValue(row.usage.apiCost))
+        return `| ${cells.join(' | ')} |`
+      })
+    : [
+        showCost
+          ? '| - | - | - | - | - | - | - | - |'
+          : '| - | - | - | - | - | - | - |',
+      ]
 }
 
 export function renderHistoryMarkdownReport(
@@ -1060,49 +1277,38 @@ export function renderHistoryMarkdownReport(
   options?: { showCost?: boolean },
 ) {
   const showCost = options?.showCost !== false
-  const rows = result.rows
-  const tableRows = rows.length
-    ? rows.map((row) => {
-        const cells = [
-          `${row.range.label}${row.range.isCurrent ? '*' : ''}`,
-          shortNumber(row.usage.assistantMessages),
-          shortNumber(row.usage.input),
-          shortNumber(row.usage.output),
-          shortNumber(row.usage.cacheRead + row.usage.cacheWrite),
-          shortNumber(row.usage.total),
-        ]
-        if (showCost) cells.push(formatApiCostValue(row.usage.apiCost))
-        return `| ${cells.join(' | ')} |`
-      })
-    : [showCost ? '| - | - | - | - | - | - | - |' : '| - | - | - | - | - | - |']
-  const totalReport = renderMarkdownReport(
-    result.period,
-    result.total,
-    quotas,
-    options,
-  ).split('\n')
-  totalReport[0] = '### Total Summary'
+  const detailRows = renderHistoryPeriodDetailRows(result, { showCost })
 
   return [
     `## Quota History - ${historyPeriodLabel(result.period)} since ${result.since.raw}`,
+    ...(result.warning
+      ? ['', `> Warning: ${sanitizeLine(result.warning)}`]
+      : []),
     '',
-    '### Breakdown',
+    '### Quota Status',
+    '',
+    ...renderHistoryQuotaSnapshot(quotas),
+    '',
+    '### Totals',
+    '',
+    ...renderHistoryTotalsTable(result, { showCost }),
+    '',
+    '### Provider Breakdown',
+    '',
+    ...renderHistoryProviderBreakdown(result, { showCost }),
+    '',
+    '### Period Detail',
     '',
     showCost
-      ? '| Period | Requests | Input | Output | Cache | Total | API Cost |'
-      : '| Period | Requests | Input | Output | Cache | Total |',
+      ? '| Period | Requests | Input | Output | Cache | Cache Hit | Total | API Cost |'
+      : '| Period | Requests | Input | Output | Cache | Cache Hit | Total |',
     showCost
-      ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: |'
-      : '| --- | ---: | ---: | ---: | ---: | ---: |',
-    ...tableRows,
+      ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+      : '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...detailRows,
     ...(result.rows.some((row) => row.range.isCurrent)
       ? ['', '* `*` marks the current partial period.']
       : []),
-    ...(showCost
-      ? ['', '### Chart (API Cost)', '', ...renderHistoryApiCostChart(result)]
-      : []),
-    '',
-    ...totalReport,
   ].join('\n')
 }
 
@@ -1315,6 +1521,14 @@ export function renderMarkdownReport(
   return [
     `## Quota Report - ${periodLabel(period)}`,
     '',
+    '### Quota Status',
+    '',
+    ...(quotaLines.length
+      ? quotaLines
+      : ['- no provider quota data available']),
+    '',
+    '### Usage Summary',
+    '',
     `- Sessions: ${usage.sessionCount}`,
     `- Requests: ${usage.assistantMessages}`,
     `- Tokens: input ${usage.input}, output ${usage.output}, cache_read ${usage.cacheRead}, cache_write ${usage.cacheWrite}, total ${usage.total}`,
@@ -1326,9 +1540,6 @@ export function renderMarkdownReport(
           `- Measured cost: ${measuredCostSummaryValue()}`,
           `- API cost: ${apiCostSummaryValue()}`,
         ]
-      : []),
-    ...(highlightLines().length > 0
-      ? ['', '### Highlights', ...highlightLines()]
       : []),
     '',
     '### Usage by Provider',
@@ -1342,12 +1553,9 @@ export function renderMarkdownReport(
             ? '| - | - | - | - | - | - | - | - | - |'
             : '| - | - | - | - | - | - |',
         ]),
-    '',
-    '### Subscription Quota',
-    '',
-    ...(quotaLines.length
-      ? quotaLines
-      : ['- no provider quota data available']),
+    ...(highlightLines().length > 0
+      ? ['', '### Highlights', ...highlightLines()]
+      : []),
   ].join('\n')
 }
 
@@ -1395,6 +1603,25 @@ export function renderToastMessage(
   }
   lines.push(...alignPairs(tokenPairs).map((line) => fitLine(line, width)))
 
+  const providerCachePairs = Object.values(usage.providers)
+    .map((provider) => {
+      const metrics = getProviderCacheCoverageMetrics(provider)
+      if (metrics.cachedRatio === undefined) return undefined
+      return {
+        label: displayShortLabel(provider.providerID),
+        value: `Cached ${formatPercent(metrics.cachedRatio, 1)}`,
+      }
+    })
+    .filter((item): item is { label: string; value: string } => Boolean(item))
+
+  if (providerCachePairs.length > 0) {
+    lines.push('')
+    lines.push(fitLine('Provider Cache', width))
+    lines.push(
+      ...alignPairs(providerCachePairs).map((line) => fitLine(line, width)),
+    )
+  }
+
   if (showCost) {
     const costPairs = Object.values(usage.providers)
       .filter(
@@ -1431,25 +1658,6 @@ export function renderToastMessage(
         ),
       )
     }
-  }
-
-  const providerCachePairs = Object.values(usage.providers)
-    .map((provider) => {
-      const metrics = getProviderCacheCoverageMetrics(provider)
-      if (metrics.cachedRatio === undefined) return undefined
-      return {
-        label: displayShortLabel(provider.providerID),
-        value: `Cached ${formatPercent(metrics.cachedRatio, 1)}`,
-      }
-    })
-    .filter((item): item is { label: string; value: string } => Boolean(item))
-
-  if (providerCachePairs.length > 0) {
-    lines.push('')
-    lines.push(fitLine('Provider Cache', width))
-    lines.push(
-      ...alignPairs(providerCachePairs).map((line) => fitLine(line, width)),
-    )
   }
 
   const quotaPairs = toolVisibleQuotaSnapshots(quotas).flatMap((item) => {

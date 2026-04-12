@@ -87,6 +87,11 @@ function formatLocalDate(timestamp: number) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
+function formatMonthInput(timestamp: number) {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
+}
+
 function formatMonthLabel(timestamp: number) {
   const date = new Date(timestamp)
   return `${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`
@@ -231,4 +236,43 @@ export function periodRanges(
 
 export function periodStart(period: HistoryPeriod, now = Date.now()) {
   return periodBoundaryStart(period, now)
+}
+
+export function sinceFromLast(
+  period: HistoryPeriod,
+  last: number,
+  now = Date.now(),
+) {
+  if (!Number.isInteger(last) || last < 1) {
+    throw new Error('`last` must be a positive integer')
+  }
+
+  const currentStart = periodBoundaryStart(period, now)
+  if (period === 'day') {
+    const date = new Date(currentStart)
+    const start = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate() - (last - 1),
+    ).getTime()
+    return formatLocalDate(start)
+  }
+
+  if (period === 'week') {
+    const date = new Date(currentStart)
+    const start = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate() - 7 * (last - 1),
+    ).getTime()
+    return formatLocalDate(start)
+  }
+
+  const date = new Date(currentStart)
+  const start = new Date(
+    date.getFullYear(),
+    date.getMonth() - (last - 1),
+    1,
+  ).getTime()
+  return formatMonthInput(start)
 }

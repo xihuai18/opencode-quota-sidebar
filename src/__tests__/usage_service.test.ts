@@ -165,6 +165,94 @@ describe('usage service', () => {
     assert.equal(result.total.sessionCount, 1)
   })
 
+  it('skips clean sessions whose cursor is older than the requested history range', async () => {
+    const state = makeState()
+    const config = makeConfig()
+    const oldCompletedAt = new Date(2026, 2, 1, 12).getTime()
+    const currentCompletedAt = new Date(2026, 3, 12, 12).getTime()
+
+    state.sessions.old = {
+      createdAt: oldCompletedAt,
+      baseTitle: 'Old',
+      lastAppliedTitle: undefined,
+      cursor: { lastMessageTime: oldCompletedAt },
+      dirty: false,
+    }
+    state.sessionDateMap.old = '2026-03-01'
+    state.sessions.current = {
+      createdAt: currentCompletedAt,
+      baseTitle: 'Current',
+      lastAppliedTitle: undefined,
+      cursor: { lastMessageTime: currentCompletedAt },
+      dirty: false,
+    }
+    state.sessionDateMap.current = '2026-04-12'
+
+    const requested: string[] = []
+    const service = createUsageService({
+      state,
+      config,
+      statePath: 'ignored',
+      client: {
+        session: {
+          messages: async (args: { path: { id: string } }) => {
+            requested.push(args.path.id)
+            if (args.path.id === 'old') {
+              throw new Error('old session should have been skipped')
+            }
+            return {
+              data: [
+                {
+                  info: {
+                    id: 'm-current',
+                    sessionID: 'current',
+                    role: 'assistant',
+                    providerID: 'openai',
+                    modelID: 'gpt-5',
+                    time: {
+                      created: currentCompletedAt,
+                      completed: currentCompletedAt,
+                    },
+                    tokens: {
+                      input: 50,
+                      output: 10,
+                      reasoning: 0,
+                      cache: { read: 0, write: 0 },
+                    },
+                    cost: 0,
+                  },
+                },
+              ],
+            }
+          },
+        },
+        provider: {
+          list: async () => ({ data: { all: [], default: {}, connected: [] } }),
+        },
+      } as any,
+      directory: 'ignored',
+      persistence: {
+        markDirty: () => {},
+        scheduleSave: () => {},
+        flushSave: async () => {},
+      },
+      descendantsResolver: {
+        listDescendantSessionIDs: async () => [],
+      },
+    })
+
+    const realNow = Date.now
+    Date.now = () => new Date(2026, 3, 12, 23, 59, 59).getTime()
+    try {
+      const result = await service.summarizeHistoryUsage('day', '2026-04-12')
+      assert.deepEqual(requested, ['current'])
+      assert.equal(result.total.assistantMessages, 1)
+      assert.equal(result.total.input, 50)
+    } finally {
+      Date.now = realNow
+    }
+  })
+
   it('keeps session measured cost root-only while apiCost includes children', async () => {
     const state = makeState()
     const config = makeConfig()

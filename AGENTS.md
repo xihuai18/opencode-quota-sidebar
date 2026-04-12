@@ -181,7 +181,7 @@ reset 时间规则：
 - Quota 区块沿用 sidebar 规则：多窗口缩进续行、RightCode 不显示日额度百分比
 - RightCode 命中订阅时显示两行：`Daily ... Exp ...` + `Balance ...`
 
-补充：`quota_summary` / `/qday` / `/qweek` / `/qmonth` 的 markdown report 与 toast 不使用 compact token，继续保留完整可读文案。调用方应直接展示工具返回的完整 report。
+补充：`quota_summary` 的 markdown report / toast 不使用 compact token，继续保留完整可读文案。若用户配置 `/qday` / `/qweek` / `/qmonth` 等命令别名，应通过 tool path 调用 `quota_summary` 并直接展示完整 report。历史报告支持绝对 `since`（`YYYY-MM` / `YYYY-MM-DD`）和相对 `last`（例如 `day=7`、`week=8`、`month=6`）。
 
 ### 5.4 多窗口 quota
 
