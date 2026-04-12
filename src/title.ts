@@ -5,7 +5,7 @@ function sanitizeTitleFragment(value: string) {
 }
 
 const compactUsageTokenPattern =
-  '(?:R\\$?[\\d.,]+[kKmM]?|I\\$?[\\d.,]+[kKmM]?|O\\$?[\\d.,]+[kKmM]?|CR\\$?[\\d.,]+[kKmM]?|CW\\$?[\\d.,]+[kKmM]?|R(?:ead)?\\s+\\$?[\\d.,]+[kKmM]?|W(?:rite)?\\s+\\$?[\\d.,]+[kKmM]?|Cd\\s*\\d[\\d.,]*%|CC\\d[\\d.,]*%|CRC\\d[\\d.,]*%|API\\$\\S+|Est\\$\\S+)'
+  '(?:R\\$?[\\d.,]+[kKmM]?|W\\$?[\\d.,]+[kKmM]?|I\\$?[\\d.,]+[kKmM]?|O\\$?[\\d.,]+[kKmM]?|CR\\$?[\\d.,]+[kKmM]?|CW\\$?[\\d.,]+[kKmM]?|R(?:ead)?\\s+\\$?[\\d.,]+[kKmM]?|W(?:rite)?\\s+\\$?[\\d.,]+[kKmM]?|Cd\\s*\\d[\\d.,]*%|CC\\d[\\d.,]*%|CRC\\d[\\d.,]*%|API\\$\\S+|Est\\$\\S+)'
 
 function isCoreDecoratedDetail(line: string) {
   if (!line) return false
