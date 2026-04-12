@@ -188,6 +188,27 @@ function cliApiCostSummary(usage: UsageSummary) {
   return hasNonCopilot ? formatApiCost(usage.apiCost) : '-'
 }
 
+function totalsRows(input: {
+  requests: string
+  tokens: string
+  cost?: string
+  cache?: string
+  periods?: string
+  current?: string
+}) {
+  const left = [`Requests ${input.requests}`, `Tokens ${input.tokens}`]
+  const right = [
+    ...(input.cost ? [`Cost ${input.cost}`] : []),
+    ...(input.cache ? [`Cache ${input.cache}`] : []),
+  ]
+  const metaLeft = input.periods ? `Periods ${input.periods}` : undefined
+  const metaRight = input.current ? `Current ${input.current}` : undefined
+
+  const row1 = [left[0], left[1], ...right].join('   ')
+  const row2 = [metaLeft, metaRight].filter(Boolean).join('   ')
+  return [row1, ...(row2 ? [row2] : [])]
+}
+
 function trendBar(value: number, maxValue: number, width = 20) {
   if (!Number.isFinite(value) || value <= 0 || maxValue <= 0) {
     return '░'.repeat(width)
@@ -207,22 +228,19 @@ function trendMetricBlock(input: {
   const values = visibleRows.map(input.pick)
   const maxValue = Math.max(...values, 0)
   const currentValue = input.current ? input.pick(input.current) : 0
+  const displayLabels = visibleRows.map(
+    (row) => `${row.range.shortLabel}${row.range.isCurrent ? '*' : ''}`,
+  )
   const labelWidth = Math.max(
     8,
-    Math.min(
-      28,
-      Math.max(...visibleRows.map((row) => row.range.shortLabel.length), 8),
-    ),
+    Math.min(28, Math.max(...displayLabels.map((label) => label.length), 8)),
   )
 
   return [
     `${input.label} ${input.format(currentValue)}`,
-    ...visibleRows.map((row) => {
+    ...visibleRows.map((row, index) => {
       const value = input.pick(row)
-      const tag = padRight(
-        `${row.range.shortLabel}${row.range.isCurrent ? '*' : ''}`,
-        labelWidth,
-      )
+      const tag = padRight(displayLabels[index], labelWidth)
       return `  ${tag} | ${trendBar(value, maxValue)} | ${input.format(value)}`
     }),
   ]
@@ -245,10 +263,14 @@ export function renderCliDashboard(input: {
       ...quotaRows(input.quotas),
       '',
       'TOTALS',
-      showCost
-        ? `Requests ${shortNumber(input.usage.assistantMessages)}   Tokens ${shortNumber(input.usage.total)}   Cost ${cliApiCostSummary(input.usage)}`
-        : `Requests ${shortNumber(input.usage.assistantMessages)}   Tokens ${shortNumber(input.usage.total)}`,
-      `Input ${shortNumber(input.usage.input)}   Output ${shortNumber(input.usage.output)}   Cache ${cache !== undefined ? formatPercent(cache, 1) : '-'}`,
+      ...totalsRows({
+        requests: shortNumber(input.usage.assistantMessages),
+        tokens: shortNumber(input.usage.total),
+        ...(showCost ? { cost: cliApiCostSummary(input.usage) } : {}),
+        cache: cache !== undefined ? formatPercent(cache, 1) : '-',
+        periods: `${input.usage.sessionCount}`,
+      }),
+      `Input ${shortNumber(input.usage.input)}   Output ${shortNumber(input.usage.output)}`,
       '',
       'PROVIDERS',
       ...providerRows(input.usage, showCost),
@@ -316,10 +338,14 @@ export function renderCliHistoryDashboard(input: {
       ...quotaRows(input.quotas),
       '',
       'TOTALS',
-      showCost
-        ? `Requests ${shortNumber(input.result.total.assistantMessages)}   Tokens ${shortNumber(input.result.total.total)}   Cost ${cliApiCostSummary(input.result.total)}`
-        : `Requests ${shortNumber(input.result.total.assistantMessages)}   Tokens ${shortNumber(input.result.total.total)}`,
-      `Periods ${rows.length}   Cache ${cache !== undefined ? formatPercent(cache, 1) : '-'}   Current ${current?.range.shortLabel || '-'}`,
+      ...totalsRows({
+        requests: shortNumber(input.result.total.assistantMessages),
+        tokens: shortNumber(input.result.total.total),
+        ...(showCost ? { cost: cliApiCostSummary(input.result.total) } : {}),
+        cache: cache !== undefined ? formatPercent(cache, 1) : '-',
+        periods: `${rows.length}`,
+        current: current?.range.shortLabel || '-',
+      }),
       '',
       'PROVIDERS',
       ...providerRows(input.result.total, showCost),
