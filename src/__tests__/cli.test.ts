@@ -5,6 +5,7 @@ import {
   cliBaseUrl,
   cliExitCodeForError,
   cliServerCommandCandidates,
+  cliShouldRunMain,
   parseCliArgs,
 } from '../cli.js'
 
@@ -99,5 +100,19 @@ describe('parseCliArgs', () => {
     )
     assert.equal(win[1]?.shell, true)
     assert.equal(win[2]?.command, 'bash')
+  })
+
+  it('treats symlinked bin paths as the CLI entrypoint', () => {
+    const modulePath = '/pkg/dist/cli.js'
+    const symlinkPath = '/usr/local/bin/opencode-quota'
+    const resolvePath = (value: string) =>
+      value === symlinkPath ? modulePath : value
+
+    assert.equal(cliShouldRunMain(symlinkPath, modulePath, resolvePath), true)
+    assert.equal(
+      cliShouldRunMain('/tmp/other.js', modulePath, resolvePath),
+      false,
+    )
+    assert.equal(cliShouldRunMain(undefined, modulePath, resolvePath), false)
   })
 })

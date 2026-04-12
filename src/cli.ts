@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -415,6 +416,23 @@ export function cliExitCodeForError(message: string) {
   return message === HELP_TEXT ? 0 : 1
 }
 
+function resolveCliPath(filePath: string) {
+  try {
+    return realpathSync.native(filePath)
+  } catch {
+    return path.resolve(filePath)
+  }
+}
+
+export function cliShouldRunMain(
+  argv1 = process.argv[1],
+  modulePath = fileURLToPath(import.meta.url),
+  resolvePath: (filePath: string) => string = resolveCliPath,
+) {
+  if (!argv1) return false
+  return resolvePath(modulePath) === resolvePath(argv1)
+}
+
 async function main() {
   try {
     const output = await runCli(process.argv.slice(2))
@@ -428,9 +446,6 @@ async function main() {
   }
 }
 
-if (
-  process.argv[1] &&
-  path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])
-) {
+if (cliShouldRunMain()) {
   void main()
 }
