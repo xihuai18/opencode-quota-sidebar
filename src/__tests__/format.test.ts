@@ -313,10 +313,10 @@ describe('renderSidebarTitle', () => {
     )
     const lines = title.split('\n')
     assert.equal(lines[2], 'R3 I1.5k O1.2m')
-    assert.equal(lines[3], 'CR2.5k Cd63%')
+    assert.equal(lines[3], 'Cd 63% R2.5k')
     assert.equal(lines[4], 'Est$2.34')
     assert.match(title, /R3 I1\.5k O1\.2m/)
-    assert.match(title, /CR2\.5k Cd63%/)
+    assert.match(title, /Cd 63% R2\.5k/)
     assert.match(title, /Est\$2\.34/)
   })
 
@@ -359,7 +359,7 @@ describe('renderSidebarTitle', () => {
     )
     const lines = title.split('\n')
     assert.equal(lines[2], 'R3 I1.5k O1.2m')
-    assert.equal(lines[3], 'CW300 CR2.5k Cd63%')
+    assert.equal(lines[3], 'Cd 63% W300 R2.5k')
     assert.equal(lines[4], 'Est$2.34')
   })
 
@@ -429,14 +429,48 @@ describe('renderSidebarTitle', () => {
 
     assert.equal(renderSidebarContextLine(242_000, 24, 36), '242k tok 24% ctx')
     assert.deepEqual(renderSidebarUsageLines(usage, config), [
-      'R184 I189k O53.2k',
-      'CR31.4k CW3.2k Cd14%',
+      'Req 184 In 189k Out 53.2k',
+      'Cached 14% Read 31.4k Write 3.2k',
       'Est $12.8',
     ])
     const quotaLines = renderSidebarQuotaLines(quotas, config)
     assert.equal(quotaLines.length, 2)
     assert.match(quotaLines[0] || '', /^OAI 5h80 R\d+D\d{2}h W70 R\d+D\d{2}h$/)
     assert.match(quotaLines[1] || '', /^RC D\$88\.9\/\$60 E\d+D\d{2}h B260$/)
+  })
+
+  it('falls back to compact usage tokens on narrow sidebar widths', () => {
+    const usage = makeUsage({
+      input: 189_000,
+      output: 53_200,
+      cacheRead: 31_400,
+      cacheWrite: 3_200,
+      apiCost: 12.8,
+      assistantMessages: 184,
+      cacheBuckets: {
+        readOnly: {
+          input: 189_000,
+          cacheRead: 31_400,
+          cacheWrite: 0,
+          assistantMessages: 184,
+        },
+        readWrite: {
+          input: 0,
+          cacheRead: 0,
+          cacheWrite: 3_200,
+          assistantMessages: 0,
+        },
+      },
+    })
+    const config = makeConfig(14)
+
+    assert.deepEqual(renderSidebarUsageLines(usage, config), [
+      'R184 I189k',
+      'O53.2k',
+      'Cd 14%',
+      'R31.4k W3.2k',
+      'Est $12.8',
+    ])
   })
 
   it('renders cached ratio line for mixed cache model types', () => {
@@ -464,7 +498,7 @@ describe('renderSidebarTitle', () => {
       makeConfig(60),
     )
 
-    assert.match(title, /Cd44%/)
+    assert.match(title, /Cd 44%/)
   })
 
   it('uses shorter token detail labels instead of truncating on narrow widths', () => {
@@ -513,7 +547,7 @@ describe('renderSidebarTitle', () => {
     const lines = title.split('\n')
 
     assert.ok(lines.includes('R3 I16.3k O916'))
-    assert.ok(lines.includes('CR31.4k Cd66%'))
+    assert.ok(lines.includes('Cd 66% R31.4k'))
     assert.ok(lines.includes('Est$0.12'))
     assert.ok(lines.includes('RC D$31.3/$90'))
     assert.ok(lines.some((line) => /^\s+R/.test(line)))
@@ -921,7 +955,7 @@ describe('renderSidebarTitle', () => {
       )
 
       assert.doesNotMatch(title, /OAI 5h80/)
-      assert.match(title, /Cd63%/)
+      assert.match(title, /Cd63%|Cd 63%/)
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
     }

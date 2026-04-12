@@ -489,7 +489,7 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.ok(updates.length > 0)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
       assert.match(title, /Est\$0\.02/)
       assert.equal(title.includes('\n'), false)
       assert.doesNotMatch(title, /\u001b/)
@@ -575,7 +575,7 @@ describe('plugin integration', () => {
 
       await waitFor(() => updates.length > 0)
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
       assert.doesNotMatch(title, /R1 I18\.9k O53/)
 
       await hooks.event!({
@@ -586,7 +586,7 @@ describe('plugin integration', () => {
       } as never)
       await waitFor(() => updates.length >= 1)
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -659,7 +659,7 @@ describe('plugin integration', () => {
       } as never)
 
       await waitFor(() => updates.length > 0)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
       assert.equal(title.includes('\n'), false)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -845,7 +845,7 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
       assert.doesNotMatch(title, /R1 I18\.9k O53|Est\$0\.02/)
     } finally {
       process.env.OPENCODE_CLIENT = previousClient
@@ -970,9 +970,9 @@ describe('plugin integration', () => {
 
       assert.equal(titles.s1.includes('\n'), false)
       assert.equal(titles.s2.includes('\n'), false)
-      assert.match(titles.s1, /Cd5%/)
+      assert.match(titles.s1, /Cd5%|Cd 5%/)
       assert.doesNotMatch(titles.s1, /R1 I420 O84/)
-      assert.match(titles.s2, /Cd6%/)
+      assert.match(titles.s2, /Cd6%|Cd 6%/)
       assert.doesNotMatch(titles.s2, /R1 I520 O94/)
       assert.ok(updates.some((item) => item.id === 's1'))
       assert.ok(updates.some((item) => item.id === 's2'))
@@ -1054,7 +1054,7 @@ describe('plugin integration', () => {
       await waitFor(() => updates.length > 0)
 
       assert.equal(title.includes('\n'), false)
-      assert.match(title, /Cd7%/)
+      assert.match(title, /Cd7%|Cd 7%/)
       assert.doesNotMatch(title, /Requests 1|Cache Read 1\.5k/)
       assert.doesNotMatch(title, /R1 I18\.9k O53|Est\$0\.02/)
     } finally {
@@ -1084,7 +1084,7 @@ describe('plugin integration', () => {
     const previousDataHome = process.env.OPENCODE_QUOTA_DATA_HOME
     process.env.OPENCODE_QUOTA_DATA_HOME = dataHome
     try {
-      let title = 'Echoed Session\nCd5%\nOAI unavailable'
+      let title = 'Echoed Session\nCd 5%\nOAI unavailable'
       const updates: string[] = []
 
       const msg = {
@@ -1181,7 +1181,7 @@ describe('plugin integration', () => {
 
       await delay(350)
       assert.equal(updates.length, 0)
-      assert.equal(title, 'Echoed Session\nCd5%\nOAI unavailable')
+      assert.equal(title, 'Echoed Session\nCd 5%\nOAI unavailable')
 
       await emitAssistantLifecycle(hooks, msg)
 
@@ -1189,10 +1189,10 @@ describe('plugin integration', () => {
 
       const latest = updates.at(-1) || ''
       assert.match(latest, /^Echoed Session\n\nR1 I420 O84/m)
-      assert.match(latest, /CR21/)
-      assert.match(latest, /Cd5%/)
+      assert.match(latest, /\bR21\b/)
+      assert.match(latest, /Cd 5%/)
       assert.equal((latest.match(/Echoed Session/g) || []).length, 1)
-      assert.equal((latest.match(/Cd5%/g) || []).length, 1)
+      assert.equal((latest.match(/Cd 5%/g) || []).length, 1)
       assert.doesNotMatch(latest, /OpenAI unavailable/)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
@@ -1620,7 +1620,7 @@ describe('plugin integration', () => {
 
       assert.ok(updates.length > 0)
       assert.match(title, /R1 I420 O84/)
-      assert.match(title, /Cd5%/)
+      assert.match(title, /Cd5%|Cd 5%/)
       assert.match(title, /OAI unavailable/)
       assert.doesNotMatch(title, /\u001b/)
     } finally {

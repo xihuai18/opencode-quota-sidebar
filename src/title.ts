@@ -4,6 +4,9 @@ function sanitizeTitleFragment(value: string) {
     .trimEnd()
 }
 
+const compactUsageTokenPattern =
+  '(?:R\\$?[\\d.,]+[kKmM]?|I\\$?[\\d.,]+[kKmM]?|O\\$?[\\d.,]+[kKmM]?|CR\\$?[\\d.,]+[kKmM]?|CW\\$?[\\d.,]+[kKmM]?|R(?:ead)?\\s+\\$?[\\d.,]+[kKmM]?|W(?:rite)?\\s+\\$?[\\d.,]+[kKmM]?|Cd\\s*\\d[\\d.,]*%|CC\\d[\\d.,]*%|CRC\\d[\\d.,]*%|API\\$\\S+|Est\\$\\S+)'
+
 function isCoreDecoratedDetail(line: string) {
   if (!line) return false
   // Legacy coverage/Cov/CRC/CC tokens remain recognized so old decorated titles
@@ -28,9 +31,9 @@ function isCoreDecoratedDetail(line: string) {
   if (/^API\s+\$\S+$/.test(line)) return true
   if (/^Est\$\S+$/.test(line)) return true
   if (
-    /^(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+)(?:\s+(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+))*$/.test(
-      line,
-    )
+    new RegExp(
+      `^${compactUsageTokenPattern}(?:\\s+${compactUsageTokenPattern})*$`,
+    ).test(line)
   ) {
     return true
   }
@@ -175,9 +178,9 @@ function isSingleLineDecoratedPrefix(line: string) {
   if (/^API\s+\$\S+(?:~|$)/.test(line)) return true
   if (/^Est\$\S+(?:~|$)/.test(line)) return true
   if (
-    /^(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+)(?:\s+(?:R\$?[\d.,]+[kKmM]?|I\$?[\d.,]+[kKmM]?|O\$?[\d.,]+[kKmM]?|CR\$?[\d.,]+[kKmM]?|CW\$?[\d.,]+[kKmM]?|Cd\d[\d.,]*%|CC\d[\d.,]*%|CRC\d[\d.,]*%|API\$\S+|Est\$\S+))*?(?:~|$)/.test(
-      line,
-    )
+    new RegExp(
+      `^${compactUsageTokenPattern}(?:\\s+${compactUsageTokenPattern})*?(?:~|$)`,
+    ).test(line)
   ) {
     return true
   }

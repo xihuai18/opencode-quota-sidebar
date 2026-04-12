@@ -500,15 +500,21 @@ function usageDetailLines(
     `O${numberToken(usage.output)}`,
   ])
 
-  const secondary: string[] = []
+  const secondaryGroups: string[][] = []
+  const coverageTokens: string[] = []
+  if (cacheMetrics.cachedRatio !== undefined) {
+    coverageTokens.push(`Cd ${formatPercent(cacheMetrics.cachedRatio, 0)}`)
+  }
+  if (coverageTokens.length > 0) secondaryGroups.push(coverageTokens)
+  const cacheTokens: string[] = []
   const pushCacheRead = () => {
     if (usage.cacheRead > 0) {
-      secondary.push(`CR${numberToken(usage.cacheRead)}`)
+      cacheTokens.push(`R${numberToken(usage.cacheRead)}`)
     }
   }
   const pushCacheWrite = () => {
     if (usage.cacheWrite > 0) {
-      secondary.push(`CW${numberToken(usage.cacheWrite)}`)
+      cacheTokens.push(`W${numberToken(usage.cacheWrite)}`)
     }
   }
   if (options.cacheReadFirst) {
@@ -518,10 +524,20 @@ function usageDetailLines(
     pushCacheWrite()
     pushCacheRead()
   }
-  if (cacheMetrics.cachedRatio !== undefined) {
-    secondary.push(`Cd${formatPercent(cacheMetrics.cachedRatio, 0)}`)
+  if (cacheTokens.length > 0) {
+    if (coverageTokens.length > 0) {
+      const combined = [...coverageTokens, ...cacheTokens].join(' ')
+      if (fitsLine(combined, width)) {
+        secondaryGroups.length = 0
+        secondaryGroups.push([...coverageTokens, ...cacheTokens])
+      } else {
+        secondaryGroups.push(cacheTokens)
+      }
+    } else {
+      secondaryGroups.push(cacheTokens)
+    }
   }
-  if (secondary.length > 0) groups.push(secondary)
+  groups.push(...secondaryGroups)
 
   if (options.showCost && usage.apiCost > 0) {
     groups.push([costToken(usage.apiCost)])
@@ -542,6 +558,70 @@ function usageDetailLines(
     if (current) packed.push(current)
   }
 
+  return packed
+}
+
+function packUsageGroups(groups: string[][], width: number) {
+  const packed: string[] = []
+  for (const group of groups) {
+    let current = ''
+    for (const token of group) {
+      const candidate = current ? `${current} ${token}` : token
+      if (!current || fitsLine(candidate, width)) {
+        current = candidate
+        continue
+      }
+      packed.push(current)
+      current = token
+    }
+    if (current) packed.push(current)
+  }
+  return packed
+}
+
+function readableSidebarUsageLines(
+  usage: UsageSummary,
+  cacheMetrics: ReturnType<typeof getCacheCoverageMetrics>,
+  width: number,
+  showCost: boolean,
+) {
+  const groups: string[][] = [
+    [
+      `Req ${shortNumber(usage.assistantMessages, 1)}`,
+      `In ${panelNumber(usage.input)}`,
+      `Out ${panelNumber(usage.output)}`,
+    ],
+  ]
+
+  if (cacheMetrics.cachedRatio !== undefined) {
+    const cacheTokens: string[] = [
+      `Cached ${formatPercent(cacheMetrics.cachedRatio, 0)}`,
+    ]
+    if (usage.cacheRead > 0)
+      cacheTokens.push(`Read ${panelNumber(usage.cacheRead)}`)
+    if (usage.cacheWrite > 0)
+      cacheTokens.push(`Write ${panelNumber(usage.cacheWrite)}`)
+    groups.push(cacheTokens)
+  } else {
+    const cacheTokens: string[] = []
+    if (usage.cacheRead > 0)
+      cacheTokens.push(`Cache Read ${panelNumber(usage.cacheRead)}`)
+    if (usage.cacheWrite > 0)
+      cacheTokens.push(`Write ${panelNumber(usage.cacheWrite)}`)
+    if (cacheTokens.length > 0) groups.push(cacheTokens)
+  }
+
+  const summaryTokens: string[] = []
+  if (showCost && usage.apiCost > 0) {
+    summaryTokens.push(`Est ${formatApiCostValue(usage.apiCost)}`)
+  }
+  if (summaryTokens.length > 0) groups.push(summaryTokens)
+
+  const allTokens = groups.flat()
+  if (allTokens.some((token) => !fitsLine(token, width))) return undefined
+
+  const packed = packUsageGroups(groups, width)
+  if (packed.length > 4) return undefined
   return packed
 }
 
@@ -763,9 +843,17 @@ export function renderSidebarUsageLines(
 ) {
   const width = Math.max(8, Math.floor(config.sidebar.width || 36))
   const cacheMetrics = getCacheCoverageMetrics(usage)
+  const showCost = options?.showCost ?? config.sidebar.showCost
+  const readable = readableSidebarUsageLines(
+    usage,
+    cacheMetrics,
+    width,
+    showCost,
+  )
+  if (readable) return readable.map((line) => fitLine(line, width))
   return usageDetailLines(usage, cacheMetrics, {
     width,
-    showCost: options?.showCost ?? config.sidebar.showCost,
+    showCost,
     numberToken: panelNumber,
     costToken: (value) => `Est ${formatApiCostValue(value)}`,
     cacheReadFirst: true,
