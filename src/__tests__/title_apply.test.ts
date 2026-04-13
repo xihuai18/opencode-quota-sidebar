@@ -1,10 +1,10 @@
-import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
-import { createTitleApplicator } from '../title_apply.js'
-import { defaultState, dateKeyFromTimestamp } from '../storage.js'
-import type { QuotaSidebarConfig, SessionState } from '../types.js'
-import type { UsageSummary } from '../usage.js'
+import { createTitleApplicator } from "../title_apply.js";
+import { defaultState, dateKeyFromTimestamp } from "../storage.js";
+import type { QuotaSidebarConfig, SessionState } from "../types.js";
+import type { UsageSummary } from "../usage.js";
 
 function makeConfig(): QuotaSidebarConfig {
   return {
@@ -29,7 +29,7 @@ function makeConfig(): QuotaSidebarConfig {
     },
     toast: { durationMs: 12_000 },
     retentionDays: 730,
-  }
+  };
 }
 
 function makeUsage(): UsageSummary {
@@ -45,7 +45,7 @@ function makeUsage(): UsageSummary {
     assistantMessages: 0,
     sessionCount: 1,
     providers: {},
-  }
+  };
 }
 
 function makeCompactUsage(): UsageSummary {
@@ -54,7 +54,7 @@ function makeCompactUsage(): UsageSummary {
     assistantMessages: 3,
     providers: {
       openai: {
-        providerID: 'openai',
+        providerID: "openai",
         input: 10,
         output: 20,
         reasoning: 0,
@@ -66,7 +66,7 @@ function makeCompactUsage(): UsageSummary {
         assistantMessages: 2,
       },
       anthropic: {
-        providerID: 'anthropic',
+        providerID: "anthropic",
         input: 5,
         output: 10,
         reasoning: 0,
@@ -79,74 +79,74 @@ function makeCompactUsage(): UsageSummary {
       },
     },
     recentProviders: [
-      { providerID: 'openai', completedAt: Date.now() - 1_000 },
+      { providerID: "openai", completedAt: Date.now() - 1_000 },
     ],
-  }
+  };
 }
 
-describe('title apply', () => {
-  it('skips applyTitle for inactive sessions', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+describe("title apply", () => {
+  it("skips applyTitle for inactive sessions", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's-inactive'
-    let updateCalls = 0
+    const createdAt = Date.now();
+    const sessionID = "s-inactive";
+    let updateCalls = 0;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () => {
-            throw new Error('unexpected get')
+            throw new Error("unexpected get");
           },
           update: async () => {
-            updateCalls++
-            return { data: { ok: true } }
+            updateCalls++;
+            return { data: { ok: true } };
           },
         },
       } as any,
       ensureSessionState: () => ({
         createdAt,
-        baseTitle: 'Session',
+        baseTitle: "Session",
         lastAppliedTitle: undefined,
       }),
       markDirty: () => {},
       scheduleSave: () => {},
-      renderSidebarTitle: () => 'decorated',
+      renderSidebarTitle: () => "decorated",
       getQuotaSnapshots: async () => [],
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       isSessionActive: () => false,
       restoreConcurrency: 2,
-    })
+    });
 
-    const applied = await applicator.applyTitle(sessionID)
-    assert.equal(applied, false)
-    assert.equal(updateCalls, 0)
-  })
+    const applied = await applicator.applyTitle(sessionID);
+    assert.equal(applied, false);
+    assert.equal(updateCalls, 0);
+  });
 
-  it('keeps lastAppliedTitle in sync when server normalizes decorated titles', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("keeps lastAppliedTitle in sync when server normalizes decorated titles", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
 
-    const applied = `Session\n\nInput 10  Output 20`
-    const normalized = `Session\n\nInput 10 Output 20`
+    const applied = `Session\n\nInput 10  Output 20`;
+    const normalized = `Session\n\nInput 10 Output 20`;
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
+      baseTitle: "Session",
       lastAppliedTitle: applied,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
     const ensureSessionState = (
       id: string,
@@ -154,22 +154,22 @@ describe('title apply', () => {
       created: number,
       _parentID?: string | null,
     ): SessionState => {
-      const existing = state.sessions[id]
-      if (existing) return existing
+      const existing = state.sessions[id];
+      if (existing) return existing;
       const createdState: SessionState = {
         createdAt: created,
         baseTitle: title,
         lastAppliedTitle: undefined,
-      }
-      state.sessions[id] = createdState
-      state.sessionDateMap[id] = dateKeyFromTimestamp(created)
-      return createdState
-    }
+      };
+      state.sessions[id] = createdState;
+      state.sessionDateMap[id] = dateKeyFromTimestamp(created);
+      return createdState;
+    };
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -182,7 +182,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -195,37 +195,37 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.applyTitle(sessionID)
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized)
-  })
+    await applicator.applyTitle(sessionID);
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized);
+  });
 
-  it('marks day chunk dirty when lastAppliedTitle changes but no update is needed', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("marks day chunk dirty when lastAppliedTitle changes but no update is needed", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
 
-    const applied = `Session\n\nInput 10  Output 20`
-    const normalized = `Session\n\nInput 10 Output 20`
+    const applied = `Session\n\nInput 10  Output 20`;
+    const normalized = `Session\n\nInput 10 Output 20`;
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
+      baseTitle: "Session",
       lastAppliedTitle: applied,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let dirtyKey: string | undefined
+    let dirtyKey: string | undefined;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -238,14 +238,14 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
       } as any,
       ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
       markDirty: (key) => {
-        dirtyKey = key
+        dirtyKey = key;
       },
       scheduleSave: () => {},
       renderSidebarTitle: () => normalized,
@@ -253,58 +253,58 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.applyTitle(sessionID)
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized)
-    assert.equal(dirtyKey, dateKey)
-  })
+    await applicator.applyTitle(sessionID);
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, normalized);
+    assert.equal(dirtyKey, dateKey);
+  });
 
-  it('stores all used providers in sidebar panel when title view is compact', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("stores all used providers in sidebar panel when title view is compact", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
+      baseTitle: "Session",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    const calls: string[][] = []
-    let renderedQuotaProviderIDs: string[] = []
+    const calls: string[][] = [];
+    let renderedQuotaProviderIDs: string[] = [];
 
     const quotas = [
       {
-        providerID: 'openai',
-        label: 'OpenAI',
-        status: 'ok' as const,
+        providerID: "openai",
+        label: "OpenAI",
+        status: "ok" as const,
         checkedAt: createdAt,
       },
       {
-        providerID: 'anthropic',
-        label: 'Anthropic',
-        status: 'ok' as const,
+        providerID: "anthropic",
+        label: "Anthropic",
+        status: "ok" as const,
         checkedAt: createdAt,
       },
-    ]
+    ];
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
             ({
               data: {
                 id: sessionID,
-                title: 'Session',
+                title: "Session",
                 time: { created: createdAt },
                 parentID: undefined,
               },
@@ -317,60 +317,60 @@ describe('title apply', () => {
       markDirty: () => {},
       scheduleSave: () => {},
       renderSidebarTitle: (_baseTitle, _usage, nextQuotas) => {
-        renderedQuotaProviderIDs = nextQuotas.map((quota) => quota.providerID)
-        return 'Session | Cd0%'
+        renderedQuotaProviderIDs = nextQuotas.map((quota) => quota.providerID);
+        return "Session | Cd0%";
       },
-      getTitleView: () => 'compact',
+      getTitleView: () => "compact",
       getQuotaSnapshots: async (providerIDs) => {
-        calls.push([...providerIDs])
-        return quotas.filter((quota) => providerIDs.includes(quota.providerID))
+        calls.push([...providerIDs]);
+        return quotas.filter((quota) => providerIDs.includes(quota.providerID));
       },
       summarizeSessionUsageForDisplay: async () => makeCompactUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.applyTitle(sessionID)
+    await applicator.applyTitle(sessionID);
 
-    assert.deepEqual(calls, [['openai'], ['openai', 'anthropic']])
-    assert.deepEqual(renderedQuotaProviderIDs, ['openai'])
+    assert.deepEqual(calls, [["openai"], ["openai", "anthropic"]]);
+    assert.deepEqual(renderedQuotaProviderIDs, ["openai"]);
     assert.deepEqual(
       state.sessions[sessionID].sidebarPanel?.panelQuotas?.map(
         (quota) => quota.providerID,
       ),
-      ['openai', 'anthropic'],
-    )
+      ["openai", "anthropic"],
+    );
     assert.deepEqual(
       state.sessions[sessionID].sidebarPanel?.quotas?.map(
         (quota) => quota.providerID,
       ),
-      ['openai'],
-    )
-  })
+      ["openai"],
+    );
+  });
 
-  it('accepts user titles that mention cache coverage as plain text', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("accepts user titles that mention cache coverage as plain text", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Project notes\nCache Coverage plan'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Project notes\nCache Coverage plan";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Old title',
+      baseTitle: "Old title",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let refreshSessionID: string | undefined
+    let refreshSessionID: string | undefined;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -383,7 +383,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -396,48 +396,48 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: (id) => {
-        refreshSessionID = id
+        refreshSessionID = id;
       },
-    })
+    });
 
     assert.equal(
       state.sessions[sessionID].baseTitle,
-      'Project notes\nCache Coverage plan',
-    )
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(refreshSessionID, sessionID)
-  })
+      "Project notes\nCache Coverage plan",
+    );
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(refreshSessionID, sessionID);
+  });
 
-  it('ignores untracked decorated cache coverage echoes instead of promoting them to baseTitle', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("ignores untracked decorated cache coverage echoes instead of promoting them to baseTitle", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Session\nInput 10  Output 20\nCache Coverage 60%'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Session\nInput 10  Output 20\nCache Coverage 60%";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
+      baseTitle: "Session",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let refreshCalled = false
+    let refreshCalled = false;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -450,62 +450,62 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
       } as any,
       ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
       markDirty: () => {
-        throw new Error('unexpected markDirty')
+        throw new Error("unexpected markDirty");
       },
       scheduleSave: () => {
-        throw new Error('unexpected scheduleSave')
+        throw new Error("unexpected scheduleSave");
       },
       renderSidebarTitle: () => incomingTitle,
       getQuotaSnapshots: async () => [],
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: () => {
-        refreshCalled = true
+        refreshCalled = true;
       },
-    })
+    });
 
-    assert.equal(state.sessions[sessionID].baseTitle, 'Session')
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(refreshCalled, false)
-  })
+    assert.equal(state.sessions[sessionID].baseTitle, "Session");
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(refreshCalled, false);
+  });
 
-  it('accepts user titles that contain quota-like plain text', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("accepts user titles that contain quota-like plain text", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Project rollout\nOpenAI 50% complete'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Project rollout\nOpenAI 50% complete";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Old title',
+      baseTitle: "Old title",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let refreshSessionID: string | undefined
+    let refreshSessionID: string | undefined;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -518,7 +518,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -531,49 +531,49 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: (id) => {
-        refreshSessionID = id
+        refreshSessionID = id;
       },
-    })
+    });
 
     assert.equal(
       state.sessions[sessionID].baseTitle,
-      'Project rollout\nOpenAI 50% complete',
-    )
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(refreshSessionID, sessionID)
-  })
+      "Project rollout\nOpenAI 50% complete",
+    );
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(refreshSessionID, sessionID);
+  });
 
-  it('does not replace base title with truncated single-line decorated echo', async () => {
-    const config = makeConfig()
-    config.sidebar.multilineTitle = false
-    config.sidebar.width = 20
+  it("does not replace base title with truncated single-line decorated echo", async () => {
+    const config = makeConfig();
+    config.sidebar.titleMode = "compact";
+    config.sidebar.width = 20;
 
-    const state = defaultState()
-    state.titleEnabled = true
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Greetin~ | Input 1.~'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Greetin~ | Input 1.~";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Greeting and quick check-in',
+      baseTitle: "Greeting and quick check-in",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -586,7 +586,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -599,42 +599,42 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.applyTitle(sessionID)
+    await applicator.applyTitle(sessionID);
 
     assert.equal(
       state.sessions[sessionID].baseTitle,
-      'Greeting and quick check-in',
-    )
-  })
+      "Greeting and quick check-in",
+    );
+  });
 
-  it('keeps natural pipe-delimited titles intact in single-line mode', async () => {
-    const config = makeConfig()
-    config.sidebar.multilineTitle = false
-    config.sidebar.width = 24
+  it("keeps natural pipe-delimited titles intact in single-line mode", async () => {
+    const config = makeConfig();
+    config.sidebar.titleMode = "compact";
+    config.sidebar.width = 24;
 
-    const state = defaultState()
-    state.titleEnabled = true
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Notes | OpenAI migration plan'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Notes | OpenAI migration plan";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Old title',
+      baseTitle: "Old title",
       lastAppliedTitle: undefined,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let refreshSessionID: string | undefined
+    let refreshSessionID: string | undefined;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -647,7 +647,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -660,55 +660,55 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: (id) => {
-        refreshSessionID = id
+        refreshSessionID = id;
       },
-    })
+    });
 
-    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle)
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(refreshSessionID, sessionID)
-  })
+    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle);
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(refreshSessionID, sessionID);
+  });
 
-  it('keeps lastAppliedTitle when restoreSessionTitle update fails', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("keeps lastAppliedTitle when restoreSessionTitle update fails", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
-      lastAppliedTitle: 'Session\nInput 10  Output 20',
-    }
-    state.sessionDateMap[sessionID] = dateKey
+      baseTitle: "Session",
+      lastAppliedTitle: "Session\nInput 10  Output 20",
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
             ({
               data: {
                 id: sessionID,
-                title: 'Session\nInput 10  Output 20',
+                title: "Session\nInput 10  Output 20",
                 time: { created: createdAt },
                 parentID: undefined,
               },
             }) as any,
           update: async () => {
-            throw new Error('boom')
+            throw new Error("boom");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -716,43 +716,43 @@ describe('title apply', () => {
       ensureSessionState: (_id, _title, _created) => state.sessions[sessionID],
       markDirty: () => {},
       scheduleSave: () => {},
-      renderSidebarTitle: () => 'ignored',
+      renderSidebarTitle: () => "ignored",
       getQuotaSnapshots: async () => [],
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.restoreSessionTitle(sessionID)
+    await applicator.restoreSessionTitle(sessionID);
     assert.equal(
       state.sessions[sessionID].lastAppliedTitle,
-      'Session\nInput 10  Output 20',
-    )
-  })
+      "Session\nInput 10  Output 20",
+    );
+  });
 
-  it('accepts a manual cost-related rename even when lastAppliedTitle exists', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("accepts a manual cost-related rename even when lastAppliedTitle exists", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const incomingTitle = 'Budget\n$1.23 as API cost target'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const incomingTitle = "Budget\n$1.23 as API cost target";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Old title',
-      lastAppliedTitle: 'Old title\nInput 10  Output 20',
-    }
-    state.sessionDateMap[sessionID] = dateKey
+      baseTitle: "Old title",
+      lastAppliedTitle: "Old title\nInput 10  Output 20",
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let refreshSessionID: string | undefined
+    let refreshSessionID: string | undefined;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -765,7 +765,7 @@ describe('title apply', () => {
               },
             }) as any,
           update: async () => {
-            throw new Error('unexpected session.update')
+            throw new Error("unexpected session.update");
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -778,45 +778,45 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: (id) => {
-        refreshSessionID = id
+        refreshSessionID = id;
       },
-    })
+    });
 
-    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle)
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(refreshSessionID, sessionID)
-  })
+    assert.equal(state.sessions[sessionID].baseTitle, incomingTitle);
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(refreshSessionID, sessionID);
+  });
 
-  it('ignores delayed decorated echo after restore even if titles are re-enabled', async () => {
-    const config = makeConfig()
-    const state = defaultState()
-    state.titleEnabled = true
+  it("ignores delayed decorated echo after restore even if titles are re-enabled", async () => {
+    const config = makeConfig();
+    const state = defaultState();
+    state.titleEnabled = true;
 
-    const createdAt = Date.now()
-    const sessionID = 's1'
-    const dateKey = dateKeyFromTimestamp(createdAt)
-    const decorated = 'Session\nInput 10  Output 20'
+    const createdAt = Date.now();
+    const sessionID = "s1";
+    const dateKey = dateKeyFromTimestamp(createdAt);
+    const decorated = "Session\nInput 10  Output 20";
 
     state.sessions[sessionID] = {
       createdAt,
-      baseTitle: 'Session',
+      baseTitle: "Session",
       lastAppliedTitle: decorated,
-    }
-    state.sessionDateMap[sessionID] = dateKey
+    };
+    state.sessionDateMap[sessionID] = dateKey;
 
-    let currentTitle = decorated
+    let currentTitle = decorated;
 
     const applicator = createTitleApplicator({
       state,
       config,
-      directory: '/tmp',
+      directory: "/tmp",
       client: {
         session: {
           get: async () =>
@@ -829,8 +829,8 @@ describe('title apply', () => {
               },
             }) as any,
           update: async (args: any) => {
-            currentTitle = args.body.title
-            return { data: { ok: true } }
+            currentTitle = args.body.title;
+            return { data: { ok: true } };
           },
           list: async () => ({ data: [] }) as any,
         },
@@ -843,23 +843,23 @@ describe('title apply', () => {
       summarizeSessionUsageForDisplay: async () => makeUsage(),
       scheduleParentRefreshIfSafe: () => {},
       restoreConcurrency: 1,
-    })
+    });
 
-    await applicator.restoreSessionTitle(sessionID)
-    state.titleEnabled = true
+    await applicator.restoreSessionTitle(sessionID);
+    state.titleEnabled = true;
 
-    let scheduled = false
+    let scheduled = false;
     await applicator.handleSessionUpdatedTitle({
       sessionID,
       incomingTitle: decorated,
       sessionState: state.sessions[sessionID],
       scheduleRefresh: () => {
-        scheduled = true
+        scheduled = true;
       },
-    })
+    });
 
-    assert.equal(state.sessions[sessionID].baseTitle, 'Session')
-    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined)
-    assert.equal(scheduled, false)
-  })
-})
+    assert.equal(state.sessions[sessionID].baseTitle, "Session");
+    assert.equal(state.sessions[sessionID].lastAppliedTitle, undefined);
+    assert.equal(scheduled, false);
+  });
+});

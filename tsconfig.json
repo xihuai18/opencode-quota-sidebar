@@ -9,6 +9,7 @@
     "declaration": true,
     "rootDir": "src",
     "outDir": "dist",
+    "types": ["node"],
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

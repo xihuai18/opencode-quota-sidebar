@@ -1,7 +1,7 @@
-import os from 'node:os'
-import path from 'node:path'
+import os from "node:os";
+import path from "node:path";
 
-import { isDateKey } from './storage_dates.js'
+import { isDateKey } from "./storage_dates.js";
 
 /**
  * Resolve the OpenCode data directory.
@@ -14,13 +14,13 @@ import { isDateKey } from './storage_dates.js'
  * OPENCODE_QUOTA_DATA_HOME overrides the full data directory path.
  */
 export function resolveOpencodeDataDir() {
-  const override = process.env.OPENCODE_QUOTA_DATA_HOME?.trim()
-  if (override) return path.resolve(override)
+  const override = process.env.OPENCODE_QUOTA_DATA_HOME?.trim();
+  if (override) return path.resolve(override);
 
-  const xdg = process.env.XDG_DATA_HOME?.trim()
-  if (xdg) return path.join(path.resolve(xdg), 'opencode')
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  if (xdg) return path.join(path.resolve(xdg), "opencode");
 
-  return path.join(os.homedir(), '.local', 'share', 'opencode')
+  return path.join(os.homedir(), ".local", "share", "opencode");
 }
 
 /**
@@ -29,32 +29,48 @@ export function resolveOpencodeDataDir() {
  * Uses XDG config conventions with optional plugin-scoped override.
  */
 export function resolveOpencodeConfigDir() {
-  const override = process.env.OPENCODE_QUOTA_CONFIG_HOME?.trim()
-  if (override) return path.resolve(override)
+  const override = process.env.OPENCODE_QUOTA_CONFIG_HOME?.trim();
+  if (override) return path.resolve(override);
 
-  const xdg = process.env.XDG_CONFIG_HOME?.trim()
-  if (xdg) return path.join(path.resolve(xdg), 'opencode')
+  const xdg = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdg) return path.join(path.resolve(xdg), "opencode");
 
-  return path.join(os.homedir(), '.config', 'opencode')
+  return path.join(os.homedir(), ".config", "opencode");
+}
+
+export function opencodeConfigPaths(worktree: string, directory: string) {
+  const configDir = resolveOpencodeConfigDir();
+  return [
+    path.join(configDir, "opencode.jsonc"),
+    path.join(configDir, "opencode.json"),
+    path.join(worktree, "opencode.jsonc"),
+    path.join(worktree, "opencode.json"),
+    path.join(directory, "opencode.jsonc"),
+    path.join(directory, "opencode.json"),
+    path.join(worktree, ".opencode", "opencode.jsonc"),
+    path.join(worktree, ".opencode", "opencode.json"),
+    path.join(directory, ".opencode", "opencode.jsonc"),
+    path.join(directory, ".opencode", "opencode.json"),
+  ];
 }
 
 export function stateFilePath(dataDir: string) {
-  return path.join(dataDir, 'quota-sidebar.state.json')
+  return path.join(dataDir, "quota-sidebar.state.json");
 }
 
 export function authFilePath(dataDir: string) {
-  return path.join(dataDir, 'auth.json')
+  return path.join(dataDir, "auth.json");
 }
 
 export function chunkRootPathFromStateFile(statePath: string) {
-  return path.join(path.dirname(statePath), 'quota-sidebar-sessions')
+  return path.join(path.dirname(statePath), "quota-sidebar-sessions");
 }
 
 export function chunkFilePath(rootPath: string, dateKey: string) {
   // Defense-in-depth: ensure we never build paths from untrusted inputs.
   if (!isDateKey(dateKey)) {
-    throw new Error(`invalid dateKey: ${dateKey}`)
+    throw new Error(`invalid dateKey: ${dateKey}`);
   }
-  const [year, month, day] = dateKey.split('-')
-  return path.join(rootPath, year, month, `${day}.json`)
+  const [year, month, day] = dateKey.split("-");
+  return path.join(rootPath, year, month, `${day}.json`);
 }

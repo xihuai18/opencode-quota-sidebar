@@ -1,5 +1,5 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import {
   asBoolean,
@@ -8,35 +8,35 @@ import {
   isRecord,
   mapConcurrent,
   swallow,
-} from './helpers.js'
+} from "./helpers.js";
 import {
   discoverChunks,
   readDayChunk,
   safeWriteFile,
   writeDayChunk,
-} from './storage_chunks.js'
+} from "./storage_chunks.js";
 import {
   dateKeyFromTimestamp,
   dateKeysInRange,
   dateStartFromKey,
   isDateKey,
   normalizeTimestampMs,
-} from './storage_dates.js'
-import { parseQuotaCache } from './storage_parse.js'
+} from "./storage_dates.js";
+import { parseQuotaCache } from "./storage_parse.js";
 import {
   authFilePath,
   chunkRootPathFromStateFile,
   resolveOpencodeConfigDir,
   resolveOpencodeDataDir,
   stateFilePath,
-} from './storage_paths.js'
+} from "./storage_paths.js";
 import type {
   CachedSessionUsage,
   IncrementalCursor,
   QuotaSidebarConfig,
   QuotaSidebarState,
   SessionState,
-} from './types.js'
+} from "./types.js";
 
 export {
   authFilePath,
@@ -45,19 +45,19 @@ export {
   resolveOpencodeConfigDir,
   resolveOpencodeDataDir,
   stateFilePath,
-}
+};
 
 export function quotaConfigPaths(worktree: string, directory: string) {
-  const configDir = resolveOpencodeConfigDir()
-  const configOverride = process.env.OPENCODE_QUOTA_CONFIG?.trim()
+  const configDir = resolveOpencodeConfigDir();
+  const configOverride = process.env.OPENCODE_QUOTA_CONFIG?.trim();
   return [
-    path.join(configDir, 'quota-sidebar.config.json'),
-    path.join(worktree, 'quota-sidebar.config.json'),
-    path.join(directory, 'quota-sidebar.config.json'),
-    path.join(worktree, '.opencode', 'quota-sidebar.config.json'),
-    path.join(directory, '.opencode', 'quota-sidebar.config.json'),
+    path.join(configDir, "quota-sidebar.config.json"),
+    path.join(worktree, "quota-sidebar.config.json"),
+    path.join(directory, "quota-sidebar.config.json"),
+    path.join(worktree, ".opencode", "quota-sidebar.config.json"),
+    path.join(directory, ".opencode", "quota-sidebar.config.json"),
     ...(configOverride ? [path.resolve(configOverride)] : []),
-  ]
+  ];
 }
 
 // ─── Default config ──────────────────────────────────────────────────────────
@@ -66,8 +66,7 @@ export const defaultConfig: QuotaSidebarConfig = {
   sidebar: {
     enabled: true,
     width: 36,
-    titleMode: 'auto',
-    multilineTitle: true,
+    titleMode: "auto",
     showCost: true,
     showQuota: true,
     wrapQuotaLines: true,
@@ -93,7 +92,7 @@ export const defaultConfig: QuotaSidebarConfig = {
     durationMs: 12_000,
   },
   retentionDays: 730,
-}
+};
 
 export function defaultState(): QuotaSidebarState {
   return {
@@ -103,7 +102,7 @@ export function defaultState(): QuotaSidebarState {
     sessions: {},
     deletedSessionDateMap: {},
     quotaCache: {},
-  }
+  };
 }
 
 // ─── Config loading ──────────────────────────────────────────────────────────
@@ -113,26 +112,26 @@ export async function loadConfig(paths: string[]) {
     base: QuotaSidebarConfig,
     parsed: Record<string, unknown>,
   ): QuotaSidebarConfig => {
-    const sidebar = isRecord(parsed.sidebar) ? parsed.sidebar : {}
-    const quota = isRecord(parsed.quota) ? parsed.quota : {}
-    const toast = isRecord(parsed.toast) ? parsed.toast : {}
-    const providers = isRecord(quota.providers) ? quota.providers : {}
+    const sidebar = isRecord(parsed.sidebar) ? parsed.sidebar : {};
+    const quota = isRecord(parsed.quota) ? parsed.quota : {};
+    const toast = isRecord(parsed.toast) ? parsed.toast : {};
+    const providers = isRecord(quota.providers) ? quota.providers : {};
 
     const mergedProviders = {
       ...base.quota.providers,
       ...Object.entries(providers).reduce<
         Record<string, { enabled?: boolean; [key: string]: unknown }>
       >((acc, [id, value]) => {
-        if (!isRecord(value)) return acc
+        if (!isRecord(value)) return acc;
         const baseProvider = isRecord(base.quota.providers?.[id])
           ? (base.quota.providers?.[id] as Record<string, unknown>)
-          : {}
+          : {};
         const baseLogin = isRecord(baseProvider.login)
           ? (baseProvider.login as Record<string, unknown>)
-          : undefined
+          : undefined;
         const nextLogin = isRecord(value.login)
           ? (value.login as Record<string, unknown>)
-          : undefined
+          : undefined;
         acc[id] = {
           ...baseProvider,
           ...value,
@@ -144,10 +143,10 @@ export async function loadConfig(paths: string[]) {
                 },
               }
             : {}),
-        }
-        return acc
+        };
+        return acc;
       }, {}),
-    }
+    };
 
     return {
       sidebar: {
@@ -157,15 +156,11 @@ export async function loadConfig(paths: string[]) {
           Math.min(60, asNumber(sidebar.width, base.sidebar.width)),
         ),
         titleMode:
-          sidebar.titleMode === 'compact' ||
-          sidebar.titleMode === 'multiline' ||
-          sidebar.titleMode === 'auto'
+          sidebar.titleMode === "compact" ||
+          sidebar.titleMode === "multiline" ||
+          sidebar.titleMode === "auto"
             ? sidebar.titleMode
-            : (base.sidebar.titleMode ?? 'auto'),
-        multilineTitle: asBoolean(
-          sidebar.multilineTitle,
-          base.sidebar.multilineTitle ?? true,
-        ),
+            : (base.sidebar.titleMode ?? "auto"),
         showCost: asBoolean(sidebar.showCost, base.sidebar.showCost),
         showQuota: asBoolean(sidebar.showQuota, base.sidebar.showQuota),
         wrapQuotaLines: asBoolean(
@@ -274,31 +269,32 @@ export async function loadConfig(paths: string[]) {
         1,
         asNumber(parsed.retentionDays, base.retentionDays),
       ),
-    }
-  }
+    };
+  };
 
-  const seen = new Set<string>()
-  let config = defaultConfig
+  const seen = new Set<string>();
+  let config = defaultConfig;
 
   for (const originalPath of paths) {
-    const filePath = path.resolve(originalPath)
-    const key = process.platform === 'win32' ? filePath.toLowerCase() : filePath
-    if (seen.has(key)) continue
-    seen.add(key)
+    const filePath = path.resolve(originalPath);
+    const key =
+      process.platform === "win32" ? filePath.toLowerCase() : filePath;
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-    const stat = await fs.stat(filePath).catch(swallow('loadConfig:stat'))
-    if (!stat || !stat.isFile()) continue
+    const stat = await fs.stat(filePath).catch(swallow("loadConfig:stat"));
+    if (!stat || !stat.isFile()) continue;
 
     const parsed = await fs
-      .readFile(filePath, 'utf8')
+      .readFile(filePath, "utf8")
       .then((value) => JSON.parse(value) as unknown)
-      .catch(swallow('loadConfig:read'))
+      .catch(swallow("loadConfig:read"));
 
-    if (!isRecord(parsed)) continue
-    config = mergeLayer(config, parsed)
+    if (!isRecord(parsed)) continue;
+    config = mergeLayer(config, parsed);
   }
 
-  return config
+  return config;
 }
 
 // ─── State loading ───────────────────────────────────────────────────────────
@@ -308,43 +304,43 @@ async function loadVersion2State(
   raw: Record<string, unknown>,
   statePath: string,
 ) {
-  const titleEnabled = asBoolean(raw.titleEnabled, true)
-  const quotaCache = parseQuotaCache(raw.quotaCache)
-  const rootPath = chunkRootPathFromStateFile(statePath)
+  const titleEnabled = asBoolean(raw.titleEnabled, true);
+  const quotaCache = parseQuotaCache(raw.quotaCache);
+  const rootPath = chunkRootPathFromStateFile(statePath);
 
   const hasSessionDateMap = Object.prototype.hasOwnProperty.call(
     raw,
-    'sessionDateMap',
-  )
+    "sessionDateMap",
+  );
 
   const sessionDateMapRaw = isRecord(raw.sessionDateMap)
     ? raw.sessionDateMap
-    : {}
+    : {};
   const sessionDateMap = Object.entries(sessionDateMapRaw).reduce<
     Record<string, string>
   >((acc, [sessionID, value]) => {
-    if (typeof value !== 'string') return acc
-    if (!isDateKey(value)) return acc
-    acc[sessionID] = value
-    return acc
-  }, {})
+    if (typeof value !== "string") return acc;
+    if (!isDateKey(value)) return acc;
+    acc[sessionID] = value;
+    return acc;
+  }, {});
 
   const deletedSessionDateMapRaw = isRecord(raw.deletedSessionDateMap)
     ? raw.deletedSessionDateMap
-    : {}
+    : {};
   const deletedSessionDateMap = Object.entries(deletedSessionDateMapRaw).reduce<
     Record<string, string>
   >((acc, [sessionID, value]) => {
-    if (typeof value !== 'string') return acc
-    if (!isDateKey(value)) return acc
-    acc[sessionID] = value
-    return acc
-  }, {})
+    if (typeof value !== "string") return acc;
+    if (!isDateKey(value)) return acc;
+    acc[sessionID] = value;
+    return acc;
+  }, {});
 
   const hadRawSessionDateMapEntries =
-    isRecord(raw.sessionDateMap) && Object.keys(raw.sessionDateMap).length > 0
+    isRecord(raw.sessionDateMap) && Object.keys(raw.sessionDateMap).length > 0;
 
-  const explicitDateKeys = Array.from(new Set(Object.values(sessionDateMap)))
+  const explicitDateKeys = Array.from(new Set(Object.values(sessionDateMap)));
   // Only discover chunks when sessionDateMap is missing from state.
   // If sessionDateMap exists (even empty), treat it as authoritative so we
   // don't repeatedly load and evict historical sessions from disk.
@@ -354,24 +350,24 @@ async function loadVersion2State(
       hadRawSessionDateMapEntries &&
       explicitDateKeys.length === 0)
       ? await discoverChunks(rootPath)
-      : []
+      : [];
   const dateKeys: string[] = explicitDateKeys.length
     ? explicitDateKeys
-    : discoveredDateKeys
+    : discoveredDateKeys;
 
-  const LOAD_CHUNKS_CONCURRENCY = 5
+  const LOAD_CHUNKS_CONCURRENCY = 5;
   const chunks: Array<readonly [string, Record<string, SessionState>]> =
     await mapConcurrent(dateKeys, LOAD_CHUNKS_CONCURRENCY, async (dateKey) => {
-      const sessions = await readDayChunk(rootPath, dateKey)
-      return [dateKey, sessions] as const
-    })
+      const sessions = await readDayChunk(rootPath, dateKey);
+      return [dateKey, sessions] as const;
+    });
 
-  const sessions: Record<string, SessionState> = {}
+  const sessions: Record<string, SessionState> = {};
   for (const [dateKey, chunkSessions] of chunks) {
     for (const [sessionID, session] of Object.entries(chunkSessions)) {
-      if (deletedSessionDateMap[sessionID]) continue
-      sessions[sessionID] = session
-      if (!sessionDateMap[sessionID]) sessionDateMap[sessionID] = dateKey
+      if (deletedSessionDateMap[sessionID]) continue;
+      sessions[sessionID] = session;
+      if (!sessionDateMap[sessionID]) sessionDateMap[sessionID] = dateKey;
     }
   }
 
@@ -382,53 +378,53 @@ async function loadVersion2State(
     sessions,
     deletedSessionDateMap,
     quotaCache,
-  }
+  };
 }
 
 export async function loadState(statePath: string) {
   const raw = await fs
-    .readFile(statePath, 'utf8')
+    .readFile(statePath, "utf8")
     .then((value) => JSON.parse(value) as unknown)
-    .catch(swallow('loadState'))
-  if (!isRecord(raw)) return defaultState()
+    .catch(swallow("loadState"));
+  if (!isRecord(raw)) return defaultState();
 
-  if (raw.version === 2) return loadVersion2State(raw, statePath)
+  if (raw.version === 2) return loadVersion2State(raw, statePath);
 
-  return defaultState()
+  return defaultState();
 }
 
 // ─── State saving ────────────────────────────────────────────────────────────
 
-const MAX_QUOTA_CACHE_AGE_MS = 24 * 60 * 60 * 1000
+const MAX_QUOTA_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 
-const dayChunkWriteLocks = new Map<string, Promise<void>>()
+const dayChunkWriteLocks = new Map<string, Promise<void>>();
 
 async function withDayChunkWriteLock<T>(
   dateKey: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const previous = dayChunkWriteLocks.get(dateKey) || Promise.resolve()
-  const run = previous.then(() => fn())
+  const previous = dayChunkWriteLocks.get(dateKey) || Promise.resolve();
+  const run = previous.then(() => fn());
   const release = run.then(
     () => undefined,
     () => undefined,
-  )
-  dayChunkWriteLocks.set(dateKey, release)
+  );
+  dayChunkWriteLocks.set(dateKey, release);
 
   try {
-    return await run
+    return await run;
   } finally {
     if (dayChunkWriteLocks.get(dateKey) === release) {
-      dayChunkWriteLocks.delete(dateKey)
+      dayChunkWriteLocks.delete(dateKey);
     }
   }
 }
 
 function pruneState(state: QuotaSidebarState) {
-  const now = Date.now()
+  const now = Date.now();
   for (const [key, value] of Object.entries(state.quotaCache)) {
     if (now - value.checkedAt > MAX_QUOTA_CACHE_AGE_MS) {
-      delete state.quotaCache[key]
+      delete state.quotaCache[key];
     }
   }
 }
@@ -444,44 +440,44 @@ export async function saveState(
   state: QuotaSidebarState,
   options?: { dirtyDateKeys?: string[]; writeAll?: boolean },
 ) {
-  pruneState(state)
+  pruneState(state);
 
-  const rootPath = chunkRootPathFromStateFile(statePath)
-  const writeAll = options?.writeAll === true
+  const rootPath = chunkRootPathFromStateFile(statePath);
+  const writeAll = options?.writeAll === true;
 
   // H1 fix: if no dirty keys and not writeAll, only write the state file (no chunks)
   const dirtySet = writeAll
     ? undefined
-    : new Set((options?.dirtyDateKeys ?? []).filter((key) => isDateKey(key)))
+    : new Set((options?.dirtyDateKeys ?? []).filter((key) => isDateKey(key)));
 
-  const skipChunks = !writeAll && (!dirtySet || dirtySet.size === 0)
+  const skipChunks = !writeAll && (!dirtySet || dirtySet.size === 0);
 
   // M11 fix: only build sessionsByDate for dirty keys (or all if writeAll)
-  const sessionsByDate: Record<string, Record<string, SessionState>> = {}
+  const sessionsByDate: Record<string, Record<string, SessionState>> = {};
 
   if (!skipChunks) {
     for (const [sessionID, session] of Object.entries(state.sessions)) {
       const normalizedCreatedAt =
         Number.isFinite(session.createdAt) && session.createdAt > 0
           ? session.createdAt
-          : Date.now()
-      session.createdAt = normalizedCreatedAt
+          : Date.now();
+      session.createdAt = normalizedCreatedAt;
 
       const dateKey = isDateKey(state.sessionDateMap[sessionID])
         ? state.sessionDateMap[sessionID]
-        : dateKeyFromTimestamp(normalizedCreatedAt)
-      state.sessionDateMap[sessionID] = dateKey
+        : dateKeyFromTimestamp(normalizedCreatedAt);
+      state.sessionDateMap[sessionID] = dateKey;
 
       // M11: skip sessions not in dirty set
-      if (!writeAll && dirtySet && !dirtySet.has(dateKey)) continue
+      if (!writeAll && dirtySet && !dirtySet.has(dateKey)) continue;
 
-      const dateBucket = sessionsByDate[dateKey] || {}
-      dateBucket[sessionID] = session
-      sessionsByDate[dateKey] = dateBucket
+      const dateBucket = sessionsByDate[dateKey] || {};
+      dateBucket[sessionID] = session;
+      sessionsByDate[dateKey] = dateBucket;
     }
   }
 
-  await fs.mkdir(path.dirname(statePath), { recursive: true })
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
 
   if (!skipChunks) {
     const keysToWrite = writeAll
@@ -491,36 +487,36 @@ export async function saveState(
             ...Object.values(state.deletedSessionDateMap),
           ]),
         )
-      : Array.from(dirtySet ?? [])
+      : Array.from(dirtySet ?? []);
 
     await Promise.all(
       keysToWrite
         .map((dateKey) => {
           return withDayChunkWriteLock(dateKey, async () => {
-            const memorySessions = sessionsByDate[dateKey] || {}
+            const memorySessions = sessionsByDate[dateKey] || {};
             const tombstonedIDs = Object.entries(state.deletedSessionDateMap)
               .filter(([, tombstoneDateKey]) => tombstoneDateKey === dateKey)
-              .map(([sessionID]) => sessionID)
+              .map(([sessionID]) => sessionID);
             const next = writeAll
               ? memorySessions
               : {
                   ...(await readDayChunk(rootPath, dateKey)),
                   ...memorySessions,
-                }
+                };
 
             for (const sessionID of tombstonedIDs) {
-              delete next[sessionID]
+              delete next[sessionID];
             }
 
-            await writeDayChunk(rootPath, dateKey, next)
+            await writeDayChunk(rootPath, dateKey, next);
 
             for (const sessionID of tombstonedIDs) {
-              delete state.deletedSessionDateMap[sessionID]
+              delete state.deletedSessionDateMap[sessionID];
             }
-          })
+          });
         })
         .filter((promise): promise is Promise<void> => Boolean(promise)),
-    )
+    );
   }
 
   // M4: atomic state file write
@@ -537,7 +533,7 @@ export async function saveState(
       null,
       2,
     )}\n`,
-  )
+  );
 }
 
 // ─── Eviction (M2) ──────────────────────────────────────────────────────────
@@ -550,19 +546,19 @@ export function evictOldSessions(
   state: QuotaSidebarState,
   retentionDays: number,
 ) {
-  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
-  let evicted = 0
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  let evicted = 0;
   for (const [sessionID, session] of Object.entries(state.sessions)) {
     if (session.createdAt < cutoff) {
-      delete state.sessions[sessionID]
-      delete state.sessionDateMap[sessionID]
-      evicted++
+      delete state.sessions[sessionID];
+      delete state.sessionDateMap[sessionID];
+      evicted++;
     }
   }
   if (evicted > 0) {
-    debug(`evicted ${evicted} sessions older than ${retentionDays} days`)
+    debug(`evicted ${evicted} sessions older than ${retentionDays} days`);
   }
-  return evicted
+  return evicted;
 }
 
 // ─── Range scan (M9 fix: prefer memory, fall back to disk) ──────────────────
@@ -578,136 +574,136 @@ export async function scanSessionsByCreatedRange(
   memoryState?: QuotaSidebarState,
   retentionDays = 730,
 ) {
-  const rootPath = chunkRootPathFromStateFile(statePath)
+  const rootPath = chunkRootPathFromStateFile(statePath);
   const deletedSessionIDs = new Set(
     Object.keys(memoryState?.deletedSessionDateMap || {}),
-  )
-  const dateKeys = dateKeysInRange(startAt, endAt, retentionDays + 1)
+  );
+  const dateKeys = dateKeysInRange(startAt, endAt, retentionDays + 1);
   if (!dateKeys.length) {
     return [] as Array<{
-      sessionID: string
-      dateKey: string
-      state: SessionState
-    }>
+      sessionID: string;
+      dateKey: string;
+      state: SessionState;
+    }>;
   }
 
   type SessionEntry = {
-    sessionID: string
-    dateKey: string
-    state: SessionState
-  }
-  const results: SessionEntry[] = []
-  const seenSessionIDs = new Set<string>()
+    sessionID: string;
+    dateKey: string;
+    state: SessionState;
+  };
+  const results: SessionEntry[] = [];
+  const seenSessionIDs = new Set<string>();
 
   // First pass: collect from memory
   if (memoryState) {
-    const dateKeySet = new Set(dateKeys)
+    const dateKeySet = new Set(dateKeys);
     for (const [sessionID, session] of Object.entries(memoryState.sessions)) {
-      if (deletedSessionIDs.has(sessionID)) continue
-      const dk = memoryState.sessionDateMap[sessionID]
-      if (!dk || !dateKeySet.has(dk)) continue
+      if (deletedSessionIDs.has(sessionID)) continue;
+      const dk = memoryState.sessionDateMap[sessionID];
+      if (!dk || !dateKeySet.has(dk)) continue;
       const createdAt =
         Number.isFinite(session.createdAt) && session.createdAt > 0
           ? session.createdAt
-          : dateStartFromKey(dk)
+          : dateStartFromKey(dk);
       if (createdAt >= startAt && createdAt <= endAt) {
-        results.push({ sessionID, dateKey: dk, state: session })
-        seenSessionIDs.add(sessionID)
+        results.push({ sessionID, dateKey: dk, state: session });
+        seenSessionIDs.add(sessionID);
       }
     }
   }
 
   // Second pass: read disk chunks for all date keys in range, then de-dupe by sessionID.
   // A date can have a mix of in-memory and disk-only sessions.
-  const diskDateKeys = [...dateKeys]
+  const diskDateKeys = [...dateKeys];
 
   if (diskDateKeys.length > 0) {
-    const RANGE_SCAN_CONCURRENCY = 5
+    const RANGE_SCAN_CONCURRENCY = 5;
     const chunkEntries = await mapConcurrent(
       diskDateKeys,
       RANGE_SCAN_CONCURRENCY,
       async (dateKey) => {
-        const sessions = await readDayChunk(rootPath, dateKey)
+        const sessions = await readDayChunk(rootPath, dateKey);
         return Object.entries(sessions).map(([sessionID, state]) => ({
           sessionID,
           dateKey,
           state,
-        }))
+        }));
       },
-    )
+    );
 
     for (const entry of chunkEntries.flat()) {
-      if (seenSessionIDs.has(entry.sessionID)) continue
-      if (deletedSessionIDs.has(entry.sessionID)) continue
+      if (seenSessionIDs.has(entry.sessionID)) continue;
+      if (deletedSessionIDs.has(entry.sessionID)) continue;
       const createdAt =
         Number.isFinite(entry.state.createdAt) && entry.state.createdAt > 0
           ? entry.state.createdAt
-          : dateStartFromKey(entry.dateKey)
+          : dateStartFromKey(entry.dateKey);
       if (createdAt >= startAt && createdAt <= endAt) {
-        results.push(entry)
-        seenSessionIDs.add(entry.sessionID)
+        results.push(entry);
+        seenSessionIDs.add(entry.sessionID);
       }
     }
   }
 
-  return results
+  return results;
 }
 
 export async function scanAllSessions(
   statePath: string,
   memoryState?: QuotaSidebarState,
 ) {
-  const rootPath = chunkRootPathFromStateFile(statePath)
+  const rootPath = chunkRootPathFromStateFile(statePath);
   const deletedSessionIDs = new Set(
     Object.keys(memoryState?.deletedSessionDateMap || {}),
-  )
+  );
   type SessionEntry = {
-    sessionID: string
-    dateKey: string
-    state: SessionState
-  }
+    sessionID: string;
+    dateKey: string;
+    state: SessionState;
+  };
 
-  const results: SessionEntry[] = []
-  const seenSessionIDs = new Set<string>()
+  const results: SessionEntry[] = [];
+  const seenSessionIDs = new Set<string>();
 
   if (memoryState) {
     for (const [sessionID, sessionState] of Object.entries(
       memoryState.sessions,
     )) {
-      if (deletedSessionIDs.has(sessionID)) continue
+      if (deletedSessionIDs.has(sessionID)) continue;
       const dateKey =
         memoryState.sessionDateMap[sessionID] ||
-        dateKeyFromTimestamp(sessionState.createdAt)
-      results.push({ sessionID, dateKey, state: sessionState })
-      seenSessionIDs.add(sessionID)
+        dateKeyFromTimestamp(sessionState.createdAt);
+      results.push({ sessionID, dateKey, state: sessionState });
+      seenSessionIDs.add(sessionID);
     }
   }
 
-  const dateKeys = await discoverChunks(rootPath)
-  if (dateKeys.length === 0) return results
+  const dateKeys = await discoverChunks(rootPath);
+  if (dateKeys.length === 0) return results;
 
-  const RANGE_SCAN_CONCURRENCY = 5
+  const RANGE_SCAN_CONCURRENCY = 5;
   const chunkEntries = await mapConcurrent(
     dateKeys,
     RANGE_SCAN_CONCURRENCY,
     async (dateKey) => {
-      const sessions = await readDayChunk(rootPath, dateKey)
+      const sessions = await readDayChunk(rootPath, dateKey);
       return Object.entries(sessions).map(([sessionID, state]) => ({
         sessionID,
         dateKey,
         state,
-      }))
+      }));
     },
-  )
+  );
 
   for (const entry of chunkEntries.flat()) {
-    if (seenSessionIDs.has(entry.sessionID)) continue
-    if (deletedSessionIDs.has(entry.sessionID)) continue
-    results.push(entry)
-    seenSessionIDs.add(entry.sessionID)
+    if (seenSessionIDs.has(entry.sessionID)) continue;
+    if (deletedSessionIDs.has(entry.sessionID)) continue;
+    results.push(entry);
+    seenSessionIDs.add(entry.sessionID);
   }
 
-  return results
+  return results;
 }
 
 /** Best-effort: remove a session entry from its day chunk (if present). */
@@ -716,65 +712,67 @@ export async function deleteSessionFromDayChunk(
   sessionID: string,
   dateKey: string,
 ) {
-  const rootPath = chunkRootPathFromStateFile(statePath)
+  const rootPath = chunkRootPathFromStateFile(statePath);
   return withDayChunkWriteLock(dateKey, async () => {
-    const sessions = await readDayChunk(rootPath, dateKey)
-    if (!Object.prototype.hasOwnProperty.call(sessions, sessionID)) return false
-    const next = { ...sessions }
-    delete next[sessionID]
-    await writeDayChunk(rootPath, dateKey, next)
-    return true
-  })
+    const sessions = await readDayChunk(rootPath, dateKey);
+    if (!Object.prototype.hasOwnProperty.call(sessions, sessionID))
+      return false;
+    const next = { ...sessions };
+    delete next[sessionID];
+    await writeDayChunk(rootPath, dateKey, next);
+    return true;
+  });
 }
 
 /** Best-effort: persist recomputed usage/cursor for sessions loaded from disk-only chunks. */
 export async function updateSessionsInDayChunks(
   statePath: string,
   updates: Array<{
-    sessionID: string
-    dateKey: string
-    usage: CachedSessionUsage
-    cursor: IncrementalCursor | undefined
+    sessionID: string;
+    dateKey: string;
+    usage: CachedSessionUsage;
+    cursor: IncrementalCursor | undefined;
   }>,
 ) {
-  if (updates.length === 0) return 0
+  if (updates.length === 0) return 0;
 
-  const rootPath = chunkRootPathFromStateFile(statePath)
+  const rootPath = chunkRootPathFromStateFile(statePath);
   const byDate = updates.reduce<Record<string, typeof updates>>((acc, item) => {
-    const bucket = acc[item.dateKey] || []
-    bucket.push(item)
-    acc[item.dateKey] = bucket
-    return acc
-  }, {})
+    const bucket = acc[item.dateKey] || [];
+    bucket.push(item);
+    acc[item.dateKey] = bucket;
+    return acc;
+  }, {});
 
-  let written = 0
-  const WRITE_CONCURRENCY = 5
+  let written = 0;
+  const WRITE_CONCURRENCY = 5;
   await mapConcurrent(
     Object.entries(byDate),
     WRITE_CONCURRENCY,
     async ([dateKey, dateUpdates]) => {
       await withDayChunkWriteLock(dateKey, async () => {
-        const sessions = await readDayChunk(rootPath, dateKey)
-        const next = { ...sessions }
-        let changed = false
+        const sessions = await readDayChunk(rootPath, dateKey);
+        const next = { ...sessions };
+        let changed = false;
 
         for (const item of dateUpdates) {
-          const existing = next[item.sessionID]
-          if (!existing) continue
+          const existing = next[item.sessionID];
+          if (!existing) continue;
           next[item.sessionID] = {
             ...existing,
             usage: item.usage,
             cursor: item.cursor,
-          }
-          changed = true
+            dirty: false,
+          };
+          changed = true;
         }
 
-        if (!changed) return
-        await writeDayChunk(rootPath, dateKey, next)
-        written++
-      })
+        if (!changed) return;
+        await writeDayChunk(rootPath, dateKey, next);
+        written++;
+      });
     },
-  )
+  );
 
-  return written
+  return written;
 }

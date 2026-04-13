@@ -5,6 +5,9 @@ import { describe, it } from 'node:test'
 import {
   cliBaseUrl,
   cliExitCodeForError,
+  extractCliServerUrl,
+  releaseCliServerProcess,
+  terminateCliServerProcess,
   cliServerCommandCandidates,
   cliShouldRunMain,
   closeCliServerProcess,
@@ -278,5 +281,119 @@ describe('parseCliArgs', () => {
       false,
     )
     assert.equal(cliShouldRunMain(undefined, modulePath, resolvePath), false)
+  })
+
+  it('releases child process pipes and unrefs it', () => {
+    let stdinDestroyed = false
+    let stdoutDestroyed = false
+    let stderrDestroyed = false
+    let unrefCalled = false
+
+    releaseCliServerProcess({
+      stdin: {
+        destroy: () => {
+          stdinDestroyed = true
+        },
+      },
+      stdout: {
+        destroy: () => {
+          stdoutDestroyed = true
+        },
+      },
+      stderr: {
+        destroy: () => {
+          stderrDestroyed = true
+        },
+      },
+      unref: () => {
+        unrefCalled = true
+      },
+    })
+
+    assert.equal(stdinDestroyed, true)
+    assert.equal(stdoutDestroyed, true)
+    assert.equal(stderrDestroyed, true)
+    assert.equal(unrefCalled, true)
+  })
+
+  it('terminates unix temp servers by process group', () => {
+    const killed: Array<{ pid: number; signal: string }> = []
+    let childKillCalled = false
+
+    terminateCliServerProcess(
+      {
+        pid: 4321,
+        killed: false,
+        kill: () => {
+          childKillCalled = true
+          return true
+        },
+        stdin: { destroy: () => {} },
+        stdout: { destroy: () => {} },
+        stderr: { destroy: () => {} },
+        unref: () => {},
+      },
+      {
+        platform: 'linux',
+        killProcess: ((pid: number, signal?: string | number) => {
+          killed.push({ pid, signal: String(signal) })
+          return true
+        }) as typeof process.kill,
+      },
+    )
+
+    assert.deepEqual(killed, [{ pid: -4321, signal: 'SIGTERM' }])
+    assert.equal(childKillCalled, false)
+  })
+
+  it('falls back to direct child termination when group kill is unavailable', () => {
+    let childKillSignal: string | undefined
+
+    terminateCliServerProcess(
+      {
+        pid: 4321,
+        killed: false,
+        kill: (signal?: string) => {
+          childKillSignal = signal
+          return true
+        },
+        stdin: { destroy: () => {} },
+        stdout: { destroy: () => {} },
+        stderr: { destroy: () => {} },
+        unref: () => {},
+      },
+      {
+        platform: 'linux',
+        killProcess: (() => {
+          throw new Error('ESRCH')
+        }) as typeof process.kill,
+      },
+    )
+
+    assert.equal(childKillSignal, 'SIGTERM')
+  })
+
+  it('extracts the listen URL from linux-style direct output', () => {
+    const output = [
+      'booting',
+      'opencode server listening on http://127.0.0.1:4096',
+      'ready',
+    ].join('\n')
+
+    assert.equal(extractCliServerUrl(output), 'http://127.0.0.1:4096')
+  })
+
+  it('extracts the listen URL from windows shell fallback output', () => {
+    const output = [
+      'Microsoft Windows [Version 10.0.26100.0]',
+      'opencode server listening on http://127.0.0.1:4096',
+    ].join('\n')
+
+    assert.equal(extractCliServerUrl(output), 'http://127.0.0.1:4096')
+  })
+
+  it('ignores output before the listen line appears', () => {
+    const partial = 'starting server...'
+    assert.equal(extractCliServerUrl(partial), undefined)
   })
 })
