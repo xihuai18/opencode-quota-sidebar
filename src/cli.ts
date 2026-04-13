@@ -46,6 +46,11 @@ type CliServerCommand = {
   shell?: boolean
 }
 
+type SpawnedCliServerProcess = ReturnType<typeof spawn>
+type CliServerListener = (chunk: Buffer | string) => void
+type CliServerErrorListener = (error: Error) => void
+type CliServerExitListener = (code: number | null) => void
+
 const HELP_TEXT = `opencode-quota
 
 Usage:
@@ -181,12 +186,61 @@ export function cliServerCommandCandidates(
   return [{ command: 'opencode', args: directArgs }]
 }
 
-async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
-  let proc: ReturnType<typeof spawn>
+function releaseCliServerPipes(
+  proc: SpawnedCliServerProcess,
+  inspect?: CliServerListener,
+  onError?: CliServerErrorListener,
+  onExit?: CliServerExitListener,
+) {
+  if (inspect) {
+    proc.stdout?.removeListener('data', inspect)
+    proc.stderr?.removeListener('data', inspect)
+  }
+  if (onError) proc.removeListener('error', onError)
+  if (onExit) proc.removeListener('exit', onExit)
+  proc.stdout?.unpipe()
+  proc.stderr?.unpipe()
+  proc.stdout?.destroy()
+  proc.stderr?.destroy()
+}
+
+export function closeCliServerProcess(
+  proc: SpawnedCliServerProcess,
+  platform = process.platform,
+  killProcess: typeof process.kill = process.kill,
+  spawnProcess: typeof spawn = spawn,
+) {
+  const pid = proc.pid
+  if (typeof pid !== 'number' || pid <= 0) return
+
+  if (platform === 'win32') {
+    const killer = spawnProcess('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    killer.unref()
+    return
+  }
+
   try {
-    proc = spawn(candidate.command, candidate.args, {
+    killProcess(-pid, 'SIGTERM')
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ESRCH') throw error
+  }
+}
+
+export async function tryStartCliOpencodeServer(
+  candidate: CliServerCommand,
+  spawnProcess: typeof spawn = spawn,
+  closeProcess: typeof closeCliServerProcess = closeCliServerProcess,
+) {
+  let proc: SpawnedCliServerProcess
+  try {
+    proc = spawnProcess(candidate.command, candidate.args, {
       env: process.env,
       shell: candidate.shell ?? false,
+      detached: true,
       windowsHide: true,
     })
   } catch (error) {
@@ -199,7 +253,14 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
   }
 
   const url = await new Promise<string>((resolve, reject) => {
+    let inspect: CliServerListener | undefined
+    let onError: CliServerErrorListener | undefined
+    let onExit: CliServerExitListener | undefined
     const id = setTimeout(() => {
+      if (settled) return
+      settled = true
+      releaseCliServerPipes(proc, inspect, onError, onExit)
+      closeProcess(proc)
       reject(
         new Error(
           `Timeout waiting for OpenCode server to start after ${CLI_SERVER_TIMEOUT_MS}ms`,
@@ -209,7 +270,7 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
     let output = ''
     let settled = false
 
-    const inspect = (chunk: Buffer | string) => {
+    inspect = (chunk: Buffer | string) => {
       output += chunk.toString()
       const lines = output.split('\n')
       for (const line of lines) {
@@ -218,6 +279,10 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
         if (!match) continue
         clearTimeout(id)
         settled = true
+        releaseCliServerPipes(proc, inspect, onError, onExit)
+        // The CLI only needs the startup line; after that the detached server
+        // must not keep the parent process alive.
+        proc.unref()
         resolve(match[1])
         return
       }
@@ -225,30 +290,37 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
 
     proc.stdout?.on('data', inspect)
     proc.stderr?.on('data', inspect)
-    proc.on('error', (error) => {
+    onError = (error) => {
+      if (settled) return
+      settled = true
       clearTimeout(id)
+      releaseCliServerPipes(proc, inspect, onError, onExit)
       const code = (error as NodeJS.ErrnoException).code
       reject({
         error,
         output,
         recoverable: code === 'ENOENT' || code === 'EINVAL',
       })
-    })
-    proc.on('exit', (code) => {
+    }
+    onExit = (code) => {
       if (settled) return
+      settled = true
       clearTimeout(id)
+      releaseCliServerPipes(proc, inspect, onError, onExit)
       let message = `OpenCode server exited with code ${code}`
       if (output.trim()) message += `\n${output}`
       const recoverable =
         /not recognized as an internal or external command/i.test(output) ||
         /command not found/i.test(output)
       reject({ error: new Error(message), output, recoverable })
-    })
+    }
+    proc.on('error', onError)
+    proc.on('exit', onExit)
   })
 
   return {
     url,
-    close: () => proc.kill(),
+    close: () => closeProcess(proc),
   }
 }
 

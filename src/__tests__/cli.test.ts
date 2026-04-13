@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { describe, it } from 'node:test'
 
 import {
@@ -6,8 +7,27 @@ import {
   cliExitCodeForError,
   cliServerCommandCandidates,
   cliShouldRunMain,
+  closeCliServerProcess,
   parseCliArgs,
+  tryStartCliOpencodeServer,
 } from '../cli.js'
+
+type SpawnFn = typeof import('node:child_process').spawn
+
+class FakeChildStream extends EventEmitter {
+  destroyCalls = 0
+  unpipeCalls = 0
+
+  destroy() {
+    this.destroyCalls += 1
+    return this
+  }
+
+  unpipe() {
+    this.unpipeCalls += 1
+    return this
+  }
+}
 
 describe('parseCliArgs', () => {
   it('parses current natural period commands', () => {
@@ -100,6 +120,150 @@ describe('parseCliArgs', () => {
     )
     assert.equal(win[1]?.shell, true)
     assert.equal(win[2]?.command, 'bash')
+  })
+
+  it('starts the fallback server in a detached process group and releases pipes after startup', async () => {
+    const stdout = new FakeChildStream()
+    const stderr = new FakeChildStream()
+    const proc = Object.assign(new EventEmitter(), {
+      pid: 4321,
+      stdout,
+      stderr,
+      unrefCalls: 0,
+      unref() {
+        this.unrefCalls += 1
+      },
+    })
+
+    const calls: Array<{
+      command: string
+      args: string[]
+      options: Record<string, unknown>
+    }> = []
+    const fakeSpawn = ((command: string, args: string[], options: object) => {
+      calls.push({
+        command,
+        args,
+        options: options as Record<string, unknown>,
+      })
+      queueMicrotask(() => {
+        stdout.emit(
+          'data',
+          'opencode server listening on http://127.0.0.1:4096\n',
+        )
+      })
+      return proc as unknown as ReturnType<SpawnFn>
+    }) as unknown as SpawnFn
+
+    const server = await tryStartCliOpencodeServer(
+      {
+        command: 'opencode',
+        args: ['serve', '--hostname=127.0.0.1', '--port=4096'],
+      },
+      fakeSpawn,
+    )
+
+    assert.equal(server.url, 'http://127.0.0.1:4096')
+    assert.equal(calls[0]?.command, 'opencode')
+    assert.equal(calls[0]?.options.detached, true)
+    assert.equal(calls[0]?.options.windowsHide, true)
+    assert.equal(proc.unrefCalls, 1)
+    assert.equal(stdout.listenerCount('data'), 0)
+    assert.equal(stderr.listenerCount('data'), 0)
+    assert.equal(stdout.unpipeCalls, 1)
+    assert.equal(stderr.unpipeCalls, 1)
+    assert.equal(stdout.destroyCalls, 1)
+    assert.equal(stderr.destroyCalls, 1)
+  })
+
+  it('routes returned server.close through the close helper', async () => {
+    const stdout = new FakeChildStream()
+    const stderr = new FakeChildStream()
+    const proc = Object.assign(new EventEmitter(), {
+      pid: 4321,
+      stdout,
+      stderr,
+      unref() {},
+    })
+
+    const fakeSpawn = ((command: string, args: string[], options: object) => {
+      void command
+      void args
+      void options
+      queueMicrotask(() => {
+        stdout.emit(
+          'data',
+          'opencode server listening on http://127.0.0.1:4096\n',
+        )
+      })
+      return proc as unknown as ReturnType<SpawnFn>
+    }) as unknown as SpawnFn
+
+    const closed: Array<{ pid: number }> = []
+    const server = await tryStartCliOpencodeServer(
+      {
+        command: 'opencode',
+        args: ['serve', '--hostname=127.0.0.1', '--port=4096'],
+      },
+      fakeSpawn,
+      ((child) => {
+        closed.push({ pid: child.pid ?? -1 })
+      }) as typeof closeCliServerProcess,
+    )
+
+    server.close()
+
+    assert.deepEqual(closed, [{ pid: 4321 }])
+  })
+
+  it('kills the detached process group on POSIX', () => {
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = []
+    closeCliServerProcess({ pid: 4321 } as never, 'linux', ((
+      pid: number,
+      signal?: NodeJS.Signals | number,
+    ) => {
+      signals.push({ pid, signal: signal as NodeJS.Signals })
+      return true
+    }) as typeof process.kill)
+
+    assert.deepEqual(signals, [{ pid: -4321, signal: 'SIGTERM' }])
+  })
+
+  it('uses taskkill tree termination on Windows', () => {
+    const calls: Array<{
+      command: string
+      args: string[]
+      options: Record<string, unknown>
+    }> = []
+    let unrefCalls = 0
+    const fakeSpawn = ((command: string, args: string[], options: object) => {
+      calls.push({
+        command,
+        args,
+        options: options as Record<string, unknown>,
+      })
+      return {
+        unref() {
+          unrefCalls += 1
+        },
+      } as never
+    }) as unknown as SpawnFn
+
+    closeCliServerProcess(
+      { pid: 4321 } as never,
+      'win32',
+      process.kill,
+      fakeSpawn,
+    )
+
+    assert.deepEqual(calls, [
+      {
+        command: 'taskkill',
+        args: ['/PID', '4321', '/T', '/F'],
+        options: { stdio: 'ignore', windowsHide: true },
+      },
+    ])
+    assert.equal(unrefCalls, 1)
   })
 
   it('treats symlinked bin paths as the CLI entrypoint', () => {
