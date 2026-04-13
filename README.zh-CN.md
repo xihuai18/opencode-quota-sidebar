@@ -86,7 +86,7 @@ TITLE
 USAGE
   R184 I189k O53.2k
   CR31.4k CW3.2k Cd66%
-  Est $12.8
+  API $12.8
 QUOTA
   OAI 5h80 R3h20m
       W70 R2D04h
@@ -100,8 +100,38 @@ QUOTA
 compact shared title 示例：
 
 ```text
-Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | Est$12.8
+Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | API$12.8
 ```
+
+## Pricing And API Cost
+
+`API cost` 表示按 API 单价估算出来的 API 等价成本，不是订阅月费，也不是 provider 的真实账单。
+
+价格来源优先级：
+
+1. OpenCode 主配置（`opencode.jsonc` / `opencode.json`）里的显式模型价格
+2. 基于这些显式基础模型价格派生出的 fast/tier 价格
+3. `provider.list()` 返回的非零 runtime 价格
+4. 基于 runtime metadata 派生出的 fast/tier 价格
+5. `models.dev` 远端模型目录价格
+6. 插件内置 bundled fallback 价格表
+
+补充说明：
+
+- OpenAI / Anthropic 这类 OAuth provider 的 runtime metadata 经常返回 `cost: 0`，所以 runtime 价格只能作为补充来源
+- `provider.list()` 更像 OpenCode 当前运行时暴露出来的模型 metadata 视图，不是稳定权威的官方价格 API
+- OpenCode 主配置里的价格层会按字段层叠合并，所以后面的 override 可以只改 `input` / `output`，不会把前层已有的 `cache_*` 或 `context_over_200k` 一起丢掉
+- 当 runtime 价格缺失时，插件会把 `models.dev` 作为结构化远端补充来源；这层只会补齐那些在 config / runtime / bundled 之后仍然缺价、且已经被 OpenCode runtime 暴露出来的模型，尤其是 bundled 还没覆盖的新模型
+- 如果 `models.dev` 暂时不可达，插件会继续回退到前面的高优先级来源；对仍然没有价格的模型，`API cost` 可能继续显示为 `0`
+- 主流模型通常已经被 bundled 表覆盖，因此 token usage 和 quota 功能本身不依赖用户手动配置价格
+- 如果你使用的是插件还没内置的新模型，且 runtime 价格仍然是 `0`，那么 `API cost` 可能会显示 `$0.00`，直到你在 OpenCode 主配置里为该模型补充显式价格
+
+想让新模型也显示完整 `API cost`，至少需要满足以下一项：
+
+1. 该模型已经被插件 bundled pricing 覆盖
+2. 你在 OpenCode 主配置中为该模型配置了价格
+3. runtime `provider.list()` 返回了非零价格
+4. runtime `provider.list()` 已经暴露出这个模型，且 `models.dev` 有对应价格
 
 ## Tool Report 示例
 
@@ -169,7 +199,7 @@ Usage token：
 - `CR`：cache read tokens
 - `CW`：cache write tokens
 - `Cd`：cached ratio / cache coverage
-- `Est`：API-equivalent cost estimate
+- `API`：API-equivalent cost estimate
 
 Quota token：
 
@@ -223,7 +253,9 @@ OpenCode `>=1.2.15` 时，server 插件放在 `opencode.json`，TUI 插件放在
 
 - `~/.config/opencode/quota-sidebar.config.json`
 - `<worktree>/quota-sidebar.config.json`
+- `<directory>/quota-sidebar.config.json`
 - `<worktree>/.opencode/quota-sidebar.config.json`
+- `<directory>/.opencode/quota-sidebar.config.json`
 - `OPENCODE_QUOTA_CONFIG=/absolute/path/to/config.json`
 
 最小示例：
@@ -257,6 +289,25 @@ OpenCode `>=1.2.15` 时，server 插件放在 `opencode.json`，TUI 插件放在
 5. directory `.opencode` 配置
 6. `OPENCODE_QUOTA_CONFIG`
 
+插件还会读取 OpenCode 主配置中的价格，候选路径如下：
+
+1. `~/.config/opencode/opencode.jsonc`
+2. `~/.config/opencode/opencode.json`
+3. `<worktree>/opencode.jsonc`
+4. `<worktree>/opencode.json`
+5. `<directory>/opencode.jsonc`
+6. `<directory>/opencode.json`
+7. `<worktree>/.opencode/opencode.jsonc`
+8. `<worktree>/.opencode/opencode.json`
+9. `<directory>/.opencode/opencode.jsonc`
+10. `<directory>/.opencode/opencode.json`
+
+## Linux CLI Notes
+
+- 当本地没有可用 OpenCode server 时，`opencode-quota` 会自动临时拉起一个 `opencode serve`
+- 新版本会在 Linux / Unix 下更主动地清理这个临时 server，让 CLI 在输出报告后自然退出
+- 如果 Linux 下仍然出现挂住，建议升级到包含该修复的版本
+
 ## 持久化与聚合
 
 插件会把数据写入：
@@ -267,6 +318,13 @@ OpenCode `>=1.2.15` 时，server 插件放在 `opencode.json`，TUI 插件放在
 这些持久化 chunk 会保存 title 状态、cached usage、sidebar-panel payload 和 quota cache，从而让 TUI sidebar 在 session open/resume 时可以直接从结构化状态恢复，而不必完全依赖实时 message 扫描。
 
 usage 聚合采用增量模式。插件会为每个 session 维护 cursor，优先只处理新消息；如果消息历史变化导致增量视图失效，再回退到重扫并刷新持久化 usage。
+
+价格缓存提醒：
+
+- 新版本会在 session usage cache 中持久化 `pricingFingerprint`
+- 当模型价格从一个非零值改成另一个非零值时，旧的 API cost cache 会自动失效并重算
+- 更老版本只依赖 billing version 判断缓存新鲜度，因此历史 session 的 API cost 可能需要强制重算才能更新
+- 历史上已经写入的 `Est$...` decorated title 仍会在清理/还原路径里被识别，但新版本生成的 title 统一使用 `API$...`
 
 ## 工具
 

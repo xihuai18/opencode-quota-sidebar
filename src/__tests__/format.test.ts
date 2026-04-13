@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict'
-import { afterEach, beforeEach, describe, it } from 'node:test'
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   renderHistoryMarkdownReport,
@@ -10,49 +10,48 @@ import {
   renderSidebarUsageLines,
   renderToastMessage,
   resolveTitleView,
-} from '../format.js'
-import type { QuotaSidebarConfig, QuotaSnapshot } from '../types.js'
-import type { UsageSummary } from '../usage.js'
+} from "../format.js";
+import type { QuotaSidebarConfig, QuotaSnapshot } from "../types.js";
+import type { UsageSummary } from "../usage.js";
 
-const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT
-const ORIGINAL_DATE = globalThis.Date
-const FIXED_NOW_MS = ORIGINAL_DATE.parse('2026-02-20T12:00:00.000Z')
+const ORIGINAL_OPENCODE_CLIENT = process.env.OPENCODE_CLIENT;
+const ORIGINAL_DATE = globalThis.Date;
+const FIXED_NOW_MS = ORIGINAL_DATE.parse("2026-02-20T12:00:00.000Z");
 
 class MockDate extends ORIGINAL_DATE {
   constructor(value?: string | number | Date) {
-    super((value ?? FIXED_NOW_MS) as any)
+    super((value ?? FIXED_NOW_MS) as any);
   }
 
   static now() {
-    return FIXED_NOW_MS
+    return FIXED_NOW_MS;
   }
 
   static parse(value: string) {
-    return ORIGINAL_DATE.parse(value)
+    return ORIGINAL_DATE.parse(value);
   }
 
   static UTC(...args: any[]) {
-    return (ORIGINAL_DATE.UTC as (...values: number[]) => number)(...args)
+    return (ORIGINAL_DATE.UTC as (...values: number[]) => number)(...args);
   }
 }
 
 beforeEach(() => {
-  process.env.OPENCODE_CLIENT = 'cli'
-  globalThis.Date = MockDate as DateConstructor
-})
+  process.env.OPENCODE_CLIENT = "cli";
+  globalThis.Date = MockDate as DateConstructor;
+});
 
 afterEach(() => {
-  process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT
-  globalThis.Date = ORIGINAL_DATE
-})
+  process.env.OPENCODE_CLIENT = ORIGINAL_OPENCODE_CLIENT;
+  globalThis.Date = ORIGINAL_DATE;
+});
 
 function makeConfig(width = 36): QuotaSidebarConfig {
   return {
     sidebar: {
       enabled: true,
       width,
-      titleMode: 'multiline',
-      multilineTitle: true,
+      titleMode: "multiline",
       showCost: true,
       showQuota: true,
       wrapQuotaLines: true,
@@ -75,7 +74,7 @@ function makeConfig(width = 36): QuotaSidebarConfig {
     },
     toast: { durationMs: 12_000 },
     retentionDays: 730,
-  }
+  };
 }
 
 function makeUsage(overrides: Partial<UsageSummary> = {}): UsageSummary {
@@ -92,250 +91,250 @@ function makeUsage(overrides: Partial<UsageSummary> = {}): UsageSummary {
     providers: {},
     ...overrides,
     apiCost: overrides.apiCost ?? 2.34,
-  }
+  };
 }
 
-describe('renderSidebarTitle', () => {
-  it('renders a compact single-line title on desktop', () => {
-    process.env.OPENCODE_CLIENT = 'desktop'
-    const config = makeConfig(80)
-    config.sidebar.titleMode = 'auto'
+describe("renderSidebarTitle", () => {
+  it("renders a compact single-line title on desktop", () => {
+    process.env.OPENCODE_CLIENT = "desktop";
+    const config = makeConfig(80);
+    config.sidebar.titleMode = "auto";
     const title = renderSidebarTitle(
-      'Greeting and quick check-in',
+      "Greeting and quick check-in",
       makeUsage(),
       [],
       config,
-    )
-    assert.equal(title.includes('\n'), false)
-    assert.match(title, /Est\$2\.34/)
-    assert.doesNotMatch(title, /R3 I1\.5k O1\.2m/)
-  })
+    );
+    assert.equal(title.includes("\n"), false);
+    assert.match(title, /API\$2\.34/);
+    assert.doesNotMatch(title, /R3 I1\.5k O1\.2m/);
+  });
 
-  it('renders compact desktop titles with all recent provider windows and balances', () => {
-    const previousClient = process.env.OPENCODE_CLIENT
-    process.env.OPENCODE_CLIENT = 'desktop'
+  it("renders compact desktop titles with all recent provider windows and balances", () => {
+    const previousClient = process.env.OPENCODE_CLIENT;
+    process.env.OPENCODE_CLIENT = "desktop";
     try {
-      const config = makeConfig(200)
-      config.sidebar.titleMode = 'auto'
+      const config = makeConfig(200);
+      config.sidebar.titleMode = "auto";
       const title = renderSidebarTitle(
-        'Greeting and quick check-in',
+        "Greeting and quick check-in",
         makeUsage({
           recentProviders: [
-            { providerID: 'openai', completedAt: Date.now() - 1_000 },
-            { providerID: 'rightcode-openai', completedAt: Date.now() - 2_000 },
+            { providerID: "openai", completedAt: Date.now() - 1_000 },
+            { providerID: "rightcode-openai", completedAt: Date.now() - 2_000 },
           ],
         }),
         [
           {
-            providerID: 'openai',
-            adapterID: 'openai',
-            label: 'OpenAI',
-            shortLabel: 'OpenAI',
-            status: 'ok',
+            providerID: "openai",
+            adapterID: "openai",
+            label: "OpenAI",
+            shortLabel: "OpenAI",
+            status: "ok",
             checkedAt: Date.now(),
             windows: [
-              { label: '5h', remainingPercent: 80 },
-              { label: 'Weekly', remainingPercent: 70 },
+              { label: "5h", remainingPercent: 80 },
+              { label: "Weekly", remainingPercent: 70 },
             ],
           },
           {
-            providerID: 'rightcode-openai',
-            adapterID: 'rightcode',
-            label: 'RightCode',
-            shortLabel: 'RC-openai',
-            status: 'ok',
+            providerID: "rightcode-openai",
+            adapterID: "rightcode",
+            label: "RightCode",
+            shortLabel: "RC-openai",
+            status: "ok",
             checkedAt: Date.now(),
-            windows: [{ label: 'Daily $88.9/$60', showPercent: false }],
-            balance: { amount: 260, currency: '$' },
+            windows: [{ label: "Daily $88.9/$60", showPercent: false }],
+            balance: { amount: 260, currency: "$" },
           },
         ],
         config,
-      )
+      );
 
-      assert.equal(title.includes('\n'), false)
+      assert.equal(title.includes("\n"), false);
       assert.match(
         title,
-        /Greeting and quick check-in \| OAI 5h80 W70 \| RC D\$88\.9\/\$60 B260 \| Cd63% \| Est\$2\.34/,
-      )
+        /Greeting and quick check-in \| OAI 5h80 W70 \| RC D\$88\.9\/\$60 B260 \| Cd63% \| API\$2\.34/,
+      );
     } finally {
-      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_CLIENT = previousClient;
     }
-  })
+  });
 
-  it('filters desktop compact providers by recent requests and time window', () => {
-    const previousClient = process.env.OPENCODE_CLIENT
-    process.env.OPENCODE_CLIENT = 'desktop'
+  it("filters desktop compact providers by recent requests and time window", () => {
+    const previousClient = process.env.OPENCODE_CLIENT;
+    process.env.OPENCODE_CLIENT = "desktop";
     try {
-      const now = Date.now()
-      const config = makeConfig(200)
-      config.sidebar.titleMode = 'auto'
-      config.sidebar.desktopCompact = { recentRequests: 2, recentMinutes: 60 }
+      const now = Date.now();
+      const config = makeConfig(200);
+      config.sidebar.titleMode = "auto";
+      config.sidebar.desktopCompact = { recentRequests: 2, recentMinutes: 60 };
 
       const title = renderSidebarTitle(
-        'Greeting and quick check-in',
+        "Greeting and quick check-in",
         makeUsage({
           recentProviders: [
-            { providerID: 'openai', completedAt: now - 1_000 },
-            { providerID: 'github-copilot', completedAt: now - 2_000 },
-            { providerID: 'anthropic', completedAt: now - 3_700_000 },
+            { providerID: "openai", completedAt: now - 1_000 },
+            { providerID: "github-copilot", completedAt: now - 2_000 },
+            { providerID: "anthropic", completedAt: now - 3_700_000 },
           ],
         }),
         [
           {
-            providerID: 'openai',
-            adapterID: 'openai',
-            label: 'OpenAI',
-            status: 'ok',
+            providerID: "openai",
+            adapterID: "openai",
+            label: "OpenAI",
+            status: "ok",
             checkedAt: now,
-            windows: [{ label: '5h', remainingPercent: 80 }],
+            windows: [{ label: "5h", remainingPercent: 80 }],
           },
           {
-            providerID: 'github-copilot',
-            adapterID: 'github-copilot',
-            label: 'Copilot',
-            status: 'ok',
+            providerID: "github-copilot",
+            adapterID: "github-copilot",
+            label: "Copilot",
+            status: "ok",
             checkedAt: now,
-            windows: [{ label: 'Monthly', remainingPercent: 60 }],
+            windows: [{ label: "Monthly", remainingPercent: 60 }],
           },
           {
-            providerID: 'anthropic',
-            adapterID: 'anthropic',
-            label: 'Anthropic',
-            status: 'ok',
+            providerID: "anthropic",
+            adapterID: "anthropic",
+            label: "Anthropic",
+            status: "ok",
             checkedAt: now,
-            windows: [{ label: 'Weekly', remainingPercent: 55 }],
+            windows: [{ label: "Weekly", remainingPercent: 55 }],
           },
         ],
         config,
-      )
+      );
 
-      assert.match(title, /OAI 5h80/)
-      assert.match(title, /Cop M60/)
-      assert.doesNotMatch(title, /Ant W55/)
+      assert.match(title, /OAI 5h80/);
+      assert.match(title, /Cop M60/);
+      assert.doesNotMatch(title, /Ant W55/);
     } finally {
-      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_CLIENT = previousClient;
     }
-  })
+  });
 
-  it('shows non-ok quota status in desktop compact titles', () => {
-    process.env.OPENCODE_CLIENT = 'desktop'
-    const config = makeConfig(160)
-    config.sidebar.titleMode = 'auto'
+  it("shows non-ok quota status in desktop compact titles", () => {
+    process.env.OPENCODE_CLIENT = "desktop";
+    const config = makeConfig(160);
+    config.sidebar.titleMode = "auto";
     const title = renderSidebarTitle(
-      'Greeting and quick check-in',
+      "Greeting and quick check-in",
       makeUsage({
         recentProviders: [
-          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+          { providerID: "openai", completedAt: Date.now() - 1_000 },
         ],
       }),
       [
         {
-          providerID: 'openai',
-          adapterID: 'openai',
-          label: 'OpenAI',
-          shortLabel: 'OpenAI',
-          status: 'unavailable',
+          providerID: "openai",
+          adapterID: "openai",
+          label: "OpenAI",
+          shortLabel: "OpenAI",
+          status: "unavailable",
           checkedAt: Date.now(),
         },
       ],
       config,
-    )
+    );
 
-    assert.match(title, /OAI unavailable/)
-  })
+    assert.match(title, /OAI unavailable/);
+  });
 
-  it('sanitizes invalid quota percentages in desktop compact titles', () => {
-    process.env.OPENCODE_CLIENT = 'desktop'
-    const config = makeConfig(160)
-    config.sidebar.titleMode = 'auto'
+  it("sanitizes invalid quota percentages in desktop compact titles", () => {
+    process.env.OPENCODE_CLIENT = "desktop";
+    const config = makeConfig(160);
+    config.sidebar.titleMode = "auto";
     const title = renderSidebarTitle(
-      'Greeting and quick check-in',
+      "Greeting and quick check-in",
       makeUsage({
         recentProviders: [
-          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+          { providerID: "openai", completedAt: Date.now() - 1_000 },
         ],
       }),
       [
         {
-          providerID: 'openai',
-          adapterID: 'openai',
-          label: 'OpenAI',
-          shortLabel: 'OpenAI',
-          status: 'ok',
+          providerID: "openai",
+          adapterID: "openai",
+          label: "OpenAI",
+          shortLabel: "OpenAI",
+          status: "ok",
           checkedAt: Date.now(),
-          windows: [{ label: '5h', remainingPercent: -5, resetAt: undefined }],
+          windows: [{ label: "5h", remainingPercent: -5, resetAt: undefined }],
         },
       ],
       config,
-    )
+    );
 
-    assert.match(title, /OAI 5h/)
-    assert.doesNotMatch(title, /-5%|NaN%|Infinity%/)
-  })
+    assert.match(title, /OAI 5h/);
+    assert.doesNotMatch(title, /-5%|NaN%|Infinity%/);
+  });
 
-  it('renders the desktop-style compact line when compact view is forced', () => {
-    const config = makeConfig(120)
+  it("renders the desktop-style compact line when compact view is forced", () => {
+    const config = makeConfig(120);
     const title = renderSidebarTitle(
-      'Greeting and quick check-in',
+      "Greeting and quick check-in",
       makeUsage({
         recentProviders: [
-          { providerID: 'openai', completedAt: Date.now() - 1_000 },
+          { providerID: "openai", completedAt: Date.now() - 1_000 },
         ],
       }),
       [
         {
-          providerID: 'openai',
-          adapterID: 'openai',
-          label: 'OpenAI',
-          shortLabel: 'OpenAI',
-          status: 'ok',
+          providerID: "openai",
+          adapterID: "openai",
+          label: "OpenAI",
+          shortLabel: "OpenAI",
+          status: "ok",
           checkedAt: Date.now(),
-          windows: [{ label: '5h', remainingPercent: 80 }],
+          windows: [{ label: "5h", remainingPercent: 80 }],
         },
       ],
       config,
-      'compact',
-    )
+      "compact",
+    );
 
-    assert.equal(title.includes('\n'), false)
+    assert.equal(title.includes("\n"), false);
     assert.match(
       title,
-      /Greeting and quick check-in \| OAI 5h80 \| Cd63% \| Est\$2\.34/,
-    )
-  })
+      /Greeting and quick check-in \| OAI 5h80 \| Cd63% \| API\$2\.34/,
+    );
+  });
 
-  it('uses adaptive k/m units for sidebar token lines', () => {
+  it("uses adaptive k/m units for sidebar token lines", () => {
     const title = renderSidebarTitle(
-      'Greeting and quick check-in',
+      "Greeting and quick check-in",
       makeUsage(),
       [],
       makeConfig(60),
-    )
-    const lines = title.split('\n')
-    assert.equal(lines[2], 'R3 I1.5k O1.2m')
-    assert.equal(lines[3], 'Cd 63% R2.5k')
-    assert.equal(lines[4], 'Est$2.34')
-    assert.match(title, /R3 I1\.5k O1\.2m/)
-    assert.match(title, /Cd 63% R2\.5k/)
-    assert.match(title, /Est\$2\.34/)
-  })
+    );
+    const lines = title.split("\n");
+    assert.equal(lines[2], "R3 I1.5k O1.2m");
+    assert.equal(lines[3], "Cd 63% R2.5k");
+    assert.equal(lines[4], "API$2.34");
+    assert.match(title, /R3 I1\.5k O1\.2m/);
+    assert.match(title, /Cd 63% R2\.5k/);
+    assert.match(title, /API\$2\.34/);
+  });
 
-  it('keeps auto mode compact even when a TUI session is identified', () => {
-    const config = makeConfig(60)
-    config.sidebar.titleMode = 'auto'
+  it("keeps auto mode compact even when a TUI session is identified", () => {
+    const config = makeConfig(60);
+    config.sidebar.titleMode = "auto";
 
-    assert.equal(resolveTitleView({ config }), 'compact')
+    assert.equal(resolveTitleView({ config }), "compact");
 
-    config.sidebar.titleMode = 'multiline'
-    assert.equal(resolveTitleView({ config }), 'multiline')
+    config.sidebar.titleMode = "multiline";
+    assert.equal(resolveTitleView({ config }), "multiline");
 
-    config.sidebar.titleMode = 'compact'
-    assert.equal(resolveTitleView({ config }), 'compact')
-  })
+    config.sidebar.titleMode = "compact";
+    assert.equal(resolveTitleView({ config }), "compact");
+  });
 
-  it('renders API cost as the last token detail line', () => {
+  it("renders API cost as the last token detail line", () => {
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage({
         cacheRead: 2500,
         cacheWrite: 300,
@@ -356,15 +355,15 @@ describe('renderSidebarTitle', () => {
       }),
       [],
       makeConfig(60),
-    )
-    const lines = title.split('\n')
-    assert.equal(lines[2], 'R3 I1.5k O1.2m')
-    assert.equal(lines[3], 'Cd 63% W300 R2.5k')
-    assert.equal(lines[4], 'Est$2.34')
-  })
+    );
+    const lines = title.split("\n");
+    assert.equal(lines[2], "R3 I1.5k O1.2m");
+    assert.equal(lines[3], "Cd 63% W300 R2.5k");
+    assert.equal(lines[4], "API$2.34");
+  });
 
-  it('renders compact sidebar panel context, usage, and quota lines', () => {
-    const config = makeConfig(38)
+  it("renders compact sidebar panel context, usage, and quota lines", () => {
+    const config = makeConfig(38);
     const usage = makeUsage({
       input: 189_000,
       output: 53_200,
@@ -386,60 +385,60 @@ describe('renderSidebarTitle', () => {
           assistantMessages: 94,
         },
       },
-    })
+    });
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        adapterID: 'openai',
-        label: 'OpenAI',
-        shortLabel: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "openai",
+        label: "OpenAI",
+        shortLabel: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: '5h',
+            label: "5h",
             remainingPercent: 80,
-            resetAt: '2026-03-29T16:20:00.000Z',
+            resetAt: "2026-03-29T16:20:00.000Z",
           },
           {
-            label: 'Weekly',
+            label: "Weekly",
             remainingPercent: 70,
-            resetAt: '2026-04-03T00:00:00.000Z',
+            resetAt: "2026-04-03T00:00:00.000Z",
           },
         ],
       },
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $88.9/$60',
+            label: "Daily $88.9/$60",
             showPercent: false,
-            resetLabel: 'Exp',
-            resetAt: '2026-02-27T00:00:00.000Z',
+            resetLabel: "Exp",
+            resetAt: "2026-02-27T00:00:00.000Z",
           },
         ],
-        balance: { amount: 260, currency: '$' },
+        balance: { amount: 260, currency: "$" },
       },
-    ]
+    ];
 
-    assert.equal(renderSidebarContextLine(242_000, 24, 36), '242k tok 24% ctx')
+    assert.equal(renderSidebarContextLine(242_000, 24, 36), "242k tok 24% ctx");
     assert.deepEqual(renderSidebarUsageLines(usage, config), [
-      'Req 184 In 189k Out 53.2k',
-      'Cached 14% Read 31.4k Write 3.2k',
-      'Est $12.8',
-    ])
-    const quotaLines = renderSidebarQuotaLines(quotas, config)
-    assert.equal(quotaLines.length, 2)
-    assert.match(quotaLines[0] || '', /^OAI 5h80 R\d+D\d{2}h W70 R\d+D\d{2}h$/)
-    assert.match(quotaLines[1] || '', /^RC D\$88\.9\/\$60 E\d+D\d{2}h B260$/)
-  })
+      "Req 184 In 189k Out 53.2k",
+      "Cached 14% Read 31.4k Write 3.2k",
+      "API $12.8",
+    ]);
+    const quotaLines = renderSidebarQuotaLines(quotas, config);
+    assert.equal(quotaLines.length, 2);
+    assert.match(quotaLines[0] || "", /^OAI 5h80 R\d+D\d{2}h W70 R\d+D\d{2}h$/);
+    assert.match(quotaLines[1] || "", /^RC D\$88\.9\/\$60 E\d+D\d{2}h B260$/);
+  });
 
-  it('falls back to compact usage tokens on narrow sidebar widths', () => {
+  it("falls back to compact usage tokens on narrow sidebar widths", () => {
     const usage = makeUsage({
       input: 189_000,
       output: 53_200,
@@ -461,21 +460,21 @@ describe('renderSidebarTitle', () => {
           assistantMessages: 0,
         },
       },
-    })
-    const config = makeConfig(14)
+    });
+    const config = makeConfig(14);
 
     assert.deepEqual(renderSidebarUsageLines(usage, config), [
-      'R184 I189k',
-      'O53.2k',
-      'Cd 14%',
-      'R31.4k W3.2k',
-      'Est $12.8',
-    ])
-  })
+      "R184 I189k",
+      "O53.2k",
+      "Cd 14%",
+      "R31.4k W3.2k",
+      "API $12.8",
+    ]);
+  });
 
-  it('renders cached ratio line for mixed cache model types', () => {
+  it("renders cached ratio line for mixed cache model types", () => {
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage({
         cacheRead: 1200,
         cacheWrite: 300,
@@ -496,14 +495,14 @@ describe('renderSidebarTitle', () => {
       }),
       [],
       makeConfig(60),
-    )
+    );
 
-    assert.match(title, /Cd 44%/)
-  })
+    assert.match(title, /Cd 44%/);
+  });
 
-  it('uses shorter token detail labels instead of truncating on narrow widths', () => {
+  it("uses shorter token detail labels instead of truncating on narrow widths", () => {
     const title = renderSidebarTitle(
-      'Weekly quota summary with toast',
+      "Weekly quota summary with toast",
       makeUsage({
         input: 16_300,
         output: 916,
@@ -527,626 +526,626 @@ describe('renderSidebarTitle', () => {
       }),
       [
         {
-          providerID: 'rightcode-openai',
-          adapterID: 'rightcode',
-          label: 'RightCode OpenAI',
-          shortLabel: 'RC-openai',
-          status: 'ok',
+          providerID: "rightcode-openai",
+          adapterID: "rightcode",
+          label: "RightCode OpenAI",
+          shortLabel: "RC-openai",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
             {
-              label: 'Daily $31.3/$90',
+              label: "Daily $31.3/$90",
               showPercent: false,
-              resetAt: '2026-03-27T14:39:00.000Z',
+              resetAt: "2026-03-27T14:39:00.000Z",
             },
           ],
         },
       ],
       makeConfig(16),
-    )
-    const lines = title.split('\n')
+    );
+    const lines = title.split("\n");
 
-    assert.ok(lines.includes('R3 I16.3k O916'))
-    assert.ok(lines.includes('Cd 66% R31.4k'))
-    assert.ok(lines.includes('Est$0.12'))
-    assert.ok(lines.includes('RC D$31.3/$90'))
-    assert.ok(lines.some((line) => /^\s+R/.test(line)))
+    assert.ok(lines.includes("R3 I16.3k O916"));
+    assert.ok(lines.includes("Cd 66% R31.4k"));
+    assert.ok(lines.includes("API$0.12"));
+    assert.ok(lines.includes("RC D$31.3/$90"));
+    assert.ok(lines.some((line) => /^\s+R/.test(line)));
     assert.equal(
-      lines.some((line) => /Cd.*~|Est\$.*~/.test(line)),
+      lines.some((line) => /Cd.*~|API\$.*~/.test(line)),
       false,
-    )
-  })
+    );
+  });
 
-  it('hides API cost line when sidebar.showCost=false', () => {
-    const config = makeConfig(60)
-    config.sidebar.showCost = false
-    const title = renderSidebarTitle('Session', makeUsage(), [], config)
-    assert.doesNotMatch(title, /as API cost/)
-  })
+  it("hides API cost line when sidebar.showCost=false", () => {
+    const config = makeConfig(60);
+    config.sidebar.showCost = false;
+    const title = renderSidebarTitle("Session", makeUsage(), [], config);
+    assert.doesNotMatch(title, /as API cost/);
+  });
 
-  it('renders quota providers on separate lines', () => {
+  it("renders quota providers on separate lines", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80 },
-          { label: 'Weekly', remainingPercent: 70 },
+          { label: "5h", remainingPercent: 80 },
+          { label: "Weekly", remainingPercent: 70 },
         ],
       },
       {
-        providerID: 'github-copilot',
-        label: 'GitHub Copilot',
-        status: 'ok',
+        providerID: "github-copilot",
+        label: "GitHub Copilot",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: 'Monthly', remainingPercent: 60 }],
+        windows: [{ label: "Monthly", remainingPercent: 60 }],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    const lines = title.split('\n')
-    assert.ok(lines.includes('OAI 5h80 W70'))
-    assert.ok(lines.includes('Cop M60'))
-  })
+    );
+    const lines = title.split("\n");
+    assert.ok(lines.includes("OAI 5h80 W70"));
+    assert.ok(lines.includes("Cop M60"));
+  });
 
-  it('renders OpenAI Spark windows in compact quota tokens', () => {
+  it("renders OpenAI Spark windows in compact quota tokens", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80 },
-          { label: 'Weekly', remainingPercent: 70 },
-          { label: 'Spark 5h', remainingPercent: 100 },
-          { label: 'Spark Weekly', remainingPercent: 100 },
+          { label: "5h", remainingPercent: 80 },
+          { label: "Weekly", remainingPercent: 70 },
+          { label: "Spark 5h", remainingPercent: 100 },
+          { label: "Spark Weekly", remainingPercent: 100 },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    const lines = title.split('\n')
-    assert.ok(lines.includes('OAI 5h80 W70 Sk5h100 SkW100'))
-  })
+    );
+    const lines = title.split("\n");
+    assert.ok(lines.includes("OAI 5h80 W70 Sk5h100 SkW100"));
+  });
 
-  it('ignores unsupported provider snapshots in sidebar rendering', () => {
+  it("ignores unsupported provider snapshots in sidebar rendering", () => {
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       [
         {
-          providerID: 'openai',
-          adapterID: 'openai',
-          label: 'OpenAI',
-          status: 'ok',
+          providerID: "openai",
+          adapterID: "openai",
+          label: "OpenAI",
+          status: "ok",
           checkedAt: Date.now(),
-          windows: [{ label: '5h', remainingPercent: 80 }],
+          windows: [{ label: "5h", remainingPercent: 80 }],
         },
         {
-          providerID: 'legacy-provider',
-          adapterID: 'legacy-provider',
-          label: 'Legacy',
-          status: 'ok',
+          providerID: "legacy-provider",
+          adapterID: "legacy-provider",
+          label: "Legacy",
+          status: "ok",
           checkedAt: Date.now(),
-          windows: [{ label: 'Daily', remainingPercent: 50 }],
+          windows: [{ label: "Daily", remainingPercent: 50 }],
         },
       ],
       makeConfig(60),
-    )
+    );
 
-    assert.match(title, /OAI 5h80/)
-    assert.doesNotMatch(title, /Legacy/)
-  })
+    assert.match(title, /OAI 5h80/);
+    assert.doesNotMatch(title, /Legacy/);
+  });
 
-  it('renders Anthropic multi-window quota lines for all supported 7-day buckets', () => {
+  it("renders Anthropic multi-window quota lines for all supported 7-day buckets", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'anthropic',
-        label: 'Anthropic',
-        status: 'ok',
+        providerID: "anthropic",
+        label: "Anthropic",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80 },
-          { label: 'Weekly', remainingPercent: 70 },
-          { label: 'Sonnet 7d', remainingPercent: 65 },
-          { label: 'Opus 7d', remainingPercent: 60 },
-          { label: 'OAuth Apps 7d', remainingPercent: 55 },
-          { label: 'Cowork 7d', remainingPercent: 50 },
+          { label: "5h", remainingPercent: 80 },
+          { label: "Weekly", remainingPercent: 70 },
+          { label: "Sonnet 7d", remainingPercent: 65 },
+          { label: "Opus 7d", remainingPercent: 60 },
+          { label: "OAuth Apps 7d", remainingPercent: 55 },
+          { label: "Cowork 7d", remainingPercent: 50 },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    const lines = title.split('\n')
-    assert.ok(lines.includes('Ant 5h80 W70 S7d65 O7d60 OA7d55 Co7d50'))
-  })
+    );
+    const lines = title.split("\n");
+    assert.ok(lines.includes("Ant 5h80 W70 S7d65 O7d60 OA7d55 Co7d50"));
+  });
 
-  it('renders Kimi multi-window quota lines like other subscription providers', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
+  it("renders Kimi multi-window quota lines like other subscription providers", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'kimi-for-coding',
-        adapterID: 'kimi-for-coding',
-        label: 'Kimi For Coding',
-        shortLabel: 'Kimi',
-        status: 'ok',
+        providerID: "kimi-for-coding",
+        adapterID: "kimi-for-coding",
+        label: "Kimi For Coding",
+        shortLabel: "Kimi",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+          { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: "Weekly", remainingPercent: 72, resetAt: weeklyReset },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /Kimi 5h84 R\d+D\d{2}h W72 R\d+D\d{2}h/)
-  })
+    );
+    assert.match(title, /Kimi 5h84 R\d+D\d{2}h W72 R\d+D\d{2}h/);
+  });
 
-  it('renders MiniMax multi-window quota lines like other subscription providers', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
+  it("renders MiniMax multi-window quota lines like other subscription providers", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'minimax-cn-coding-plan',
-        adapterID: 'minimax-cn-coding-plan',
-        label: 'MiniMax Coding Plan',
-        shortLabel: 'MiniMax',
-        status: 'ok',
+        providerID: "minimax-cn-coding-plan",
+        adapterID: "minimax-cn-coding-plan",
+        label: "MiniMax Coding Plan",
+        shortLabel: "MiniMax",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-          { label: 'Weekly', remainingPercent: 64, resetAt: weeklyReset },
+          { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: "Weekly", remainingPercent: 64, resetAt: weeklyReset },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /MiniMax 5h84 R\d+D\d{2}h W64 R\d+D\d{2}h/)
-  })
+    );
+    assert.match(title, /MiniMax 5h84 R\d+D\d{2}h W64 R\d+D\d{2}h/);
+  });
 
-  it('renders Zhipu token quota like other coding-plan providers', () => {
-    const resetAt = '2026-03-29T01:51:57+08:00'
+  it("renders Zhipu token quota like other coding-plan providers", () => {
+    const resetAt = "2026-03-29T01:51:57+08:00";
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'zhipuai-coding-plan',
-        adapterID: 'zhipuai-coding-plan',
-        label: 'Zhipu Coding Plan',
-        shortLabel: 'Zhipu',
-        status: 'ok',
+        providerID: "zhipuai-coding-plan",
+        adapterID: "zhipuai-coding-plan",
+        label: "Zhipu Coding Plan",
+        shortLabel: "Zhipu",
+        status: "ok",
         checkedAt: Date.now(),
-        note: 'MAX plan',
-        windows: [{ label: '5h', remainingPercent: 99, resetAt }],
+        note: "MAX plan",
+        windows: [{ label: "5h", remainingPercent: 99, resetAt }],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /Zhipu 5h99 R/)
-    assert.doesNotMatch(title, /MCP/)
-  })
+    );
+    assert.match(title, /Zhipu 5h99 R/);
+    assert.doesNotMatch(title, /MCP/);
+  });
 
-  it('applies short-window time formatting consistently across providers', () => {
+  it("applies short-window time formatting consistently across providers", () => {
     const crossDayShortReset = new Date(
       Date.now() + 13 * 60 * 60_000,
-    ).toISOString()
+    ).toISOString();
     const futureLongReset = new Date(
       Date.now() + (7 * 24 + 19) * 60 * 60_000,
-    ).toISOString()
+    ).toISOString();
 
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        shortLabel: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        shortLabel: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80, resetAt: crossDayShortReset },
+          { label: "5h", remainingPercent: 80, resetAt: crossDayShortReset },
         ],
       },
       {
-        providerID: 'anthropic',
-        label: 'Anthropic',
-        status: 'ok',
+        providerID: "anthropic",
+        label: "Anthropic",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '1d', remainingPercent: 46, resetAt: crossDayShortReset },
+          { label: "1d", remainingPercent: 46, resetAt: crossDayShortReset },
         ],
       },
       {
-        providerID: 'github-copilot',
-        label: 'GitHub Copilot',
-        shortLabel: 'Copilot',
-        status: 'ok',
+        providerID: "github-copilot",
+        label: "GitHub Copilot",
+        shortLabel: "Copilot",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: 'Monthly', remainingPercent: 70, resetAt: futureLongReset },
+          { label: "Monthly", remainingPercent: 70, resetAt: futureLongReset },
         ],
       },
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC-openai',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC-openai",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $88.9/$60',
+            label: "Daily $88.9/$60",
             showPercent: false,
             resetAt: futureLongReset,
-            resetLabel: 'Exp',
+            resetLabel: "Exp",
           },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
+    );
 
-    assert.match(title, /OAI 5h80 R\d+h\d{2}m/)
-    assert.match(title, /Ant D46 R\d+h\d{2}m/)
-    assert.match(title, /Cop M70 R\d+D\d{2}h/)
-    assert.doesNotMatch(title, /M70 R\d+h\d{2}m/)
-    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h/)
-    assert.doesNotMatch(title, /D\$88\.9\/\$60 E\d+h\d{2}m/)
-  })
+    assert.match(title, /OAI 5h80 R\d+h\d{2}m/);
+    assert.match(title, /Ant D46 R\d+h\d{2}m/);
+    assert.match(title, /Cop M70 R\d+D\d{2}h/);
+    assert.doesNotMatch(title, /M70 R\d+h\d{2}m/);
+    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h/);
+    assert.doesNotMatch(title, /D\$88\.9\/\$60 E\d+h\d{2}m/);
+  });
 
-  it('adds blank line between title/tokens and tokens/quota', () => {
+  it("adds blank line between title/tokens and tokens/quota", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: '5h', remainingPercent: 80 }],
+        windows: [{ label: "5h", remainingPercent: 80 }],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    const lines = title.split('\n')
+    );
+    const lines = title.split("\n");
 
-    assert.equal(lines[1], '')
+    assert.equal(lines[1], "");
 
-    const firstQuotaIndex = lines.findIndex((line) => line.startsWith('OAI'))
-    assert.ok(firstQuotaIndex > 0)
-    assert.equal(lines[firstQuotaIndex - 1], '')
-  })
+    const firstQuotaIndex = lines.findIndex((line) => line.startsWith("OAI"));
+    assert.ok(firstQuotaIndex > 0);
+    assert.equal(lines[firstQuotaIndex - 1], "");
+  });
 
-  it('never emits ANSI escapes and respects width truncation', () => {
+  it("never emits ANSI escapes and respects width truncation", () => {
     const title = renderSidebarTitle(
-      'A very very very long session title',
+      "A very very very long session title",
       makeUsage({ reasoning: 1234, cacheWrite: 999 }),
       [],
       makeConfig(20),
-    )
-    assert.doesNotMatch(title, /\u001b/)
-    for (const line of title.split('\n')) {
-      assert.ok(line.length <= 20)
+    );
+    assert.doesNotMatch(title, /\u001b/);
+    for (const line of title.split("\n")) {
+      assert.ok(line.length <= 20);
     }
-  })
+  });
 
-  it('strips ANSI from base title', () => {
+  it("strips ANSI from base title", () => {
     const title = renderSidebarTitle(
-      '\u001b[2mSession\u001b[0m',
+      "\u001b[2mSession\u001b[0m",
       makeUsage(),
       [],
       makeConfig(60),
-    )
-    assert.doesNotMatch(title, /\u001b/)
-    assert.equal(title.split('\n')[0], 'Session')
-  })
+    );
+    assert.doesNotMatch(title, /\u001b/);
+    assert.equal(title.split("\n")[0], "Session");
+  });
 
-  it('truncates base title by terminal cell width (CJK safe)', () => {
+  it("truncates base title by terminal cell width (CJK safe)", () => {
     const title = renderSidebarTitle(
-      '你好你好你好',
+      "你好你好你好",
       makeUsage(),
       [],
       // Sidebar width is clamped to a safe minimum (8).
       makeConfig(8),
-    )
-    assert.equal(title.split('\n')[0], '你好你~')
-  })
+    );
+    assert.equal(title.split("\n")[0], "你好你~");
+  });
 
-  it('omits reasoning/cache write lines when value is zero', () => {
+  it("omits reasoning/cache write lines when value is zero", () => {
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage({ reasoning: 0, cacheWrite: 0, cacheRead: 0 }),
       [],
       makeConfig(60),
-    )
-    assert.doesNotMatch(title, /Reasoning/)
-    assert.doesNotMatch(title, /Cache Write/)
-    assert.doesNotMatch(title, /Cache Read/)
-  })
+    );
+    assert.doesNotMatch(title, /Reasoning/);
+    assert.doesNotMatch(title, /Cache Write/);
+    assert.doesNotMatch(title, /Cache Read/);
+  });
 
-  it('never renders a separate reasoning line', () => {
+  it("never renders a separate reasoning line", () => {
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage({ reasoning: 1234 }),
       [],
       makeConfig(60),
-    )
-    assert.doesNotMatch(title, /Reasoning/)
-  })
+    );
+    assert.doesNotMatch(title, /Reasoning/);
+  });
 
-  it('respects sidebar.showQuota=false', () => {
-    const config = makeConfig(60)
-    config.sidebar.showQuota = false
-    config.sidebar.wrapQuotaLines = false
+  it("respects sidebar.showQuota=false", () => {
+    const config = makeConfig(60);
+    config.sidebar.showQuota = false;
+    config.sidebar.wrapQuotaLines = false;
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        status: "ok",
         checkedAt: Date.now(),
         remainingPercent: 90,
       },
-    ]
-    const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
-    assert.doesNotMatch(title, /OpenAI/)
-  })
+    ];
+    const title = renderSidebarTitle("Session", makeUsage(), quotas, config);
+    assert.doesNotMatch(title, /OpenAI/);
+  });
 
-  it('respects sidebar.showQuota=false in compact desktop titles', () => {
-    const previousClient = process.env.OPENCODE_CLIENT
-    process.env.OPENCODE_CLIENT = 'desktop'
+  it("respects sidebar.showQuota=false in compact desktop titles", () => {
+    const previousClient = process.env.OPENCODE_CLIENT;
+    process.env.OPENCODE_CLIENT = "desktop";
     try {
-      const config = makeConfig(120)
-      config.sidebar.titleMode = 'auto'
-      config.sidebar.showQuota = false
+      const config = makeConfig(120);
+      config.sidebar.titleMode = "auto";
+      config.sidebar.showQuota = false;
       const title = renderSidebarTitle(
-        'Session',
+        "Session",
         makeUsage({
-          recentProviders: [{ providerID: 'openai', completedAt: Date.now() }],
+          recentProviders: [{ providerID: "openai", completedAt: Date.now() }],
         }),
         [
           {
-            providerID: 'openai',
-            adapterID: 'openai',
-            label: 'OpenAI',
-            status: 'ok',
+            providerID: "openai",
+            adapterID: "openai",
+            label: "OpenAI",
+            status: "ok",
             checkedAt: Date.now(),
-            windows: [{ label: '5h', remainingPercent: 80 }],
+            windows: [{ label: "5h", remainingPercent: 80 }],
           },
         ],
         config,
-      )
+      );
 
-      assert.doesNotMatch(title, /OAI 5h80/)
-      assert.match(title, /Cd63%|Cd 63%/)
+      assert.doesNotMatch(title, /OAI 5h80/);
+      assert.match(title, /Cd63%|Cd 63%/);
     } finally {
-      process.env.OPENCODE_CLIENT = previousClient
+      process.env.OPENCODE_CLIENT = previousClient;
     }
-  })
+  });
 
-  it('keeps multi-detail providers in wrapped layout when wrapQuotaLines=false', () => {
-    const config = makeConfig(60)
-    config.sidebar.wrapQuotaLines = false
+  it("keeps multi-detail providers in wrapped layout when wrapQuotaLines=false", () => {
+    const config = makeConfig(60);
+    config.sidebar.wrapQuotaLines = false;
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        shortLabel: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        shortLabel: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80 },
-          { label: 'Weekly', remainingPercent: 70 },
+          { label: "5h", remainingPercent: 80 },
+          { label: "Weekly", remainingPercent: 70 },
         ],
       },
-    ]
+    ];
 
-    const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
-    const lines = title.split('\n')
-    assert.ok(lines.includes('OAI 5h80 W70'))
-  })
+    const title = renderSidebarTitle("Session", makeUsage(), quotas, config);
+    const lines = title.split("\n");
+    assert.ok(lines.includes("OAI 5h80 W70"));
+  });
 
-  it('renders balance-style quota lines', () => {
+  it("renders balance-style quota lines", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         balance: {
           amount: 258.31,
-          currency: '$',
+          currency: "$",
         },
       },
-    ]
+    ];
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /RC B258\.3/)
-  })
+    );
+    assert.match(title, /RC B258\.3/);
+  });
 
-  it('renders reset time and indented multi-window lines', () => {
+  it("renders reset time and indented multi-window lines", () => {
     const sameDayReset = new Date(
       Date.now() + (4 * 60 + 20) * 60_000,
-    ).toISOString()
+    ).toISOString();
     const weeklyReset = new Date(
       Date.now() + (7 * 24 + 12) * 60 * 60_000,
-    ).toISOString()
+    ).toISOString();
     const dailyReset = new Date(
       Date.now() + (13 * 60 + 30) * 60_000,
-    ).toISOString()
+    ).toISOString();
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        shortLabel: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        shortLabel: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 80, resetAt: sameDayReset },
-          { label: '1d', remainingPercent: 65, resetAt: dailyReset },
-          { label: 'Weekly', remainingPercent: 70, resetAt: weeklyReset },
+          { label: "5h", remainingPercent: 80, resetAt: sameDayReset },
+          { label: "1d", remainingPercent: 65, resetAt: dailyReset },
+          { label: "Weekly", remainingPercent: 70, resetAt: weeklyReset },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /OAI 5h80 R\d+h\d{2}m/)
-    assert.match(title, /D65 R\d+h\d{2}m/)
-    assert.match(title, /W70 R\d+D\d{2}h/)
-  })
+    );
+    assert.match(title, /OAI 5h80 R\d+h\d{2}m/);
+    assert.match(title, /D65 R\d+h\d{2}m/);
+    assert.match(title, /W70 R\d+D\d{2}h/);
+  });
 
-  it('renders RightCode daily quota without trailing percent and shows balance', () => {
+  it("renders RightCode daily quota without trailing percent and shows balance", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         balance: {
           amount: 259.97,
-          currency: '$',
+          currency: "$",
         },
         windows: [
           {
-            label: 'Daily $88.9/$60',
+            label: "Daily $88.9/$60",
             showPercent: false,
             remainingPercent: 148,
-            resetAt: '2026-02-27T02:50:08Z',
-            resetLabel: 'Exp',
+            resetAt: "2026-02-27T02:50:08Z",
+            resetLabel: "Exp",
           },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h B260/)
-    assert.doesNotMatch(title, /RC\s+D\$88\.9\/\$60\s+148/)
-  })
+    );
+    assert.match(title, /RC D\$88\.9\/\$60 E\d+D\d{2}h B260/);
+    assert.doesNotMatch(title, /RC\s+D\$88\.9\/\$60\s+148/);
+  });
 
-  it('renders Exp+ for RightCode when multiple expiries exist', () => {
+  it("renders Exp+ for RightCode when multiple expiries exist", () => {
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $88.9/$60',
+            label: "Daily $88.9/$60",
             showPercent: false,
-            resetAt: '2026-02-27T02:50:08Z',
-            resetLabel: 'Exp+',
+            resetAt: "2026-02-27T02:50:08Z",
+            resetLabel: "Exp+",
           },
         ],
       },
-    ]
+    ];
 
     const title = renderSidebarTitle(
-      'Session',
+      "Session",
       makeUsage(),
       quotas,
       makeConfig(60),
-    )
-    assert.match(title, /RC D\$88\.9\/\$60 E\+\d+D\d{2}h/)
-  })
+    );
+    assert.match(title, /RC D\$88\.9\/\$60 E\+\d+D\d{2}h/);
+  });
 
-  it('shows all used providers in sidebar', () => {
-    const config = makeConfig(60)
+  it("shows all used providers in sidebar", () => {
+    const config = makeConfig(60);
     const quotas: QuotaSnapshot[] = [
       {
-        providerID: 'openai',
-        label: 'OpenAI Codex',
-        shortLabel: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI Codex",
+        shortLabel: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: '5h', remainingPercent: 80 }],
+        windows: [{ label: "5h", remainingPercent: 80 }],
       },
       {
-        providerID: 'github-copilot',
-        label: 'GitHub Copilot',
-        shortLabel: 'Copilot',
-        status: 'ok',
+        providerID: "github-copilot",
+        label: "GitHub Copilot",
+        shortLabel: "Copilot",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: 'Monthly', remainingPercent: 60 }],
+        windows: [{ label: "Monthly", remainingPercent: 60 }],
       },
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: 'Daily $88/$60', showPercent: false }],
+        windows: [{ label: "Daily $88/$60", showPercent: false }],
       },
-    ]
-    const title = renderSidebarTitle('Session', makeUsage(), quotas, config)
-    assert.match(title, /OAI 5h80/)
-    assert.match(title, /Cop M60/)
-    assert.match(title, /RC D\$88\/\$60/)
-  })
-})
+    ];
+    const title = renderSidebarTitle("Session", makeUsage(), quotas, config);
+    assert.match(title, /OAI 5h80/);
+    assert.match(title, /Cop M60/);
+    assert.match(title, /RC D\$88\/\$60/);
+  });
+});
 
-describe('renderMarkdownReport', () => {
-  it('renders cached summary line when cache buckets are available', () => {
+describe("renderMarkdownReport", () => {
+  it("renders cached summary line when cache buckets are available", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         cacheRead: 1200,
         cacheWrite: 300,
@@ -1167,18 +1166,18 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: true },
-    )
+    );
 
-    assert.match(report, /Cached: 44\.4%/)
-  })
+    assert.match(report, /Cached: 44\.4%/);
+  });
 
-  it('hides cost columns when showCost=false', () => {
+  it("hides cost columns when showCost=false", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         providers: {
           openai: {
-            providerID: 'openai',
+            providerID: "openai",
             input: 100,
             output: 200,
             reasoning: 0,
@@ -1193,18 +1192,18 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: false },
-    )
-    assert.doesNotMatch(report, /\| Cost \|/)
-    assert.doesNotMatch(report, /Measured cost/)
-  })
+    );
+    assert.doesNotMatch(report, /\| Cost \|/);
+    assert.doesNotMatch(report, /Measured cost/);
+  });
 
-  it('renders API cost with two decimals when showCost=true', () => {
+  it("renders API cost with two decimals when showCost=true", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         providers: {
           openai: {
-            providerID: 'openai',
+            providerID: "openai",
             input: 100,
             output: 200,
             reasoning: 0,
@@ -1215,8 +1214,8 @@ describe('renderMarkdownReport', () => {
             apiCost: 0.3456,
             assistantMessages: 1,
           },
-          'github-copilot': {
-            providerID: 'github-copilot',
+          "github-copilot": {
+            providerID: "github-copilot",
             input: 10,
             output: 20,
             reasoning: 0,
@@ -1231,39 +1230,39 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: true },
-    )
-    assert.match(report, /API cost: \$2\.34/)
-    assert.match(report, /Measured cost: -/)
-    assert.match(report, /Requests: 3/)
+    );
+    assert.match(report, /API cost: \$2\.34/);
+    assert.match(report, /Measured cost: -/);
+    assert.match(report, /Requests: 3/);
     assert.match(
       report,
       /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cached \| Measured Cost \| API Cost \|/,
-    )
+    );
     assert.match(
       report,
       /\| openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$0\.35 \|/,
-    )
+    );
     assert.match(
       report,
       /\| github-copilot \| 1 \| 10 \| 20 \| 0 \| 30 \| - \| - \| - \|/,
-    )
-    assert.match(report, /### Usage by Provider\n\n\| Provider \|/)
+    );
+    assert.match(report, /### Usage by Provider\n\n\| Provider \|/);
     assert.match(
       report,
       /\| --- \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \| ---: \|/,
-    )
-    assert.match(report, /### Quota Status\n\n-/)
-  })
+    );
+    assert.match(report, /### Quota Status\n\n-/);
+  });
 
-  it('uses N/A values when only Copilot usage exists', () => {
+  it("uses N/A values when only Copilot usage exists", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         cost: 0,
         apiCost: 0,
         providers: {
-          'github-copilot': {
-            providerID: 'github-copilot',
+          "github-copilot": {
+            providerID: "github-copilot",
             input: 10,
             output: 20,
             reasoning: 0,
@@ -1278,20 +1277,20 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: true },
-    )
-    assert.match(report, /Measured cost: -/)
-    assert.match(report, /API cost: -/)
-  })
+    );
+    assert.match(report, /Measured cost: -/);
+    assert.match(report, /API cost: -/);
+  });
 
-  it('treats RightCode daily window providers as subscription for measured cost', () => {
+  it("treats RightCode daily window providers as subscription for measured cost", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         cost: 1.2345,
         apiCost: 2.34,
         providers: {
-          'rightcode-openai': {
-            providerID: 'rightcode-openai',
+          "rightcode-openai": {
+            providerID: "rightcode-openai",
             input: 100,
             output: 200,
             reasoning: 0,
@@ -1306,33 +1305,33 @@ describe('renderMarkdownReport', () => {
       }),
       [
         {
-          providerID: 'rightcode-openai',
-          adapterID: 'rightcode',
-          label: 'RightCode',
-          shortLabel: 'RC-openai',
-          status: 'ok',
+          providerID: "rightcode-openai",
+          adapterID: "rightcode",
+          label: "RightCode",
+          shortLabel: "RC-openai",
+          status: "ok",
           checkedAt: Date.now(),
-          windows: [{ label: 'Daily $55.6/$60', showPercent: false }],
+          windows: [{ label: "Daily $55.6/$60", showPercent: false }],
         },
       ],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| - \| \$4\.57 \|/,
-    )
-  })
+    );
+  });
 
-  it('does not treat RightCode balance-only providers as subscription for measured cost', () => {
+  it("does not treat RightCode balance-only providers as subscription for measured cost", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         cost: 1.2345,
         apiCost: 2.34,
         providers: {
-          'rightcode-openai': {
-            providerID: 'rightcode-openai',
+          "rightcode-openai": {
+            providerID: "rightcode-openai",
             input: 100,
             output: 200,
             reasoning: 0,
@@ -1347,27 +1346,27 @@ describe('renderMarkdownReport', () => {
       }),
       [
         {
-          providerID: 'rightcode-openai',
-          adapterID: 'rightcode',
-          label: 'RightCode',
-          shortLabel: 'RC-openai',
-          status: 'ok',
+          providerID: "rightcode-openai",
+          adapterID: "rightcode",
+          label: "RightCode",
+          shortLabel: "RC-openai",
+          status: "ok",
           checkedAt: Date.now(),
-          balance: { amount: 123.45, currency: '$' },
+          balance: { amount: 123.45, currency: "$" },
         },
       ],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /\| rightcode-openai \| 1 \| 100 \| 200 \| 0 \| 300 \| - \| \$9\.88 \| \$4\.57 \|/,
-    )
-  })
+    );
+  });
 
-  it('renders provider-level cached column and highlight in markdown', () => {
+  it("renders provider-level cached column and highlight in markdown", () => {
     const report = renderMarkdownReport(
-      'week',
+      "week",
       makeUsage({
         input: 700,
         output: 880,
@@ -1391,7 +1390,7 @@ describe('renderMarkdownReport', () => {
         },
         providers: {
           openai: {
-            providerID: 'openai',
+            providerID: "openai",
             input: 300,
             output: 400,
             reasoning: 0,
@@ -1417,7 +1416,7 @@ describe('renderMarkdownReport', () => {
             },
           },
           anthropic: {
-            providerID: 'anthropic',
+            providerID: "anthropic",
             input: 400,
             output: 480,
             reasoning: 0,
@@ -1446,120 +1445,120 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: true },
-    )
+    );
 
-    assert.match(report, /### Highlights/)
-    assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/)
-    assert.match(report, /Best Cached Ratio: OpenAI \(75%\)/)
+    assert.match(report, /### Highlights/);
+    assert.match(report, /Top API cost: OpenAI \(\$8\.30\)/);
+    assert.match(report, /Best Cached Ratio: OpenAI \(75%\)/);
     assert.match(
       report,
       /\| Provider \| Requests \| Input \| Output \| Cache \| Total \| Cached \| Measured Cost \| API Cost \|/,
-    )
+    );
     assert.match(
       report,
       /\| openai \| 2 \| 300 \| 400 \| 900 \| 1\.6k \| 75% \| - \| \$8\.30 \|/,
-    )
+    );
     assert.match(
       report,
       /\| anthropic \| 2 \| 400 \| 480 \| 600 \| 1\.5k \| 42\.9% \| - \| \$6\.52 \|/,
-    )
-  })
+    );
+  });
 
-  it('uses compact reset formatting in markdown report for short windows', () => {
-    const shortReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString()
+  it("uses compact reset formatting in markdown report for short windows", () => {
+    const shortReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString();
     const monthlyReset = new Date(
       Date.now() + (10 * 24 + 19) * 60 * 60_000,
-    ).toISOString()
+    ).toISOString();
 
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'anthropic',
-          label: 'Anthropic',
-          status: 'ok',
+          providerID: "anthropic",
+          label: "Anthropic",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
-            { label: '5h', remainingPercent: 0, resetAt: shortReset },
-            { label: 'Weekly', remainingPercent: 46, resetAt: monthlyReset },
+            { label: "5h", remainingPercent: 0, resetAt: shortReset },
+            { label: "Weekly", remainingPercent: 46, resetAt: monthlyReset },
           ],
         },
         {
-          providerID: 'openai',
-          adapterID: 'rightcode',
-          label: 'RightCode',
-          shortLabel: 'RC',
-          status: 'ok',
+          providerID: "openai",
+          adapterID: "rightcode",
+          label: "RightCode",
+          shortLabel: "RC",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
             {
-              label: 'Daily $88.9/$60',
+              label: "Daily $88.9/$60",
               showPercent: false,
               resetAt: monthlyReset,
-              resetLabel: 'Exp',
+              resetLabel: "Exp",
             },
           ],
         },
       ],
       { showCost: true },
-    )
+    );
 
-    const lines = report.split('\n')
-    const anthro5h = lines.find((line) => line.startsWith('- Anthropic (5h):'))
+    const lines = report.split("\n");
+    const anthro5h = lines.find((line) => line.startsWith("- Anthropic (5h):"));
     const anthroWeekly = lines.find((line) =>
-      line.startsWith('- Anthropic (Weekly):'),
-    )
+      line.startsWith("- Anthropic (Weekly):"),
+    );
     const rightCodeDaily = lines.find((line) =>
-      line.startsWith('- RC (Daily $88.9/$60):'),
-    )
+      line.startsWith("- RC (Daily $88.9/$60):"),
+    );
 
-    assert.match(anthro5h || '', /reset \d+h\d{2}m$/)
-    assert.match(anthroWeekly || '', /reset \d+D\d{2}h$/)
-    assert.match(rightCodeDaily || '', /reset \d+D\d{2}h$/)
-  })
+    assert.match(anthro5h || "", /reset \d+h\d{2}m$/);
+    assert.match(anthroWeekly || "", /reset \d+D\d{2}h$/);
+    assert.match(rightCodeDaily || "", /reset \d+D\d{2}h$/);
+  });
 
-  it('renders Kimi markdown report like other subscription providers', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
+  it("renders Kimi markdown report like other subscription providers", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'kimi-for-coding',
-          adapterID: 'kimi-for-coding',
-          label: 'Kimi For Coding',
-          shortLabel: 'Kimi',
-          status: 'ok',
+          providerID: "kimi-for-coding",
+          adapterID: "kimi-for-coding",
+          label: "Kimi For Coding",
+          shortLabel: "Kimi",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
-            { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-            { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+            { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+            { label: "Weekly", remainingPercent: 72, resetAt: weeklyReset },
           ],
         },
       ],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /- Kimi \(5h\): ok \\\| remaining 84\.0% \\\| reset \d+D\d{2}h/,
-    )
+    );
     assert.match(
       report,
       /- Kimi \(Weekly\): ok \\\| remaining 72\.0% \\\| reset \d+D\d{2}h/,
-    )
-  })
+    );
+  });
 
-  it('renders Kimi API cost in markdown provider table', () => {
+  it("renders Kimi API cost in markdown provider table", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         apiCost: 0.14,
         providers: {
-          'kimi-for-coding': {
-            providerID: 'kimi-for-coding',
+          "kimi-for-coding": {
+            providerID: "kimi-for-coding",
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -1574,25 +1573,25 @@ describe('renderMarkdownReport', () => {
       }),
       [],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /\| kimi-for-coding \| 1 \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| 33\.3% \| \$0\.00 \| \$0\.14 \|/,
-    )
-    assert.match(report, /- API cost: \$0\.14/)
-  })
+    );
+    assert.match(report, /- API cost: \$0\.14/);
+  });
 
-  it('renders MiniMax markdown report and API cost like other subscription providers', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
+  it("renders MiniMax markdown report and API cost like other subscription providers", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage({
         apiCost: 0.06,
         providers: {
-          'minimax-cn-coding-plan': {
-            providerID: 'minimax-cn-coding-plan',
+          "minimax-cn-coding-plan": {
+            providerID: "minimax-cn-coding-plan",
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -1607,167 +1606,167 @@ describe('renderMarkdownReport', () => {
       }),
       [
         {
-          providerID: 'minimax-cn-coding-plan',
-          adapterID: 'minimax-cn-coding-plan',
-          label: 'MiniMax Coding Plan',
-          shortLabel: 'MiniMax',
-          status: 'ok',
+          providerID: "minimax-cn-coding-plan",
+          adapterID: "minimax-cn-coding-plan",
+          label: "MiniMax Coding Plan",
+          shortLabel: "MiniMax",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
-            { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-            { label: 'Weekly', remainingPercent: 64, resetAt: weeklyReset },
+            { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+            { label: "Weekly", remainingPercent: 64, resetAt: weeklyReset },
           ],
         },
       ],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /- MiniMax \(5h\): ok \\| remaining 84\.0% \\| reset \d+D\d{2}h/,
-    )
+    );
     assert.match(
       report,
       /- MiniMax \(Weekly\): ok \\| remaining 64\.0% \\| reset \d+D\d{2}h/,
-    )
+    );
     assert.match(
       report,
       /\| minimax-cn-coding-plan \| 1 \| 100\.0k \| 25\.0k \| 50\.0k \| 175\.0k \| 33\.3% \| \$0\.00 \| \$0\.06 \|/,
-    )
-    assert.match(report, /- API cost: \$0\.06/)
-  })
+    );
+    assert.match(report, /- API cost: \$0\.06/);
+  });
 
-  it('hides unsupported and unavailable quota snapshots in markdown', () => {
+  it("hides unsupported and unavailable quota snapshots in markdown", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'anthropic',
-          adapterID: 'anthropic',
-          label: 'Anthropic',
-          shortLabel: 'Anthropic',
-          status: 'unsupported',
+          providerID: "anthropic",
+          adapterID: "anthropic",
+          label: "Anthropic",
+          shortLabel: "Anthropic",
+          status: "unsupported",
           checkedAt: Date.now(),
-          note: 'oauth quota endpoint is not publicly documented',
+          note: "oauth quota endpoint is not publicly documented",
         },
         {
-          providerID: 'kimi-for-coding',
-          adapterID: 'kimi-for-coding',
-          label: 'Kimi',
-          shortLabel: 'Kimi',
-          status: 'unavailable',
+          providerID: "kimi-for-coding",
+          adapterID: "kimi-for-coding",
+          label: "Kimi",
+          shortLabel: "Kimi",
+          status: "unavailable",
           checkedAt: Date.now(),
         },
       ],
       { showCost: true },
-    )
+    );
 
-    assert.doesNotMatch(report, /Anthropic: unsupported/)
-    assert.doesNotMatch(report, /Kimi: unavailable/)
+    assert.doesNotMatch(report, /Anthropic: unsupported/);
+    assert.doesNotMatch(report, /Kimi: unavailable/);
     assert.match(
       report,
       /### Quota Status\n\n- no provider quota data available/,
-    )
-  })
+    );
+  });
 
-  it('keeps real quota fetch errors visible in markdown', () => {
+  it("keeps real quota fetch errors visible in markdown", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'anthropic',
-          adapterID: 'anthropic',
-          label: 'Anthropic',
-          shortLabel: 'Anthropic',
-          status: 'error',
+          providerID: "anthropic",
+          adapterID: "anthropic",
+          label: "Anthropic",
+          shortLabel: "Anthropic",
+          status: "error",
           checkedAt: Date.now(),
-          note: 'quota endpoint returned 500',
+          note: "quota endpoint returned 500",
         },
       ],
       { showCost: true },
-    )
+    );
 
-    assert.match(report, /- Anthropic: error \\| quota endpoint returned 500/)
-  })
+    assert.match(report, /- Anthropic: error \\| quota endpoint returned 500/);
+  });
 
-  it('shows stale quota markers in markdown', () => {
+  it("shows stale quota markers in markdown", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'anthropic',
-          adapterID: 'anthropic',
-          label: 'Anthropic',
-          shortLabel: 'Anthropic',
-          status: 'ok',
+          providerID: "anthropic",
+          adapterID: "anthropic",
+          label: "Anthropic",
+          shortLabel: "Anthropic",
+          status: "ok",
           checkedAt: Date.now(),
           stale: {
             staleAt: Date.now(),
-            staleReason: 'timeout',
-            staleReasonKind: 'timeout',
+            staleReason: "timeout",
+            staleReasonKind: "timeout",
           },
-          windows: [{ label: '5h', remainingPercent: 80 }],
+          windows: [{ label: "5h", remainingPercent: 80 }],
         },
       ],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /- Anthropic \(5h\): ok \\| remaining 80\.0% \\| reset - \\| stale/,
-    )
-  })
+    );
+  });
 
-  it('uses display labels for markdown quota lines', () => {
+  it("uses display labels for markdown quota lines", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'rightcode-openai',
-          adapterID: 'rightcode',
-          label: 'RightCode',
-          shortLabel: 'RC-openai',
-          status: 'ok',
+          providerID: "rightcode-openai",
+          adapterID: "rightcode",
+          label: "RightCode",
+          shortLabel: "RC-openai",
+          status: "ok",
           checkedAt: Date.now(),
-          balance: { amount: 8.5, currency: '$' },
+          balance: { amount: 8.5, currency: "$" },
         },
       ],
       { showCost: true },
-    )
+    );
 
-    assert.match(report, /- RC-openai: ok \\| balance \$8\.50/)
-  })
+    assert.match(report, /- RC-openai: ok \\| balance \$8\.50/);
+  });
 
-  it('preserves negative balances in markdown reports', () => {
+  it("preserves negative balances in markdown reports", () => {
     const report = renderMarkdownReport(
-      'session',
+      "session",
       makeUsage(),
       [
         {
-          providerID: 'rightcode',
-          adapterID: 'rightcode',
-          label: 'RightCode',
-          shortLabel: 'RC',
-          status: 'ok',
+          providerID: "rightcode",
+          adapterID: "rightcode",
+          label: "RightCode",
+          shortLabel: "RC",
+          status: "ok",
           checkedAt: Date.now(),
-          balance: { amount: -2.5, currency: '$' },
+          balance: { amount: -2.5, currency: "$" },
         },
       ],
       { showCost: true },
-    )
+    );
 
-    assert.match(report, /- RightCode: ok \\| balance -\$2\.50/)
-  })
-})
+    assert.match(report, /- RightCode: ok \\| balance -\$2\.50/);
+  });
+});
 
-describe('renderHistoryMarkdownReport', () => {
-  it('keeps zero-usage periods in the breakdown and marks the current row', () => {
+describe("renderHistoryMarkdownReport", () => {
+  it("keeps zero-usage periods in the breakdown and marks the current row", () => {
     const openaiProvider = {
-      providerID: 'openai',
+      providerID: "openai",
       input: 100,
       output: 0,
       reasoning: 0,
@@ -1777,23 +1776,23 @@ describe('renderHistoryMarkdownReport', () => {
       cost: 0,
       apiCost: 1.25,
       assistantMessages: 2,
-    }
+    };
     const report = renderHistoryMarkdownReport(
       {
-        period: 'day',
+        period: "day",
         since: {
-          raw: '2026-02-18',
-          precision: 'day',
+          raw: "2026-02-18",
+          precision: "day",
           startAt: new Date(2026, 1, 18).getTime(),
         },
         rows: [
           {
             range: {
-              period: 'day',
+              period: "day",
               startAt: new Date(2026, 1, 18).getTime(),
               endAt: new Date(2026, 1, 19).getTime(),
-              label: '2026-02-18',
-              shortLabel: '02-18',
+              label: "2026-02-18",
+              shortLabel: "02-18",
               isCurrent: false,
               isPartial: false,
               index: 0,
@@ -1811,11 +1810,11 @@ describe('renderHistoryMarkdownReport', () => {
           },
           {
             range: {
-              period: 'day',
+              period: "day",
               startAt: new Date(2026, 1, 19).getTime(),
               endAt: new Date(2026, 1, 20).getTime(),
-              label: '2026-02-19',
-              shortLabel: '02-19',
+              label: "2026-02-19",
+              shortLabel: "02-19",
               isCurrent: true,
               isPartial: true,
               index: 1,
@@ -1852,53 +1851,53 @@ describe('renderHistoryMarkdownReport', () => {
       },
       [],
       { showCost: true },
-    )
+    );
 
     assert.match(
       report,
       /\| 2026-02-18 \| 0 \| 0 \| 0 \| 0 \| - \| 0 \| \$0\.00 \|/,
-    )
+    );
     assert.match(
       report,
       /\| 2026-02-19\* \| 2 \| 100 \| 0 \| 50 \| 33\.3% \| 150 \| \$1\.25 \|/,
-    )
-    assert.match(report, /### Quota Status/)
-    assert.match(report, /### Totals/)
-    assert.match(report, /\| Requests \| 2 \| 1 \|/)
-    assert.match(report, /\| Total Tokens \| 150 \| 75 \|/)
-    assert.match(report, /\| Cache Hit \| 33\.3% \| 33\.3% \|/)
-    assert.match(report, /\| API Cost \| \$1\.25 \| \$0\.63 \|/)
-    assert.match(report, /### Provider Breakdown/)
+    );
+    assert.match(report, /### Quota Status/);
+    assert.match(report, /### Totals/);
+    assert.match(report, /\| Requests \| 2 \| 1 \|/);
+    assert.match(report, /\| Total Tokens \| 150 \| 75 \|/);
+    assert.match(report, /\| Cache Hit \| 33\.3% \| 33\.3% \|/);
+    assert.match(report, /\| API Cost \| \$1\.25 \| \$0\.63 \|/);
+    assert.match(report, /### Provider Breakdown/);
     assert.match(
       report,
       /\| OpenAI \| 2 \| 100 \| 0 \| 150 \| 100% \| 33\.3% \| \$1\.25 \|/,
-    )
-    assert.match(report, /### Period Detail/)
+    );
+    assert.match(report, /### Period Detail/);
     assert.doesNotMatch(
       report,
       /### Summary|### Metrics|### Trend|### Provider Mix/,
-    )
-    assert.doesNotMatch(report, /### Chart \(/)
-    assert.doesNotMatch(report, /### Total Summary/)
-  })
+    );
+    assert.doesNotMatch(report, /### Chart \(/);
+    assert.doesNotMatch(report, /### Total Summary/);
+  });
 
-  it('omits API cost column and chart when showCost=false', () => {
+  it("omits API cost column and chart when showCost=false", () => {
     const report = renderHistoryMarkdownReport(
       {
-        period: 'month',
+        period: "month",
         since: {
-          raw: '2026-01',
-          precision: 'month',
+          raw: "2026-01",
+          precision: "month",
           startAt: new Date(2026, 0, 1).getTime(),
         },
         rows: [
           {
             range: {
-              period: 'month',
+              period: "month",
               startAt: new Date(2026, 0, 1).getTime(),
               endAt: new Date(2026, 1, 1).getTime(),
-              label: 'Jan 2026',
-              shortLabel: '2026-01',
+              label: "Jan 2026",
+              shortLabel: "2026-01",
               isCurrent: false,
               isPartial: false,
               index: 0,
@@ -1929,29 +1928,29 @@ describe('renderHistoryMarkdownReport', () => {
       },
       [],
       { showCost: false },
-    )
+    );
 
-    assert.doesNotMatch(report, /API Cost/)
-    assert.match(report, /### Quota Status/)
-    assert.match(report, /### Totals/)
-    assert.match(report, /### Provider Breakdown/)
-    assert.match(report, /### Period Detail/)
+    assert.doesNotMatch(report, /API Cost/);
+    assert.match(report, /### Quota Status/);
+    assert.match(report, /### Totals/);
+    assert.match(report, /### Provider Breakdown/);
+    assert.match(report, /### Period Detail/);
     assert.match(
       report,
       /\| Period \| Requests \| Input \| Output \| Cache \| Cache Hit \| Total \|/,
-    )
-    assert.doesNotMatch(report, /### Chart \(/)
+    );
+    assert.doesNotMatch(report, /### Chart \(/);
     assert.doesNotMatch(
       report,
       /### Summary|### Metrics|### Trend|### Provider Mix|### Total Summary/,
-    )
-  })
-})
+    );
+  });
+});
 
-describe('renderToastMessage', () => {
-  it('shows cached row in the token usage section', () => {
+describe("renderToastMessage", () => {
+  it("shows cached row in the token usage section", () => {
     const toast = renderToastMessage(
-      'session',
+      "session",
       makeUsage({
         cacheRead: 1200,
         cacheWrite: 300,
@@ -1971,156 +1970,156 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
+    );
 
-    assert.match(toast, /Cached\s+44\.4%/)
-  })
+    assert.match(toast, /Cached\s+44\.4%/);
+  });
 
-  it('uses aligned token and quota sections with blank line separation', () => {
+  it("uses aligned token and quota sections with blank line separation", () => {
     const sameDayReset = new Date(
       Date.now() + (4 * 60 + 20) * 60_000,
-    ).toISOString()
-    const toast = renderToastMessage('week', makeUsage(), [
+    ).toISOString();
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'openai',
-        label: 'OpenAI',
-        status: 'ok',
+        providerID: "openai",
+        label: "OpenAI",
+        status: "ok",
         checkedAt: Date.now(),
-        windows: [{ label: '5h', remainingPercent: 80, resetAt: sameDayReset }],
+        windows: [{ label: "5h", remainingPercent: 80, resetAt: sameDayReset }],
       },
-    ])
+    ]);
 
-    const lines = toast.split('\n')
-    assert.equal(lines[1], '')
-    assert.equal(lines[2], 'Token Usage')
-    assert.ok(lines.some((line) => /Requests\s+3$/.test(line)))
-    assert.ok(!lines.some((line) => /API Cost\s+\$2\.34$/.test(line)))
-    const quotaHeaderIndex = lines.findIndex((line) => line === 'Quota')
-    assert.ok(quotaHeaderIndex > 0)
-    assert.equal(lines[quotaHeaderIndex - 1], '')
-    assert.ok(lines.some((line) => /OpenAI\s+5h 80\.0% Rst/.test(line)))
-  })
+    const lines = toast.split("\n");
+    assert.equal(lines[1], "");
+    assert.equal(lines[2], "Token Usage");
+    assert.ok(lines.some((line) => /Requests\s+3$/.test(line)));
+    assert.ok(!lines.some((line) => /API Cost\s+\$2\.34$/.test(line)));
+    const quotaHeaderIndex = lines.findIndex((line) => line === "Quota");
+    assert.ok(quotaHeaderIndex > 0);
+    assert.equal(lines[quotaHeaderIndex - 1], "");
+    assert.ok(lines.some((line) => /OpenAI\s+5h 80\.0% Rst/.test(line)));
+  });
 
-  it('shows countdown for short quota windows in toast', () => {
-    const tomorrowReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString()
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("shows countdown for short quota windows in toast", () => {
+    const tomorrowReset = new Date(Date.now() + 13 * 60 * 60_000).toISOString();
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'anthropic',
-        label: 'Anthropic',
-        status: 'ok',
+        providerID: "anthropic",
+        label: "Anthropic",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '1d', remainingPercent: 46, resetAt: tomorrowReset },
+          { label: "1d", remainingPercent: 46, resetAt: tomorrowReset },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /Anthropic\s+1d 46\.0% Rst \d+h\d{2}m/)
-  })
+    assert.match(toast, /Anthropic\s+1d 46\.0% Rst \d+h\d{2}m/);
+  });
 
-  it('renders RightCode daily quota rules in toast', () => {
-    const toast = renderToastMessage('session', makeUsage(), [
+  it("renders RightCode daily quota rules in toast", () => {
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         balance: {
           amount: 248.4,
-          currency: '$',
+          currency: "$",
         },
         windows: [
           {
-            label: 'Daily $83.4/$60',
+            label: "Daily $83.4/$60",
             showPercent: false,
             remainingPercent: 138.95,
           },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/)
-    assert.match(toast, /\s+Balance \$248\.4/)
-    assert.doesNotMatch(toast, /Daily \$83\.4\/\$60\s+138\.9%/)
-    assert.doesNotMatch(toast, /Exp 02-27/)
-  })
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/);
+    assert.match(toast, /\s+Balance \$248\.4/);
+    assert.doesNotMatch(toast, /Daily \$83\.4\/\$60\s+138\.9%/);
+    assert.doesNotMatch(toast, /Exp 02-27/);
+  });
 
-  it('shows unified expiry reminders in toast for applicable providers within 3 days', () => {
-    const now = new Date()
+  it("shows unified expiry reminders in toast for applicable providers within 3 days", () => {
+    const now = new Date();
     const soon = new Date(
       now.getTime() + 2 * 24 * 60 * 60 * 1000 + 90 * 60 * 1000,
-    )
-    const soonIso = soon.toISOString()
-    const toast = renderToastMessage('session', makeUsage(), [
+    );
+    const soonIso = soon.toISOString();
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC-openai',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC-openai",
+        status: "ok",
         checkedAt: Date.now(),
         expiresAt: soonIso,
         windows: [
           {
-            label: 'Daily $55.6/$60',
+            label: "Daily $55.6/$60",
             showPercent: false,
           },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /Expiry Soon/)
-    assert.match(toast, /RC-openai\s+Exp \d+D\d{2}h/)
-  })
+    assert.match(toast, /Expiry Soon/);
+    assert.match(toast, /RC-openai\s+Exp \d+D\d{2}h/);
+  });
 
-  it('does not show expiry reminders in toast when expiry is beyond 3 days', () => {
+  it("does not show expiry reminders in toast when expiry is beyond 3 days", () => {
     const laterIso = new Date(
       Date.now() + 5 * 24 * 60 * 60 * 1000,
-    ).toISOString()
-    const toast = renderToastMessage('session', makeUsage(), [
+    ).toISOString();
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode OpenAI',
-        shortLabel: 'RC-openai',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode OpenAI",
+        shortLabel: "RC-openai",
+        status: "ok",
         checkedAt: Date.now(),
         expiresAt: laterIso,
         windows: [
           {
-            label: 'Daily $70.2/$90',
+            label: "Daily $70.2/$90",
             showPercent: false,
             resetAt: laterIso,
-            resetLabel: 'Rst',
+            resetLabel: "Rst",
           },
         ],
       },
-    ])
+    ]);
 
-    assert.doesNotMatch(toast, /Expiry Soon/)
-  })
+    assert.doesNotMatch(toast, /Expiry Soon/);
+  });
 
-  it('does not duplicate API cost inside token usage section', () => {
+  it("does not duplicate API cost inside token usage section", () => {
     const toast = renderToastMessage(
-      'session',
+      "session",
       makeUsage({ apiCost: 2.34 }),
       [],
-    )
+    );
 
-    const apiCostMatches = toast.match(/API Cost/g) || []
-    assert.equal(apiCostMatches.length, 0)
-    assert.match(toast, /Cost as API/)
-  })
+    const apiCostMatches = toast.match(/API Cost/g) || [];
+    assert.equal(apiCostMatches.length, 0);
+    assert.match(toast, /Cost as API/);
+  });
 
-  it('renders provider cache section in toast', () => {
+  it("renders provider cache section in toast", () => {
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         providers: {
           openai: {
-            providerID: 'openai',
+            providerID: "openai",
             input: 300,
             output: 400,
             reasoning: 0,
@@ -2146,7 +2145,7 @@ describe('renderToastMessage', () => {
             },
           },
           anthropic: {
-            providerID: 'anthropic',
+            providerID: "anthropic",
             input: 400,
             output: 480,
             reasoning: 0,
@@ -2172,7 +2171,7 @@ describe('renderToastMessage', () => {
             },
           },
           mixed: {
-            providerID: 'mixed',
+            providerID: "mixed",
             input: 150,
             output: 0,
             reasoning: 0,
@@ -2200,105 +2199,105 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
+    );
 
-    assert.match(toast, /Provider Cache/)
-    assert.match(toast, /OpenAI\s+Cached 75%/)
-    assert.match(toast, /Anthropic\s+Cached 42\.9%/)
-    assert.match(toast, /mixed\s+Cached 45\.5%/i)
-    assert.ok(toast.indexOf('Provider Cache') < toast.indexOf('Cost as API'))
-  })
+    assert.match(toast, /Provider Cache/);
+    assert.match(toast, /OpenAI\s+Cached 75%/);
+    assert.match(toast, /Anthropic\s+Cached 42\.9%/);
+    assert.match(toast, /mixed\s+Cached 45\.5%/i);
+    assert.ok(toast.indexOf("Provider Cache") < toast.indexOf("Cost as API"));
+  });
 
-  it('does not render RightCode expiry labels inline in toast when multiple expiries exist', () => {
-    const toast = renderToastMessage('session', makeUsage(), [
+  it("does not render RightCode expiry labels inline in toast when multiple expiries exist", () => {
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $83.4/$60',
+            label: "Daily $83.4/$60",
             showPercent: false,
           },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/)
-    assert.doesNotMatch(toast, /Exp\+/)
-  })
+    assert.match(toast, /RC\s+Daily \$83\.4\/\$60/);
+    assert.doesNotMatch(toast, /Exp\+/);
+  });
 
-  it('hides unsupported and unavailable quota snapshots in toast', () => {
-    const toast = renderToastMessage('session', makeUsage(), [
+  it("hides unsupported and unavailable quota snapshots in toast", () => {
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'anthropic',
-        adapterID: 'anthropic',
-        label: 'Anthropic',
-        shortLabel: 'Anthropic',
-        status: 'unsupported',
+        providerID: "anthropic",
+        adapterID: "anthropic",
+        label: "Anthropic",
+        shortLabel: "Anthropic",
+        status: "unsupported",
         checkedAt: Date.now(),
       },
       {
-        providerID: 'kimi-for-coding',
-        adapterID: 'kimi-for-coding',
-        label: 'Kimi',
-        shortLabel: 'Kimi',
-        status: 'unavailable',
+        providerID: "kimi-for-coding",
+        adapterID: "kimi-for-coding",
+        label: "Kimi",
+        shortLabel: "Kimi",
+        status: "unavailable",
         checkedAt: Date.now(),
       },
-    ])
+    ]);
 
-    assert.doesNotMatch(toast, /unsupported|unavailable/i)
-    assert.doesNotMatch(toast, /\nQuota\n/)
-  })
+    assert.doesNotMatch(toast, /unsupported|unavailable/i);
+    assert.doesNotMatch(toast, /\nQuota\n/);
+  });
 
-  it('keeps real quota fetch errors visible in toast', () => {
-    const toast = renderToastMessage('session', makeUsage(), [
+  it("keeps real quota fetch errors visible in toast", () => {
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'anthropic',
-        adapterID: 'anthropic',
-        label: 'Anthropic',
-        shortLabel: 'Anthropic',
-        status: 'error',
+        providerID: "anthropic",
+        adapterID: "anthropic",
+        label: "Anthropic",
+        shortLabel: "Anthropic",
+        status: "error",
         checkedAt: Date.now(),
       },
-    ])
+    ]);
 
-    assert.match(toast, /\nQuota\n/)
-    assert.match(toast, /Anthropic\s+Remaining \?/)
-  })
+    assert.match(toast, /\nQuota\n/);
+    assert.match(toast, /Anthropic\s+Remaining \?/);
+  });
 
-  it('shows stale quota markers in toast', () => {
-    const toast = renderToastMessage('session', makeUsage(), [
+  it("shows stale quota markers in toast", () => {
+    const toast = renderToastMessage("session", makeUsage(), [
       {
-        providerID: 'anthropic',
-        adapterID: 'anthropic',
-        label: 'Anthropic',
-        shortLabel: 'Anthropic',
-        status: 'ok',
+        providerID: "anthropic",
+        adapterID: "anthropic",
+        label: "Anthropic",
+        shortLabel: "Anthropic",
+        status: "ok",
         checkedAt: Date.now(),
         stale: {
           staleAt: Date.now(),
-          staleReason: 'timeout',
-          staleReasonKind: 'timeout',
+          staleReason: "timeout",
+          staleReasonKind: "timeout",
         },
-        windows: [{ label: '5h', remainingPercent: 80 }],
+        windows: [{ label: "5h", remainingPercent: 80 }],
       },
-    ])
+    ]);
 
-    assert.match(toast, /Anthropic\s+5h 80\.0% stale/)
-  })
+    assert.match(toast, /Anthropic\s+5h 80\.0% stale/);
+  });
 
-  it('renders per-provider Cost as API section in toast', () => {
+  it("renders per-provider Cost as API section in toast", () => {
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         providers: {
           openai: {
-            providerID: 'openai',
+            providerID: "openai",
             input: 100,
             output: 200,
             reasoning: 0,
@@ -2309,8 +2308,8 @@ describe('renderToastMessage', () => {
             apiCost: 1.23,
             assistantMessages: 1,
           },
-          'github-copilot': {
-            providerID: 'github-copilot',
+          "github-copilot": {
+            providerID: "github-copilot",
             input: 50,
             output: 80,
             reasoning: 0,
@@ -2322,7 +2321,7 @@ describe('renderToastMessage', () => {
             assistantMessages: 1,
           },
           anthropic: {
-            providerID: 'anthropic',
+            providerID: "anthropic",
             input: 20,
             output: 40,
             reasoning: 0,
@@ -2336,21 +2335,21 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
+    );
 
-    assert.match(toast, /Cost as API/)
-    assert.match(toast, /OpenAI\s+\$1\.23/)
-    assert.match(toast, /Anthropic\s+\$0\.20/)
-    assert.doesNotMatch(toast, /Copilot\s+/)
-  })
+    assert.match(toast, /Cost as API/);
+    assert.match(toast, /OpenAI\s+\$1\.23/);
+    assert.match(toast, /Anthropic\s+\$0\.20/);
+    assert.doesNotMatch(toast, /Copilot\s+/);
+  });
 
-  it('renders N/A for Cost as API when only Copilot usage exists', () => {
+  it("renders N/A for Cost as API when only Copilot usage exists", () => {
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         providers: {
-          'github-copilot': {
-            providerID: 'github-copilot',
+          "github-copilot": {
+            providerID: "github-copilot",
             input: 50,
             output: 80,
             reasoning: 0,
@@ -2364,19 +2363,19 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
-    assert.match(toast, /Cost as API/)
-    assert.match(toast, /N\/A \(Copilot\)/)
-  })
+    );
+    assert.match(toast, /Cost as API/);
+    assert.match(toast, /N\/A \(Copilot\)/);
+  });
 
-  it('renders generic N/A for Cost as API when non-copilot usage has zero api cost', () => {
+  it("renders generic N/A for Cost as API when non-copilot usage has zero api cost", () => {
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         apiCost: 0,
         providers: {
-          'zhipuai-coding-plan': {
-            providerID: 'zhipuai-coding-plan',
+          "zhipuai-coding-plan": {
+            providerID: "zhipuai-coding-plan",
             input: 28629,
             output: 3852,
             reasoning: 0,
@@ -2390,154 +2389,154 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
+    );
 
-    assert.match(toast, /Cost as API/)
-    assert.match(toast, /Cost as API\n  N\/A$/)
-    assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
-  })
+    assert.match(toast, /Cost as API/);
+    assert.match(toast, /Cost as API\n  N\/A$/);
+    assert.doesNotMatch(toast, /N\/A \(Copilot\)/);
+  });
 
-  it('collapses duplicate RightCode quota snapshots in toast', () => {
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("collapses duplicate RightCode quota snapshots in toast", () => {
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         balance: {
           amount: 245.84,
-          currency: '$',
+          currency: "$",
         },
       },
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
           {
-            label: 'Daily $55.6/$60',
+            label: "Daily $55.6/$60",
             showPercent: false,
-            resetLabel: 'Exp',
-            resetAt: '2026-02-27T02:50:08Z',
+            resetLabel: "Exp",
+            resetAt: "2026-02-27T02:50:08Z",
           },
         ],
       },
-    ])
+    ]);
 
     const rightCodeLabelCount = toast
-      .split('\n')
-      .filter((line) => /^\s*RC\s+/.test(line)).length
-    assert.equal(rightCodeLabelCount, 1)
-    assert.match(toast, /RC\s+Daily \$55\.6\/\$60 Exp \d+D\d{2}h/)
-    assert.match(toast, /\s+Balance \$245\.8/)
-  })
+      .split("\n")
+      .filter((line) => /^\s*RC\s+/.test(line)).length;
+    assert.equal(rightCodeLabelCount, 1);
+    assert.match(toast, /RC\s+Daily \$55\.6\/\$60 Exp \d+D\d{2}h/);
+    assert.match(toast, /\s+Balance \$245\.8/);
+  });
 
-  it('splits RightCode balance into RC when both RC and RC-variant exist', () => {
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("splits RightCode balance into RC when both RC and RC-variant exist", () => {
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'rightcode',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "rightcode",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
-        balance: { amount: 200, currency: '$' },
+        balance: { amount: 200, currency: "$" },
       },
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC-openai',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC-openai",
+        status: "ok",
         checkedAt: Date.now(),
-        balance: { amount: 999, currency: '$' },
+        balance: { amount: 999, currency: "$" },
         windows: [
           {
-            label: 'Daily $41.3/$60',
+            label: "Daily $41.3/$60",
             showPercent: false,
-            resetLabel: 'Exp',
-            resetAt: '2026-02-27T02:50:08Z',
+            resetLabel: "Exp",
+            resetAt: "2026-02-27T02:50:08Z",
           },
         ],
       },
-    ])
+    ]);
 
     // Variant should not show balance when base RC exists.
-    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/)
-    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance/)
-    assert.match(toast, /RC\s+Balance \$200/)
-  })
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/);
+    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance/);
+    assert.match(toast, /RC\s+Balance \$200/);
+  });
 
-  it('clears RC-variant balance even if RC base is not providerID=rightcode', () => {
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("clears RC-variant balance even if RC base is not providerID=rightcode", () => {
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC',
-        status: 'ok',
+        providerID: "openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC",
+        status: "ok",
         checkedAt: Date.now(),
-        balance: { amount: 243.5, currency: '$' },
+        balance: { amount: 243.5, currency: "$" },
       },
       {
-        providerID: 'rightcode-openai',
-        adapterID: 'rightcode',
-        label: 'RightCode',
-        shortLabel: 'RC-openai',
-        status: 'ok',
+        providerID: "rightcode-openai",
+        adapterID: "rightcode",
+        label: "RightCode",
+        shortLabel: "RC-openai",
+        status: "ok",
         checkedAt: Date.now(),
-        balance: { amount: 243.5, currency: '$' },
+        balance: { amount: 243.5, currency: "$" },
         windows: [
           {
-            label: 'Daily $41.3/$60',
+            label: "Daily $41.3/$60",
             showPercent: false,
-            resetLabel: 'Exp',
-            resetAt: '2026-02-27T02:50:08Z',
+            resetLabel: "Exp",
+            resetAt: "2026-02-27T02:50:08Z",
           },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /RC\s+Balance \$243\.5/)
-    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/)
-    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.5/)
-  })
+    assert.match(toast, /RC\s+Balance \$243\.5/);
+    assert.match(toast, /RC-openai\s+Daily \$41\.3\/\$60 Exp \d+D\d{2}h/);
+    assert.doesNotMatch(toast, /RC-openai[\s\S]*Balance \$243\.5/);
+  });
 
-  it('renders Kimi toast like other subscription providers', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("renders Kimi toast like other subscription providers", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'kimi-for-coding',
-        adapterID: 'kimi-for-coding',
-        label: 'Kimi For Coding',
-        shortLabel: 'Kimi',
-        status: 'ok',
+        providerID: "kimi-for-coding",
+        adapterID: "kimi-for-coding",
+        label: "Kimi For Coding",
+        shortLabel: "Kimi",
+        status: "ok",
         checkedAt: Date.now(),
         windows: [
-          { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-          { label: 'Weekly', remainingPercent: 72, resetAt: weeklyReset },
+          { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+          { label: "Weekly", remainingPercent: 72, resetAt: weeklyReset },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /Kimi\s+5h 84\.0% Rst \d+D\d{2}h/)
-    assert.match(toast, /Weekly 72\.0% Rst \d+D\d{2}h/)
-  })
+    assert.match(toast, /Kimi\s+5h 84\.0% Rst \d+D\d{2}h/);
+    assert.match(toast, /Weekly 72\.0% Rst \d+D\d{2}h/);
+  });
 
-  it('renders Kimi in the Cost as API toast section when apiCost is available', () => {
+  it("renders Kimi in the Cost as API toast section when apiCost is available", () => {
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         apiCost: 0.14,
         providers: {
-          'kimi-for-coding': {
-            providerID: 'kimi-for-coding',
+          "kimi-for-coding": {
+            providerID: "kimi-for-coding",
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -2551,23 +2550,23 @@ describe('renderToastMessage', () => {
         },
       }),
       [],
-    )
+    );
 
-    assert.match(toast, /Cost as API/)
-    assert.match(toast, /Kimi\s+\$0\.14/)
-    assert.doesNotMatch(toast, /N\/A \(Copilot\)/)
-  })
+    assert.match(toast, /Cost as API/);
+    assert.match(toast, /Kimi\s+\$0\.14/);
+    assert.doesNotMatch(toast, /N\/A \(Copilot\)/);
+  });
 
-  it('renders MiniMax in toast quota and Cost as API sections', () => {
-    const crossDayShortReset = '2026-03-21T03:44:15.855Z'
-    const weeklyReset = '2026-03-27T14:44:15.855Z'
+  it("renders MiniMax in toast quota and Cost as API sections", () => {
+    const crossDayShortReset = "2026-03-21T03:44:15.855Z";
+    const weeklyReset = "2026-03-27T14:44:15.855Z";
     const toast = renderToastMessage(
-      'week',
+      "week",
       makeUsage({
         apiCost: 0.06,
         providers: {
-          'minimax-cn-coding-plan': {
-            providerID: 'minimax-cn-coding-plan',
+          "minimax-cn-coding-plan": {
+            providerID: "minimax-cn-coding-plan",
             input: 100_000,
             output: 25_000,
             reasoning: 0,
@@ -2582,46 +2581,46 @@ describe('renderToastMessage', () => {
       }),
       [
         {
-          providerID: 'minimax-cn-coding-plan',
-          adapterID: 'minimax-cn-coding-plan',
-          label: 'MiniMax Coding Plan',
-          shortLabel: 'MiniMax',
-          status: 'ok',
+          providerID: "minimax-cn-coding-plan",
+          adapterID: "minimax-cn-coding-plan",
+          label: "MiniMax Coding Plan",
+          shortLabel: "MiniMax",
+          status: "ok",
           checkedAt: Date.now(),
           windows: [
-            { label: '5h', remainingPercent: 84, resetAt: crossDayShortReset },
-            { label: 'Weekly', remainingPercent: 64, resetAt: weeklyReset },
+            { label: "5h", remainingPercent: 84, resetAt: crossDayShortReset },
+            { label: "Weekly", remainingPercent: 64, resetAt: weeklyReset },
           ],
         },
       ],
-    )
+    );
 
-    assert.match(toast, /MiniMax\s+5h 84\.0% Rst \d+D\d{2}h/)
-    assert.match(toast, /Weekly 64\.0% Rst \d+D\d{2}h/)
-    assert.match(toast, /Cost as API[\s\S]*MiniMax\s+\$0\.06/)
-  })
+    assert.match(toast, /MiniMax\s+5h 84\.0% Rst \d+D\d{2}h/);
+    assert.match(toast, /Weekly 64\.0% Rst \d+D\d{2}h/);
+    assert.match(toast, /Cost as API[\s\S]*MiniMax\s+\$0\.06/);
+  });
 
-  it('renders Zhipu token quota without mcp usage in toast', () => {
-    const toast = renderToastMessage('week', makeUsage(), [
+  it("renders Zhipu token quota without mcp usage in toast", () => {
+    const toast = renderToastMessage("week", makeUsage(), [
       {
-        providerID: 'zhipuai-coding-plan',
-        adapterID: 'zhipuai-coding-plan',
-        label: 'Zhipu Coding Plan',
-        shortLabel: 'Zhipu',
-        status: 'ok',
+        providerID: "zhipuai-coding-plan",
+        adapterID: "zhipuai-coding-plan",
+        label: "Zhipu Coding Plan",
+        shortLabel: "Zhipu",
+        status: "ok",
         checkedAt: Date.now(),
-        note: 'MAX plan',
+        note: "MAX plan",
         windows: [
           {
-            label: '5h',
+            label: "5h",
             remainingPercent: 99,
-            resetAt: '2026-03-29T01:51:57+08:00',
+            resetAt: "2026-03-29T01:51:57+08:00",
           },
         ],
       },
-    ])
+    ]);
 
-    assert.match(toast, /Zhipu\s+5h 99\.0% Rst/)
-    assert.doesNotMatch(toast, /MCP/)
-  })
-})
+    assert.match(toast, /Zhipu\s+5h 99\.0% Rst/);
+    assert.doesNotMatch(toast, /MCP/);
+  });
+});

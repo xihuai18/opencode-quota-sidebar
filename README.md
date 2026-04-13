@@ -105,7 +105,7 @@ TITLE
 USAGE
   R184 I189k O53.2k
   CR31.4k CW3.2k Cd66%
-  Est $12.8
+  API $12.8
 QUOTA
   OAI 5h80 R3h20m
       W70 R2D04h
@@ -119,8 +119,38 @@ QUOTA
 Compact shared title example:
 
 ```text
-Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | Est$12.8
+Fix quota adapter matching | OAI 5h80 R3h20m W70 R2D04h | RC D$88.9/$60 B260 | Cd66% | API$12.8
 ```
+
+## Pricing And API Cost
+
+`API cost` is an API-equivalent estimate. It is not your subscription fee, not a provider invoice, and not necessarily what the upstream service actually billed.
+
+Pricing source priority:
+
+1. explicit model prices from your OpenCode main config (`opencode.jsonc` / `opencode.json`)
+2. fast/tier prices derived from those explicit base-model prices
+3. non-zero runtime prices from `provider.list()`
+4. fast/tier prices derived from runtime metadata
+5. `models.dev` remote model catalog pricing
+6. bundled fallback pricing shipped by this plugin
+
+Important notes:
+
+- OpenAI / Anthropic OAuth runtime metadata often reports `cost: 0`, so runtime pricing is only a supplemental source
+- `provider.list()` is a runtime metadata view of the models OpenCode currently exposes; it is useful when non-zero, but it is not a stable authoritative pricing API
+- OpenCode main-config pricing layers merge field-by-field, so a later override can replace only `input` / `output` without discarding earlier `cache_*` or `context_over_200k` fields
+- `models.dev` is used as a structured remote supplement only for runtime-discovered models that are still missing prices after config, runtime, and bundled sources are considered; this mainly helps newer models that are not in the plugin's bundled table yet
+- if `models.dev` is unreachable, the plugin falls back to the higher-priority sources above; API cost may remain `0` for uncovered models until pricing becomes available again
+- bundled pricing covers common models, so token usage and quota features do not require manual pricing config
+- if you use a new or not-yet-bundled model and runtime pricing is still zero, `API cost` may stay `$0.00` until you add an explicit model price override in your OpenCode main config
+
+To get complete `API cost` coverage for new models, at least one of these must be true:
+
+1. the model already exists in the plugin's bundled pricing table
+2. you configured that model's price in OpenCode main config
+3. runtime `provider.list()` returns a non-zero price for it
+4. runtime `provider.list()` exposes the model and `models.dev` has pricing for it
 
 ## Tool Report Demo
 
@@ -184,7 +214,7 @@ Usage tokens:
 - `CR`: cache read tokens
 - `CW`: cache write tokens
 - `Cd`: cached ratio / cache coverage
-- `Est`: API-equivalent cost estimate
+- `API`: API-equivalent cost estimate
 
 Quota tokens:
 
@@ -216,7 +246,9 @@ Recommended config file locations:
 
 - `~/.config/opencode/quota-sidebar.config.json`
 - `<worktree>/quota-sidebar.config.json`
+- `<directory>/quota-sidebar.config.json`
 - `<worktree>/.opencode/quota-sidebar.config.json`
+- `<directory>/.opencode/quota-sidebar.config.json`
 - `OPENCODE_QUOTA_CONFIG=/absolute/path/to/config.json`
 
 Minimal example:
@@ -250,6 +282,25 @@ Important config notes:
 5. directory `.opencode` config
 6. `OPENCODE_QUOTA_CONFIG`
 
+OpenCode main pricing config candidates are read from these locations:
+
+1. `~/.config/opencode/opencode.jsonc`
+2. `~/.config/opencode/opencode.json`
+3. `<worktree>/opencode.jsonc`
+4. `<worktree>/opencode.json`
+5. `<directory>/opencode.jsonc`
+6. `<directory>/opencode.json`
+7. `<worktree>/.opencode/opencode.jsonc`
+8. `<worktree>/.opencode/opencode.json`
+9. `<directory>/.opencode/opencode.jsonc`
+10. `<directory>/.opencode/opencode.json`
+
+## Linux CLI Notes
+
+- `opencode-quota` will auto-start a temporary `opencode serve` when no local server is already reachable
+- recent releases clean up that temporary server more aggressively on Linux/Unix so the CLI can exit normally after printing the report
+- if the CLI still hangs on Linux, upgrade to a version that includes the server-process cleanup fix
+
 ## Persistence And Aggregation
 
 The plugin stores:
@@ -260,6 +311,13 @@ The plugin stores:
 Those persisted chunks keep title state, cached usage, sidebar-panel payloads, and quota cache data. This lets the TUI sidebar render from stored structured state on session open/resume instead of depending entirely on live message scans.
 
 Usage aggregation is incremental. The plugin tracks a cursor per session and processes only new messages when possible. If message history changes in a way that invalidates the incremental view, it can rescan and refresh persisted usage.
+
+Pricing cache notes:
+
+- newer releases persist a `pricingFingerprint` alongside cached session usage
+- changing a model price from one non-zero value to another non-zero value now invalidates old cached API-cost totals automatically
+- older plugin versions only keyed cache freshness on billing version, so historical session API-cost values could remain stale until a forced recompute
+- legacy decorated titles that still contain `Est$...` are recognized during cleanup/restore, but newly rendered titles always use `API$...`
 
 ## Tools
 

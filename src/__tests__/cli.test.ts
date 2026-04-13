@@ -6,6 +6,7 @@ import {
   cliExitCodeForError,
   extractCliServerUrl,
   releaseCliServerProcess,
+  terminateCliServerProcess,
   cliServerCommandCandidates,
   cliShouldRunMain,
   parseCliArgs,
@@ -119,11 +120,17 @@ describe("parseCliArgs", () => {
   });
 
   it("releases child process pipes and unrefs it", () => {
+    let stdinDestroyed = false;
     let stdoutDestroyed = false;
     let stderrDestroyed = false;
     let unrefCalled = false;
 
     releaseCliServerProcess({
+      stdin: {
+        destroy: () => {
+          stdinDestroyed = true;
+        },
+      },
       stdout: {
         destroy: () => {
           stdoutDestroyed = true;
@@ -139,9 +146,67 @@ describe("parseCliArgs", () => {
       },
     });
 
+    assert.equal(stdinDestroyed, true);
     assert.equal(stdoutDestroyed, true);
     assert.equal(stderrDestroyed, true);
     assert.equal(unrefCalled, true);
+  });
+
+  it("terminates unix temp servers by process group", () => {
+    const killed: Array<{ pid: number; signal: string }> = [];
+    let childKillCalled = false;
+
+    terminateCliServerProcess(
+      {
+        pid: 4321,
+        killed: false,
+        kill: () => {
+          childKillCalled = true;
+          return true;
+        },
+        stdin: { destroy: () => {} },
+        stdout: { destroy: () => {} },
+        stderr: { destroy: () => {} },
+        unref: () => {},
+      },
+      {
+        platform: "linux",
+        killProcess: ((pid: number, signal?: string | number) => {
+          killed.push({ pid, signal: String(signal) });
+          return true;
+        }) as typeof process.kill,
+      },
+    );
+
+    assert.deepEqual(killed, [{ pid: -4321, signal: "SIGTERM" }]);
+    assert.equal(childKillCalled, false);
+  });
+
+  it("falls back to direct child termination when group kill is unavailable", () => {
+    let childKillSignal: string | undefined;
+
+    terminateCliServerProcess(
+      {
+        pid: 4321,
+        killed: false,
+        kill: (signal?: string) => {
+          childKillSignal = signal;
+          return true;
+        },
+        stdin: { destroy: () => {} },
+        stdout: { destroy: () => {} },
+        stderr: { destroy: () => {} },
+        unref: () => {},
+      },
+      {
+        platform: "linux",
+        killProcess: (() => {
+          throw new Error("ESRCH");
+        }) as typeof process.kill,
+      },
+    );
+
+    assert.equal(childKillSignal, "SIGTERM");
   });
 
   it("extracts the listen URL from linux-style direct output", () => {

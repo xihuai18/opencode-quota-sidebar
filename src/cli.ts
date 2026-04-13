@@ -39,6 +39,7 @@ type CliCommand = {
 
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const CLI_SERVER_TIMEOUT_MS = 10_000;
+const CLI_FORCE_EXIT_DELAY_MS = 100;
 
 type CliServerCommand = {
   command: string;
@@ -47,15 +48,49 @@ type CliServerCommand = {
 };
 
 export function releaseCliServerProcess(proc: {
+  stdin?: { destroy: () => void } | null;
   stdout?: { destroy: () => void } | null;
   stderr?: { destroy: () => void } | null;
   unref: () => void;
 }) {
   // The CLI only needs the child pipes until the server prints its listen URL.
   // After that, unref/destroy them so the parent process can exit cleanly.
+  proc.stdin?.destroy();
   proc.stdout?.destroy();
   proc.stderr?.destroy();
   proc.unref();
+}
+
+export function terminateCliServerProcess(
+  proc: {
+    pid?: number;
+    killed?: boolean;
+    kill: (signal?: NodeJS.Signals) => boolean;
+    stdin?: { destroy: () => void } | null;
+    stdout?: { destroy: () => void } | null;
+    stderr?: { destroy: () => void } | null;
+    unref: () => void;
+  },
+  options?: {
+    platform?: NodeJS.Platform;
+    killProcess?: typeof process.kill;
+  },
+) {
+  releaseCliServerProcess(proc);
+  if (proc.killed) return;
+
+  const platform = options?.platform ?? process.platform;
+  const killProcess = options?.killProcess ?? process.kill;
+  if (platform !== "win32" && typeof proc.pid === "number" && proc.pid > 0) {
+    try {
+      killProcess(-proc.pid, "SIGTERM");
+      return;
+    } catch {
+      // Fall back to the direct child pid when group termination is unavailable.
+    }
+  }
+
+  proc.kill("SIGTERM");
 }
 
 export function extractCliServerUrl(output: string) {
@@ -207,6 +242,8 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
   try {
     proc = spawn(candidate.command, candidate.args, {
       env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
       shell: candidate.shell ?? false,
       windowsHide: true,
     });
@@ -220,8 +257,12 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
   }
 
   const url = await new Promise<string>((resolve, reject) => {
+    const fail = (error: unknown) => {
+      terminateCliServerProcess(proc);
+      reject(error);
+    };
     const id = setTimeout(() => {
-      reject(
+      fail(
         new Error(
           `Timeout waiting for OpenCode server to start after ${CLI_SERVER_TIMEOUT_MS}ms`,
         ),
@@ -247,16 +288,16 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
 
     proc.stdout?.on("data", inspect);
     proc.stderr?.on("data", inspect);
-    proc.on("error", (error) => {
+    proc.on("error", (error: unknown) => {
       clearTimeout(id);
       const code = (error as NodeJS.ErrnoException).code;
-      reject({
+      fail({
         error,
         output,
         recoverable: code === "ENOENT" || code === "EINVAL",
       });
     });
-    proc.on("exit", (code) => {
+    proc.on("exit", (code: number | null) => {
       if (settled) return;
       clearTimeout(id);
       let message = `OpenCode server exited with code ${code}`;
@@ -264,15 +305,14 @@ async function tryStartCliOpencodeServer(candidate: CliServerCommand) {
       const recoverable =
         /not recognized as an internal or external command/i.test(output) ||
         /command not found/i.test(output);
-      reject({ error: new Error(message), output, recoverable });
+      fail({ error: new Error(message), output, recoverable });
     });
   });
 
   return {
     url,
     close: () => {
-      releaseCliServerProcess(proc);
-      if (!proc.killed) proc.kill();
+      terminateCliServerProcess(proc);
     },
   };
 }
@@ -336,22 +376,39 @@ async function resolvePathInfo(directory: string) {
     }
 
     const server = await startCliOpencodeServer();
-    const client = createOpencodeClient({
-      directory,
-      baseUrl: server.url,
-    });
-    const response = await client.path.get({
-      query: { directory },
-      throwOnError: true,
-    });
-    const data = response.data as { worktree?: string; directory?: string };
-    return {
-      client,
-      worktree: data.worktree || directory,
-      directory: data.directory || directory,
-      close: () => server.close(),
-    };
+    try {
+      const client = createOpencodeClient({
+        directory,
+        baseUrl: server.url,
+      });
+      const response = await client.path.get({
+        query: { directory },
+        throwOnError: true,
+      });
+      const data = response.data as { worktree?: string; directory?: string };
+      return {
+        client,
+        worktree: data.worktree || directory,
+        directory: data.directory || directory,
+        close: () => server.close(),
+      };
+    } catch (innerError) {
+      server.close();
+      throw innerError;
+    }
   }
+}
+
+function writeCliLine(stream: NodeJS.WriteStream, value: string) {
+  return new Promise<void>((resolve, reject) => {
+    stream.write(`${value}\n`, (error: Error | null | undefined) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 export async function runCli(argv: string[]) {
@@ -382,6 +439,7 @@ export async function runCli(argv: string[]) {
       statePath,
       client: client as never,
       directory,
+      worktree,
       persistence: {
         markDirty: () => {},
         scheduleSave: () => {},
@@ -459,15 +517,22 @@ export function cliShouldRunMain(
 }
 
 async function main() {
+  let exitCode = 0;
   try {
     const output = await runCli(process.argv.slice(2));
-    process.stdout.write(`${output}\n`);
+    await writeCliLine(process.stdout, output);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const exitCode = cliExitCodeForError(message);
+    exitCode = cliExitCodeForError(message);
     const stream = exitCode === 0 ? process.stdout : process.stderr;
-    stream.write(`${message}\n`);
+    await writeCliLine(stream, message);
+  } finally {
     process.exitCode = exitCode;
+    const forceExit = setTimeout(
+      () => process.exit(exitCode),
+      CLI_FORCE_EXIT_DELAY_MS,
+    );
+    forceExit.unref?.();
   }
 }
 
