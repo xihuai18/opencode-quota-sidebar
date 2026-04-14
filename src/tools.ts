@@ -176,7 +176,9 @@ export function createQuotaSidebarTools(deps: {
             historyRaw,
             allowedProviderIDs,
           )
-          const quotas = await deps.getQuotaSnapshots([...allowedProviderIDs])
+          const quotas = await deps.getQuotaSnapshots(
+            Object.keys(history.total.providers),
+          )
           const markdown = deps.renderHistoryMarkdownReport(history, quotas, {
             showCost: deps.config.sidebar.showCost,
           })
@@ -205,7 +207,9 @@ export function createQuotaSidebarTools(deps: {
           includeChildren,
         )
         const usage = strictFilterUsageProviders(usageRaw, allowedProviderIDs)
-        const quotas = await deps.getQuotaSnapshots([...allowedProviderIDs])
+        const quotas = await deps.getQuotaSnapshots(
+          Object.keys(usage.providers),
+        )
         const markdown = deps.renderMarkdownReport(period, usage, quotas, {
           showCost: deps.config.sidebar.showCost,
         })

@@ -550,7 +550,6 @@ export async function runCli(argv: string[]) {
       client,
       directory,
     })
-    const quotas = await quotaService.getQuotaSnapshots([...allowedProviderIDs])
 
     if (command.since || command.last !== undefined) {
       const resolvedSince =
@@ -562,6 +561,9 @@ export async function runCli(argv: string[]) {
       const history = strictFilterHistoryProviders(
         historyRaw,
         allowedProviderIDs,
+      )
+      const quotas = await quotaService.getQuotaSnapshots(
+        Object.keys(history.total.providers),
       )
       return renderCliHistoryDashboard({
         result: history,
@@ -577,6 +579,9 @@ export async function runCli(argv: string[]) {
       false,
     )
     const usage = strictFilterUsageProviders(usageRaw, allowedProviderIDs)
+    const quotas = await quotaService.getQuotaSnapshots(
+      Object.keys(usage.providers),
+    )
     return renderCliDashboard({
       label: cliCurrentLabel(command.period),
       usage,

@@ -757,15 +757,25 @@ describe('plugin integration', () => {
         },
       } as never)
 
+      await hooks.event!({
+        event: { type: 'message.updated', properties: { info: msg } },
+      } as never)
+
       const tool = (hooks.tool as any).quota_summary
-      await tool.execute({ period: 'day', toast: false }, { sessionID: 's1' })
+      await tool.execute(
+        { period: 'session', toast: false },
+        { sessionID: 's1' },
+      )
       assert.equal(quotaCalls, 1)
 
       await hooks.event!({
         event: { type: 'message.updated', properties: { info: msg } },
       } as never)
 
-      await tool.execute({ period: 'day', toast: false }, { sessionID: 's1' })
+      await tool.execute(
+        { period: 'session', toast: false },
+        { sessionID: 's1' },
+      )
       assert.equal(quotaCalls, 2)
     } finally {
       process.env.OPENCODE_QUOTA_DATA_HOME = previousDataHome
