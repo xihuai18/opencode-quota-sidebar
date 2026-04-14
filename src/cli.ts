@@ -29,7 +29,40 @@ import {
   filterUsageProvidersForDisplay,
   listCurrentProviderIDs,
 } from './provider_catalog.js'
-import { createUsageService } from './usage_service.js'
+import type { UsageSummary } from './usage.js'
+import { createUsageService, type HistoryUsageResult } from './usage_service.js'
+
+function emptyProviderUsage(usage: UsageSummary): UsageSummary {
+  return {
+    ...usage,
+    providers: {},
+  }
+}
+
+function strictFilterUsageProviders(
+  usage: UsageSummary,
+  allowedProviderIDs: ReadonlySet<string>,
+): UsageSummary {
+  if (allowedProviderIDs.size === 0) return emptyProviderUsage(usage)
+  return filterUsageProvidersForDisplay(usage, allowedProviderIDs)
+}
+
+function strictFilterHistoryProviders(
+  history: HistoryUsageResult,
+  allowedProviderIDs: ReadonlySet<string>,
+): HistoryUsageResult {
+  if (allowedProviderIDs.size === 0) {
+    return {
+      ...history,
+      rows: history.rows.map((row) => ({
+        ...row,
+        usage: emptyProviderUsage(row.usage),
+      })),
+      total: emptyProviderUsage(history.total),
+    }
+  }
+  return filterHistoryProvidersForDisplay(history, allowedProviderIDs)
+}
 
 type CliCommand = {
   period: HistoryPeriod
@@ -513,13 +546,11 @@ export async function runCli(argv: string[]) {
       },
     })
 
-    const quotas = await quotaService.getQuotaSnapshots([], {
-      allowDefault: true,
-    })
     const allowedProviderIDs = await listCurrentProviderIDs({
       client,
       directory,
-    }).catch(() => new Set<string>())
+    })
+    const quotas = await quotaService.getQuotaSnapshots([...allowedProviderIDs])
 
     if (command.since || command.last !== undefined) {
       const resolvedSince =
@@ -528,7 +559,7 @@ export async function runCli(argv: string[]) {
         command.period,
         resolvedSince,
       )
-      const history = filterHistoryProvidersForDisplay(
+      const history = strictFilterHistoryProviders(
         historyRaw,
         allowedProviderIDs,
       )
@@ -545,7 +576,7 @@ export async function runCli(argv: string[]) {
       '',
       false,
     )
-    const usage = filterUsageProvidersForDisplay(usageRaw, allowedProviderIDs)
+    const usage = strictFilterUsageProviders(usageRaw, allowedProviderIDs)
     return renderCliDashboard({
       label: cliCurrentLabel(command.period),
       usage,

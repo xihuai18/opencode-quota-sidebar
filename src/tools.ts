@@ -13,6 +13,38 @@ type ToolContext = {
   sessionID: string
 }
 
+function emptyProviderUsage(usage: UsageSummary): UsageSummary {
+  return {
+    ...usage,
+    providers: {},
+  }
+}
+
+function strictFilterUsageProviders(
+  usage: UsageSummary,
+  allowedProviderIDs: ReadonlySet<string>,
+): UsageSummary {
+  if (allowedProviderIDs.size === 0) return emptyProviderUsage(usage)
+  return filterUsageProvidersForDisplay(usage, allowedProviderIDs)
+}
+
+function strictFilterHistoryProviders(
+  history: HistoryUsageResult,
+  allowedProviderIDs: ReadonlySet<string>,
+): HistoryUsageResult {
+  if (allowedProviderIDs.size === 0) {
+    return {
+      ...history,
+      rows: history.rows.map((row) => ({
+        ...row,
+        usage: emptyProviderUsage(row.usage),
+      })),
+      total: emptyProviderUsage(history.total),
+    }
+  }
+  return filterHistoryProvidersForDisplay(history, allowedProviderIDs)
+}
+
 function tool<Args extends z.ZodRawShape>(input: {
   description: string
   args: Args
@@ -50,7 +82,7 @@ export function createQuotaSidebarTools(deps: {
     period: HistoryPeriod,
     since: string,
   ) => Promise<HistoryUsageResult>
-  listCurrentProviderIDs?: () => Promise<Set<string>>
+  listCurrentProviderIDs: () => Promise<Set<string>>
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
@@ -133,21 +165,18 @@ export function createQuotaSidebarTools(deps: {
           (period !== 'session' && last !== undefined
             ? sinceFromLast(period, last)
             : undefined)
-        const allowedProviderIDs = await deps
-          .listCurrentProviderIDs?.()
-          .catch(() => new Set<string>())
+        const allowedProviderIDs = await deps.listCurrentProviderIDs()
 
         if (period !== 'session' && resolvedSince) {
           const historyRaw = await deps.summarizeHistoryForTool(
             period,
             resolvedSince,
           )
-          const history = allowedProviderIDs
-            ? filterHistoryProvidersForDisplay(historyRaw, allowedProviderIDs)
-            : historyRaw
-          const quotas = await deps.getQuotaSnapshots([], {
-            allowDefault: true,
-          })
+          const history = strictFilterHistoryProviders(
+            historyRaw,
+            allowedProviderIDs,
+          )
+          const quotas = await deps.getQuotaSnapshots([...allowedProviderIDs])
           const markdown = deps.renderHistoryMarkdownReport(history, quotas, {
             showCost: deps.config.sidebar.showCost,
           })
@@ -175,13 +204,8 @@ export function createQuotaSidebarTools(deps: {
           context.sessionID,
           includeChildren,
         )
-        const usage = allowedProviderIDs
-          ? filterUsageProvidersForDisplay(usageRaw, allowedProviderIDs)
-          : usageRaw
-
-        // For quota_summary, always show all subscription quota balances,
-        // regardless of which providers were used in the session.
-        const quotas = await deps.getQuotaSnapshots([], { allowDefault: true })
+        const usage = strictFilterUsageProviders(usageRaw, allowedProviderIDs)
+        const quotas = await deps.getQuotaSnapshots([...allowedProviderIDs])
         const markdown = deps.renderMarkdownReport(period, usage, quotas, {
           showCost: deps.config.sidebar.showCost,
         })

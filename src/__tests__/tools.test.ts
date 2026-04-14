@@ -3,6 +3,21 @@ import { describe, it } from 'node:test'
 
 import { createQuotaSidebarTools } from '../tools.js'
 
+type ToolDeps = Parameters<typeof createQuotaSidebarTools>[0]
+
+function createToolset(
+  input: Omit<ToolDeps, 'listCurrentProviderIDs'> & {
+    listCurrentProviderIDs?: ToolDeps['listCurrentProviderIDs']
+  },
+) {
+  return createQuotaSidebarTools({
+    ...input,
+    listCurrentProviderIDs:
+      input.listCurrentProviderIDs ||
+      (async () => new Set<string>(['openai', 'anthropic', 'github-copilot'])),
+  })
+}
+
 function emptyUsage() {
   return {
     input: 0,
@@ -40,7 +55,7 @@ describe('quota_summary tool', () => {
       period?: string
       includeChildren?: boolean
     }> = []
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -88,7 +103,7 @@ describe('quota_summary tool', () => {
       period?: string
       includeChildren?: boolean
     }> = []
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -132,7 +147,7 @@ describe('quota_summary tool', () => {
 
   it('uses history summary and skips toast by default when since is provided', async () => {
     const calls: Array<Record<string, unknown>> = []
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -177,7 +192,7 @@ describe('quota_summary tool', () => {
 
   it('defaults since-only history requests to month period', async () => {
     const calls: Array<Record<string, unknown>> = []
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -217,7 +232,7 @@ describe('quota_summary tool', () => {
     Date.now = () => new Date(2026, 3, 11, 15, 30).getTime()
     try {
       const calls: Array<Record<string, unknown>> = []
-      const toolset = createQuotaSidebarTools({
+      const toolset = createToolset({
         getTitleEnabled: () => true,
         setTitleEnabled: () => {},
         scheduleSave: () => {},
@@ -265,7 +280,7 @@ describe('quota_summary tool', () => {
   })
 
   it('rejects using since and last together', async () => {
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -300,7 +315,7 @@ describe('quota_summary tool', () => {
   })
 
   it('rejects last for session period', async () => {
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -334,7 +349,7 @@ describe('quota_summary tool', () => {
   })
 
   it('rejects since for session period', async () => {
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => true,
       setTitleEnabled: () => {},
       scheduleSave: () => {},
@@ -373,7 +388,7 @@ describe('quota_show tool', () => {
     let titleEnabled = true
     let refreshVisibleCalls = 0
     let refreshTouchedCalls = 0
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -426,7 +441,7 @@ describe('quota_show tool', () => {
   it('waits for startup title work before turning display on', async () => {
     const order: string[] = []
     let titleEnabled = false
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -491,7 +506,7 @@ describe('quota_show tool', () => {
   it('marks the current session active before refreshing on enable', async () => {
     const order: string[] = []
     let titleEnabled = false
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -546,7 +561,7 @@ describe('quota_show tool', () => {
   it('does not block forever on hung startup title work', async () => {
     let titleEnabled = false
     const started = Date.now()
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -600,7 +615,7 @@ describe('quota_show tool', () => {
   it('restores only the current session when turning display off', async () => {
     let titleEnabled = true
     const order: string[] = []
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -672,7 +687,7 @@ describe('quota_show tool', () => {
   it('redecorates current session after OFF rollback keeps display enabled', async () => {
     let titleEnabled = true
     let currentRefreshCalls = 0
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled
@@ -724,7 +739,7 @@ describe('quota_show tool', () => {
 
   it('refuses to enable display when sidebar feature is disabled in config', async () => {
     let titleEnabled = false
-    const toolset = createQuotaSidebarTools({
+    const toolset = createToolset({
       getTitleEnabled: () => titleEnabled,
       setTitleEnabled: (enabled) => {
         titleEnabled = enabled

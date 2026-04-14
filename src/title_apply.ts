@@ -1,98 +1,109 @@
-import type { PluginInput } from "@opencode-ai/plugin";
+import type { PluginInput } from '@opencode-ai/plugin'
 
 import {
   canonicalizeTitle,
   canonicalizeTitleForCompare,
   looksDecorated,
   normalizeBaseTitle,
-} from "./title.js";
+} from './title.js'
 import type {
   QuotaSidebarConfig,
   QuotaSidebarState,
   QuotaSnapshot,
   SessionState,
-} from "./types.js";
-import type { UsageSummary } from "./usage.js";
-import { toCachedSessionUsage } from "./usage.js";
-import { swallow, debug } from "./helpers.js";
+} from './types.js'
+import type { UsageSummary } from './usage.js'
+import { toCachedSessionUsage } from './usage.js'
+import { swallow, debug } from './helpers.js'
 import {
   resolveTitleView,
   selectDesktopCompactProviderIDs,
   type TitleView,
-} from "./format.js";
-import { collapseQuotaSnapshots } from "./quota_render.js";
+} from './format.js'
+import { collapseQuotaSnapshots } from './quota_render.js'
 
 export function createTitleApplicator(deps: {
-  state: QuotaSidebarState;
-  config: QuotaSidebarConfig;
-  client: PluginInput["client"];
-  directory: string;
+  state: QuotaSidebarState
+  config: QuotaSidebarConfig
+  client: PluginInput['client']
+  directory: string
   ensureSessionState: (
     sessionID: string,
     title: string,
     createdAt: number,
     parentID?: string | null,
-  ) => SessionState;
-  markDirty: (dateKey: string | undefined) => void;
-  scheduleSave: () => void;
+  ) => SessionState
+  markDirty: (dateKey: string | undefined) => void
+  scheduleSave: () => void
   renderSidebarTitle: (
     baseTitle: string,
     usage: UsageSummary,
     quotas: QuotaSnapshot[],
     config: QuotaSidebarConfig,
     view?: TitleView,
-  ) => string;
-  getTitleView?: (sessionID: string) => TitleView;
+  ) => string
+  getTitleView?: (sessionID: string) => TitleView
   getQuotaSnapshots: (
     providerIDs: string[],
     options?: { allowDefault?: boolean },
-  ) => Promise<QuotaSnapshot[]>;
+  ) => Promise<QuotaSnapshot[]>
   summarizeSessionUsageForDisplay: (
     sessionID: string,
     includeChildren: boolean,
-  ) => Promise<UsageSummary>;
-  scheduleParentRefreshIfSafe: (sessionID: string, parentID?: string) => void;
-  isSessionActive?: (sessionID: string) => boolean;
-  restoreConcurrency: number;
+  ) => Promise<UsageSummary>
+  listCurrentProviderIDs?: () => Promise<Set<string> | undefined>
+  scheduleParentRefreshIfSafe: (sessionID: string, parentID?: string) => void
+  isSessionActive?: (sessionID: string) => boolean
+  restoreConcurrency: number
 }) {
   const pendingAppliedTitle = new Map<
     string,
     { title: string; expiresAt: number }
-  >();
+  >()
   const recentRestore = new Map<
     string,
     { baseTitle: string; decoratedTitle?: string; expiresAt: number }
-  >();
+  >()
 
   const forgetSession = (sessionID: string) => {
-    pendingAppliedTitle.delete(sessionID);
-    recentRestore.delete(sessionID);
-  };
+    pendingAppliedTitle.delete(sessionID)
+    recentRestore.delete(sessionID)
+  }
 
   const cloneQuotas = (quotas: QuotaSnapshot[]) =>
     quotas.map((quota) => ({
       ...quota,
       balance: quota.balance ? { ...quota.balance } : undefined,
       windows: quota.windows?.map((win) => ({ ...win })),
-    }));
+    }))
 
   const sameProviderIDs = (left: string[], right: string[]) => {
-    if (left.length !== right.length) return false;
-    const rightSet = new Set(right);
+    if (left.length !== right.length) return false
+    const rightSet = new Set(right)
     for (const value of left) {
-      if (!rightSet.has(value)) return false;
+      if (!rightSet.has(value)) return false
     }
-    return true;
-  };
+    return true
+  }
+
+  const filterAllowedProviderIDs = (
+    providerIDs: string[],
+    allowedProviderIDs: ReadonlySet<string> | undefined,
+  ) => {
+    if (!allowedProviderIDs) return [] as string[]
+    return providerIDs.filter((providerID) =>
+      allowedProviderIDs.has(providerID),
+    )
+  }
 
   const applyTitle = async (sessionID: string) => {
-    if (!deps.config.sidebar.enabled) return false;
+    if (!deps.config.sidebar.enabled) return false
     if (deps.isSessionActive && !deps.isSessionActive(sessionID)) {
-      debug(`applyTitle skipped inactive session ${sessionID}`);
-      return false;
+      debug(`applyTitle skipped inactive session ${sessionID}`)
+      return false
     }
 
-    let stateMutated = false;
+    let stateMutated = false
 
     const session = await deps.client.session
       .get({
@@ -100,17 +111,17 @@ export function createTitleApplicator(deps: {
         query: { directory: deps.directory },
         throwOnError: true,
       })
-      .catch(swallow("applyTitle:getSession"));
+      .catch(swallow('applyTitle:getSession'))
 
-    if (!session) return false;
+    if (!session) return false
     if (
       !session.data ||
-      typeof session.data.title !== "string" ||
+      typeof session.data.title !== 'string' ||
       !session.data.time ||
-      typeof session.data.time.created !== "number"
+      typeof session.data.time.created !== 'number'
     ) {
-      debug(`applyTitle skipped malformed session payload for ${sessionID}`);
-      return false;
+      debug(`applyTitle skipped malformed session payload for ${sessionID}`)
+      return false
     }
 
     const sessionState = deps.ensureSessionState(
@@ -118,20 +129,20 @@ export function createTitleApplicator(deps: {
       session.data.title,
       session.data.time.created,
       session.data.parentID ?? null,
-    );
+    )
 
     // Detect whether the current title is our own decorated form.
-    const currentTitle = session.data.title;
+    const currentTitle = session.data.title
     if (
       canonicalizeTitle(currentTitle) !==
-      canonicalizeTitle(sessionState.lastAppliedTitle || "")
+      canonicalizeTitle(sessionState.lastAppliedTitle || '')
     ) {
       if (looksDecorated(currentTitle)) {
         if (/\r?\n/.test(currentTitle)) {
-          const normalizedBase = normalizeBaseTitle(currentTitle);
+          const normalizedBase = normalizeBaseTitle(currentTitle)
           if (sessionState.baseTitle !== normalizedBase) {
-            sessionState.baseTitle = normalizedBase;
-            stateMutated = true;
+            sessionState.baseTitle = normalizedBase
+            stateMutated = true
           }
         }
         // Ignore decorated echoes as base-title source.
@@ -144,25 +155,25 @@ export function createTitleApplicator(deps: {
           looksDecorated(sessionState.lastAppliedTitle)
         ) {
           if (sessionState.lastAppliedTitle !== currentTitle) {
-            sessionState.lastAppliedTitle = currentTitle;
-            stateMutated = true;
+            sessionState.lastAppliedTitle = currentTitle
+            stateMutated = true
           }
         } else {
-          debug(`ignoring decorated current title for session ${sessionID}`);
+          debug(`ignoring decorated current title for session ${sessionID}`)
           if (sessionState.lastAppliedTitle !== undefined) {
-            sessionState.lastAppliedTitle = undefined;
-            stateMutated = true;
+            sessionState.lastAppliedTitle = undefined
+            stateMutated = true
           }
         }
       } else {
-        const nextBase = normalizeBaseTitle(currentTitle);
+        const nextBase = normalizeBaseTitle(currentTitle)
         if (sessionState.baseTitle !== nextBase) {
-          sessionState.baseTitle = nextBase;
-          stateMutated = true;
+          sessionState.baseTitle = nextBase
+          stateMutated = true
         }
         if (sessionState.lastAppliedTitle !== undefined) {
-          sessionState.lastAppliedTitle = undefined;
-          stateMutated = true;
+          sessionState.lastAppliedTitle = undefined
+          stateMutated = true
         }
       }
     }
@@ -170,31 +181,44 @@ export function createTitleApplicator(deps: {
     const usage = await deps.summarizeSessionUsageForDisplay(
       sessionID,
       deps.config.sidebar.includeChildren,
-    );
+    )
     const view =
       deps.getTitleView?.(sessionID) ??
-      resolveTitleView({ config: deps.config });
-    const panelQuotaProviders: string[] = Array.from(
+      resolveTitleView({ config: deps.config })
+    const rawPanelQuotaProviders: string[] = Array.from(
       new Set(Object.keys(usage.providers)),
-    );
-    const quotaProviders: string[] = Array.from(
+    )
+    const rawQuotaProviders: string[] = Array.from(
       new Set(
-        view === "compact"
+        view === 'compact'
           ? selectDesktopCompactProviderIDs(usage, deps.config)
-          : panelQuotaProviders,
+          : rawPanelQuotaProviders,
       ),
-    );
+    )
+    const allowedProviderIDs =
+      deps.config.sidebar.showQuota &&
+      (rawPanelQuotaProviders.length > 0 || rawQuotaProviders.length > 0)
+        ? await deps.listCurrentProviderIDs?.()
+        : undefined
+    const panelQuotaProviders = filterAllowedProviderIDs(
+      rawPanelQuotaProviders,
+      allowedProviderIDs,
+    )
+    const quotaProviders = filterAllowedProviderIDs(
+      rawQuotaProviders,
+      allowedProviderIDs,
+    )
 
     const quotas =
       deps.config.sidebar.showQuota && quotaProviders.length > 0
         ? await deps.getQuotaSnapshots(quotaProviders)
-        : ([] as QuotaSnapshot[]);
+        : ([] as QuotaSnapshot[])
     const panelQuotas =
       deps.config.sidebar.showQuota && panelQuotaProviders.length > 0
         ? sameProviderIDs(quotaProviders, panelQuotaProviders)
           ? quotas
           : await deps.getQuotaSnapshots(panelQuotaProviders)
-        : ([] as QuotaSnapshot[]);
+        : ([] as QuotaSnapshot[])
 
     sessionState.sidebarPanel = {
       version: 1,
@@ -202,16 +226,16 @@ export function createTitleApplicator(deps: {
       usage: toCachedSessionUsage(usage),
       panelQuotas: cloneQuotas(collapseQuotaSnapshots(panelQuotas)),
       quotas: cloneQuotas(collapseQuotaSnapshots(quotas)),
-    };
-    stateMutated = true;
+    }
+    stateMutated = true
 
     if (!deps.state.titleEnabled) {
       if (stateMutated) {
-        deps.markDirty(deps.state.sessionDateMap[sessionID]);
+        deps.markDirty(deps.state.sessionDateMap[sessionID])
       }
-      deps.scheduleSave();
-      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID);
-      return false;
+      deps.scheduleSave()
+      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+      return false
     }
 
     const nextTitle = deps.renderSidebarTitle(
@@ -220,7 +244,7 @@ export function createTitleApplicator(deps: {
       quotas,
       deps.config,
       view,
-    );
+    )
 
     if (
       canonicalizeTitleForCompare(nextTitle) ===
@@ -228,16 +252,16 @@ export function createTitleApplicator(deps: {
     ) {
       if (looksDecorated(session.data.title)) {
         if (sessionState.lastAppliedTitle !== session.data.title) {
-          sessionState.lastAppliedTitle = session.data.title;
-          stateMutated = true;
+          sessionState.lastAppliedTitle = session.data.title
+          stateMutated = true
         }
       }
       if (stateMutated) {
-        deps.markDirty(deps.state.sessionDateMap[sessionID]);
+        deps.markDirty(deps.state.sessionDateMap[sessionID])
       }
-      deps.scheduleSave();
-      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID);
-      return true;
+      deps.scheduleSave()
+      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+      return true
     }
 
     // Mark pending title to ignore the immediate echo `session.updated` event.
@@ -245,10 +269,10 @@ export function createTitleApplicator(deps: {
     pendingAppliedTitle.set(sessionID, {
       title: nextTitle,
       expiresAt: Date.now() + 15_000,
-    });
-    const previousApplied = sessionState.lastAppliedTitle;
-    sessionState.lastAppliedTitle = nextTitle;
-    deps.markDirty(deps.state.sessionDateMap[sessionID]);
+    })
+    const previousApplied = sessionState.lastAppliedTitle
+    sessionState.lastAppliedTitle = nextTitle
+    deps.markDirty(deps.state.sessionDateMap[sessionID])
 
     const updated = await deps.client.session
       .update({
@@ -257,44 +281,44 @@ export function createTitleApplicator(deps: {
         body: { title: nextTitle },
         throwOnError: true,
       })
-      .catch(swallow("applyTitle:update"));
+      .catch(swallow('applyTitle:update'))
 
     if (!updated) {
-      pendingAppliedTitle.delete(sessionID);
-      sessionState.lastAppliedTitle = previousApplied;
-      deps.scheduleSave();
-      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID);
-      return false;
+      pendingAppliedTitle.delete(sessionID)
+      sessionState.lastAppliedTitle = previousApplied
+      deps.scheduleSave()
+      deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+      return false
     }
 
-    pendingAppliedTitle.delete(sessionID);
-    deps.scheduleSave();
-    deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID);
-    return true;
-  };
+    pendingAppliedTitle.delete(sessionID)
+    deps.scheduleSave()
+    deps.scheduleParentRefreshIfSafe(sessionID, sessionState.parentID)
+    return true
+  }
 
   const handleSessionUpdatedTitle = async (args: {
-    sessionID: string;
-    incomingTitle: string;
-    sessionState: SessionState;
-    scheduleRefresh: (sessionID: string, delay?: number) => void;
+    sessionID: string
+    incomingTitle: string
+    sessionState: SessionState
+    scheduleRefresh: (sessionID: string, delay?: number) => void
   }) => {
-    const pending = pendingAppliedTitle.get(args.sessionID);
+    const pending = pendingAppliedTitle.get(args.sessionID)
     if (pending) {
       if (pending.expiresAt > Date.now()) {
         if (
           canonicalizeTitleForCompare(args.incomingTitle) ===
           canonicalizeTitleForCompare(pending.title)
         ) {
-          pendingAppliedTitle.delete(args.sessionID);
+          pendingAppliedTitle.delete(args.sessionID)
           // Keep in sync with what the server actually stored.
-          args.sessionState.lastAppliedTitle = args.incomingTitle;
-          deps.markDirty(deps.state.sessionDateMap[args.sessionID]);
-          deps.scheduleSave();
-          return;
+          args.sessionState.lastAppliedTitle = args.incomingTitle
+          deps.markDirty(deps.state.sessionDateMap[args.sessionID])
+          deps.scheduleSave()
+          return
         }
       } else {
-        pendingAppliedTitle.delete(args.sessionID);
+        pendingAppliedTitle.delete(args.sessionID)
       }
     }
 
@@ -303,9 +327,9 @@ export function createTitleApplicator(deps: {
     // treating the whole decorated string as the new base title.
     if (
       canonicalizeTitleForCompare(args.incomingTitle) ===
-      canonicalizeTitleForCompare(args.sessionState.lastAppliedTitle || "")
+      canonicalizeTitleForCompare(args.sessionState.lastAppliedTitle || '')
     ) {
-      return;
+      return
     }
 
     if (
@@ -316,8 +340,8 @@ export function createTitleApplicator(deps: {
         canonicalizeTitleForCompare(args.incomingTitle) ===
         canonicalizeTitleForCompare(args.sessionState.lastAppliedTitle)
       ) {
-        debug(`ignoring late decorated echo for session ${args.sessionID}`);
-        return;
+        debug(`ignoring late decorated echo for session ${args.sessionID}`)
+        return
       }
     }
 
@@ -325,14 +349,14 @@ export function createTitleApplicator(deps: {
       looksDecorated(args.incomingTitle) &&
       !args.sessionState.lastAppliedTitle
     ) {
-      debug(`ignoring untracked decorated title for session ${args.sessionID}`);
-      return;
+      debug(`ignoring untracked decorated title for session ${args.sessionID}`)
+      return
     }
 
-    const restored = recentRestore.get(args.sessionID);
+    const restored = recentRestore.get(args.sessionID)
     if (restored) {
       if (restored.expiresAt <= Date.now()) {
-        recentRestore.delete(args.sessionID);
+        recentRestore.delete(args.sessionID)
       } else if (
         looksDecorated(args.incomingTitle) &&
         (!restored.decoratedTitle ||
@@ -341,41 +365,41 @@ export function createTitleApplicator(deps: {
       ) {
         debug(
           `ignoring decorated echo after restore for session ${args.sessionID}`,
-        );
-        return;
+        )
+        return
       }
     }
 
-    args.sessionState.baseTitle = normalizeBaseTitle(args.incomingTitle);
-    args.sessionState.lastAppliedTitle = undefined;
-    deps.markDirty(deps.state.sessionDateMap[args.sessionID]);
-    deps.scheduleSave();
-    args.scheduleRefresh(args.sessionID);
-  };
+    args.sessionState.baseTitle = normalizeBaseTitle(args.incomingTitle)
+    args.sessionState.lastAppliedTitle = undefined
+    deps.markDirty(deps.state.sessionDateMap[args.sessionID])
+    deps.scheduleSave()
+    args.scheduleRefresh(args.sessionID)
+  }
 
   const restoreSessionTitle = async (
     sessionID: string,
     options?: { abortIfEnabled?: boolean },
   ) => {
-    if (options?.abortIfEnabled && deps.state.titleEnabled) return false;
+    if (options?.abortIfEnabled && deps.state.titleEnabled) return false
     const session = await deps.client.session
       .get({
         path: { id: sessionID },
         query: { directory: deps.directory },
         throwOnError: true,
       })
-      .catch(swallow("restoreSessionTitle:get"));
-    if (!session) return false;
+      .catch(swallow('restoreSessionTitle:get'))
+    if (!session) return false
     if (
       !session.data ||
-      typeof session.data.title !== "string" ||
+      typeof session.data.title !== 'string' ||
       !session.data.time ||
-      typeof session.data.time.created !== "number"
+      typeof session.data.time.created !== 'number'
     ) {
       debug(
         `restoreSessionTitle skipped malformed session payload for ${sessionID}`,
-      );
-      return false;
+      )
+      return false
     }
 
     const sessionState = deps.ensureSessionState(
@@ -383,18 +407,18 @@ export function createTitleApplicator(deps: {
       session.data.title,
       session.data.time.created,
       session.data.parentID ?? null,
-    );
-    const baseTitle = canonicalizeTitle(sessionState.baseTitle) || "Session";
+    )
+    const baseTitle = canonicalizeTitle(sessionState.baseTitle) || 'Session'
     if (session.data.title === baseTitle) {
       if (sessionState.lastAppliedTitle !== undefined) {
-        sessionState.lastAppliedTitle = undefined;
-        deps.markDirty(deps.state.sessionDateMap[sessionID]);
-        deps.scheduleSave();
+        sessionState.lastAppliedTitle = undefined
+        deps.markDirty(deps.state.sessionDateMap[sessionID])
+        deps.scheduleSave()
       }
-      return true;
+      return true
     }
 
-    if (options?.abortIfEnabled && deps.state.titleEnabled) return false;
+    if (options?.abortIfEnabled && deps.state.titleEnabled) return false
 
     const updated = await deps.client.session
       .update({
@@ -403,26 +427,26 @@ export function createTitleApplicator(deps: {
         body: { title: baseTitle },
         throwOnError: true,
       })
-      .catch(swallow("restoreSessionTitle:update"));
+      .catch(swallow('restoreSessionTitle:update'))
 
-    if (!updated) return false;
+    if (!updated) return false
 
-    pendingAppliedTitle.delete(sessionID);
+    pendingAppliedTitle.delete(sessionID)
     recentRestore.set(sessionID, {
       baseTitle,
       decoratedTitle: sessionState.lastAppliedTitle,
       expiresAt: Date.now() + 15_000,
-    });
-    sessionState.lastAppliedTitle = undefined;
-    deps.markDirty(deps.state.sessionDateMap[sessionID]);
-    deps.scheduleSave();
-    return true;
-  };
+    })
+    sessionState.lastAppliedTitle = undefined
+    deps.markDirty(deps.state.sessionDateMap[sessionID])
+    deps.scheduleSave()
+    return true
+  }
 
   return {
     applyTitle,
     handleSessionUpdatedTitle,
     restoreSessionTitle,
     forgetSession,
-  };
+  }
 }
