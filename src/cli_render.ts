@@ -71,22 +71,6 @@ function gauge(value: number | undefined, width = 10) {
   return `${'█'.repeat(filled)}${'░'.repeat(width - filled)} ${`${Math.round(value)}`.padStart(3, ' ')}%`
 }
 
-function formatDelta(
-  current: number,
-  previous: number | undefined,
-  format: (value: number) => string,
-) {
-  if (previous === undefined) return `${format(current)} now`
-  if (!Number.isFinite(previous) || previous < 0)
-    return `${format(current)} now`
-  if (previous === 0)
-    return `${format(current)} now, ${current === 0 ? 'flat' : 'new'}`
-  const delta = ((current - previous) / previous) * 100
-  const rounded = Math.abs(delta) >= 10 ? delta.toFixed(0) : delta.toFixed(1)
-  const normalized = rounded.replace(/\.0$/, '')
-  return `${format(current)} now, ${delta > 0 ? '+' : ''}${normalized}%`
-}
-
 function clip(value: string, width: number) {
   return value.length <= width
     ? value
@@ -105,12 +89,12 @@ function padRight(value: string, width: number) {
   return clip(value, width).padEnd(width, ' ')
 }
 
-function box(title: string, lines: string[], width = 78) {
+function box(title: string, lines: string[], maxWidth = 78) {
   const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0)
-  const inner = Math.max(
-    1,
-    Math.min(width, Math.max(title.length, longestLine)),
-  )
+  // `maxWidth` is a hard ceiling. We intentionally avoid a fixed minimum so
+  // the CLI rules shrink to the rendered content instead of protruding past it.
+  const contentWidth = Math.max(title.length, longestLine)
+  const inner = Math.max(1, Math.min(maxWidth, contentWidth))
   const top = centerLine(title, inner)
   const rule = '─'.repeat(inner)
   const body = lines.map((line) => clip(line, inner))
@@ -256,7 +240,7 @@ export function renderCliDashboard(input: {
   width?: number
   showCost?: boolean
 }) {
-  const width = input.width ?? 78
+  const maxWidth = input.width ?? 78
   const showCost = input.showCost !== false
   const cache = getCacheCoverageMetrics(input.usage).cachedRatio
   return box(
@@ -278,7 +262,7 @@ export function renderCliDashboard(input: {
       'PROVIDERS',
       ...providerRows(input.usage, showCost),
     ],
-    width,
+    maxWidth,
   )
 }
 
@@ -288,7 +272,7 @@ export function renderCliHistoryDashboard(input: {
   width?: number
   showCost?: boolean
 }) {
-  const width = input.width ?? 78
+  const maxWidth = input.width ?? 78
   const showCost = input.showCost !== false
   const rows = input.result.rows
   const current =
@@ -356,7 +340,7 @@ export function renderCliHistoryDashboard(input: {
       'TREND',
       ...trendBlocks,
     ],
-    width,
+    maxWidth,
   )
 }
 

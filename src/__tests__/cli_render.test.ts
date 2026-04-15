@@ -132,6 +132,17 @@ describe('cli renderers', () => {
     assert.doesNotMatch(output, /\$1\.25/)
   })
 
+  it('respects showCost=false in history dashboard output', () => {
+    const output = renderCliHistoryDashboard({
+      result: sampleHistoryResult() as never,
+      quotas: [],
+      showCost: false,
+    })
+
+    assert.doesNotMatch(output, /API Cost/)
+    assert.doesNotMatch(output, /\$1\.25/)
+  })
+
   it('sizes CLI rules to the content width', () => {
     const output = renderCliDashboard({
       label: cliCurrentLabel('day'),
@@ -156,7 +167,7 @@ describe('cli renderers', () => {
     )
   })
 
-  it('caps history dashboard rules to the requested width', () => {
+  it('caps history dashboard rules to the requested max width', () => {
     const output = renderCliHistoryDashboard({
       result: sampleHistoryResult() as never,
       quotas: [],
