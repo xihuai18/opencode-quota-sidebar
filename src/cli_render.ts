@@ -155,14 +155,37 @@ function providerRows(usage: UsageSummary, showCost: boolean) {
     (a, b) => b.total - a.total,
   )
   if (providers.length === 0) return ['no provider activity']
-  return providers.map((provider) => {
+  const prepared = providers.map((provider) => {
     const cache = getProviderCacheCoverageMetrics(provider).cachedRatio
-    const base = `${quotaDisplayLabel({ providerID: provider.providerID, label: provider.providerID, status: 'ok', checkedAt: 0 }).padEnd(10, ' ')} ${shortNumber(provider.assistantMessages).padStart(4, ' ')} req  ${shortNumber(provider.total).padStart(7, ' ')} tok  ${(cache !== undefined ? formatPercent(cache, 0) : '-').padStart(4, ' ')} cache`
-    const apiCost =
-      canonicalProviderID(provider.providerID) === 'github-copilot'
-        ? '-'
-        : formatApiCost(provider.apiCost)
-    return showCost ? `${base}  ${apiCost.padStart(7, ' ')}` : base
+    return {
+      label: quotaDisplayLabel({
+        providerID: provider.providerID,
+        label: provider.providerID,
+        status: 'ok',
+        checkedAt: 0,
+      }),
+      requests: shortNumber(provider.assistantMessages),
+      tokens: shortNumber(provider.total),
+      cached: cache !== undefined ? formatPercent(cache, 0) : '-',
+      cost:
+        canonicalProviderID(provider.providerID) === 'github-copilot'
+          ? '-'
+          : formatApiCost(provider.apiCost),
+    }
+  })
+  const labelWidth = Math.max(...prepared.map((row) => row.label.length))
+  const requestWidth = Math.max(...prepared.map((row) => row.requests.length))
+  const tokenWidth = Math.max(...prepared.map((row) => row.tokens.length))
+  const cachedWidth = Math.max(...prepared.map((row) => row.cached.length))
+  const costWidth = Math.max(...prepared.map((row) => row.cost.length))
+  return prepared.map((row) => {
+    const base = [
+      padRight(row.label, labelWidth),
+      `${row.requests.padStart(requestWidth)} req`,
+      `${row.tokens.padStart(tokenWidth)} tok`,
+      `${row.cached.padStart(cachedWidth)} cached`,
+    ].join(' ')
+    return showCost ? `${base} ${row.cost.padStart(costWidth)}` : base
   })
 }
 
@@ -176,27 +199,46 @@ function cliApiCostSummary(usage: UsageSummary) {
 }
 
 function totalsRows(input: {
+  sessions: string
   requests: string
   tokens: string
   cost?: string
-  cache?: string
-  periods?: string
-  current?: string
+  cached?: string
 }) {
-  const left = [`Requests ${input.requests}`, `Tokens ${input.tokens}`]
-  const right = [
-    ...(input.cost ? [`API Cost ${input.cost}`] : []),
-    ...(input.cache ? [`Cache ${input.cache}`] : []),
+  const leftLabelWidth = Math.max('Sessions'.length, 'API Cost'.length)
+  const leftValueWidth = Math.max(
+    input.sessions.length,
+    input.tokens.length,
+    input.cost?.length ?? 0,
+  )
+  const rightLabelWidth = 'Requests'.length
+  const rightValueWidth = Math.max(
+    input.requests.length,
+    input.cached?.length ?? 0,
+  )
+  const leftCell = (label: string, value: string) =>
+    `${padRight(label, leftLabelWidth)} ${value.padEnd(leftValueWidth, ' ')}`
+  const rightCell = (label: string, value: string) =>
+    `${padRight(label, rightLabelWidth)} ${value.padEnd(rightValueWidth, ' ')}`
+  const row1 = [
+    leftCell('Sessions', input.sessions),
+    rightCell('Requests', input.requests),
   ]
-  const metaLeft = input.periods ? `Periods ${input.periods}` : undefined
-  const metaRight = input.current ? `Current ${input.current}` : undefined
-
-  const row1 = [left[0], left[1], ...right].join('   ')
-  const row2 = [metaLeft, metaRight].filter(Boolean).join('   ')
-  return [row1, ...(row2 ? [row2] : [])]
+    .join('  ')
+    .trimEnd()
+  const row2 = [
+    leftCell('Tokens', input.tokens),
+    ...(input.cached ? [rightCell('Cached', input.cached)] : []),
+  ]
+    .join('  ')
+    .trimEnd()
+  const row3 = input.cost
+    ? leftCell('API Cost', input.cost).trimEnd()
+    : undefined
+  return [row1, row2, ...(row3 ? [row3] : [])]
 }
 
-function trendBar(value: number, maxValue: number, width = 20) {
+function trendBar(value: number, maxValue: number, width = 16) {
   if (!Number.isFinite(value) || value <= 0 || maxValue <= 0) {
     return '░'.repeat(width)
   }
@@ -214,17 +256,16 @@ function trendMetricBlock(input: {
   const visibleRows = input.rows.slice(-Math.min(8, input.rows.length))
   const values = visibleRows.map(input.pick)
   const maxValue = Math.max(...values, 0)
-  const currentValue = input.current ? input.pick(input.current) : 0
   const displayLabels = visibleRows.map(
     (row) => `${row.range.shortLabel}${row.range.isCurrent ? '*' : ''}`,
   )
   const labelWidth = Math.max(
-    8,
-    Math.min(28, Math.max(...displayLabels.map((label) => label.length), 8)),
+    6,
+    Math.min(20, Math.max(...displayLabels.map((label) => label.length), 6)),
   )
 
   return [
-    `${input.label} ${input.format(currentValue)}`,
+    input.label,
     ...visibleRows.map((row, index) => {
       const value = input.pick(row)
       const tag = padRight(displayLabels[index], labelWidth)
@@ -251,13 +292,12 @@ export function renderCliDashboard(input: {
       '',
       'TOTALS',
       ...totalsRows({
+        sessions: `${input.usage.sessionCount}`,
         requests: shortNumber(input.usage.assistantMessages),
         tokens: shortNumber(input.usage.total),
         ...(showCost ? { cost: cliApiCostSummary(input.usage) } : {}),
-        cache: cache !== undefined ? formatPercent(cache, 1) : '-',
-        periods: `${input.usage.sessionCount}`,
+        cached: cache !== undefined ? formatPercent(cache, 1) : '-',
       }),
-      `Input ${shortNumber(input.usage.input)}   Output ${shortNumber(input.usage.output)}`,
       '',
       'PROVIDERS',
       ...providerRows(input.usage, showCost),
@@ -277,10 +317,16 @@ export function renderCliHistoryDashboard(input: {
   const rows = input.result.rows
   const current =
     [...rows].reverse().find((row) => row.range.isCurrent) || rows.at(-1)
-  const currentIndex = current ? rows.indexOf(current) : -1
-  const previous = currentIndex > 0 ? rows[currentIndex - 1] : undefined
   const cache = getCacheCoverageMetrics(input.result.total).cachedRatio
   const trendBlocks = [
+    ...trendMetricBlock({
+      label: 'Sessions',
+      rows,
+      current,
+      pick: (row) => row.usage.sessionCount,
+      format: (value) => shortNumber(value),
+    }),
+    '',
     ...trendMetricBlock({
       label: 'Requests',
       rows,
@@ -298,7 +344,7 @@ export function renderCliHistoryDashboard(input: {
     }),
     '',
     ...trendMetricBlock({
-      label: 'Cache',
+      label: 'Cached',
       rows,
       current,
       pick: (row) => getCacheCoverageMetrics(row.usage).cachedRatio ?? 0,
@@ -326,12 +372,11 @@ export function renderCliHistoryDashboard(input: {
       '',
       'TOTALS',
       ...totalsRows({
+        sessions: `${input.result.total.sessionCount}`,
         requests: shortNumber(input.result.total.assistantMessages),
         tokens: shortNumber(input.result.total.total),
         ...(showCost ? { cost: cliApiCostSummary(input.result.total) } : {}),
-        cache: cache !== undefined ? formatPercent(cache, 1) : '-',
-        periods: `${rows.length}`,
-        current: current?.range.shortLabel || '-',
+        cached: cache !== undefined ? formatPercent(cache, 1) : '-',
       }),
       '',
       'PROVIDERS',

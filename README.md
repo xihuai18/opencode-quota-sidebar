@@ -422,7 +422,7 @@ When called without `last` or `--since`, the CLI renders a single-period snapsho
 
 ### Trend section
 
-The `TREND` block appears only in multi-period mode. Each metric (`Requests`, `Tokens`, `Cache`, `Cost`) is rendered as a small multi-line bar chart:
+The `TREND` block appears only in multi-period mode. Each metric (`Sessions`, `Requests`, `Tokens`, `Cached`, `API Cost`) is rendered as a small multi-line bar chart:
 
 - one summary line: the current value only
 - one bar row per visible period (latest 8 periods max), ordered oldest-to-newest

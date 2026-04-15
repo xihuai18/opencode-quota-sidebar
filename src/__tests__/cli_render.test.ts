@@ -54,6 +54,7 @@ function sampleHistoryResult() {
           index: 0,
         },
         usage: usage({
+          sessionCount: 3,
           assistantMessages: 4,
           total: 2000,
           apiCost: 0.5,
@@ -74,6 +75,7 @@ function sampleHistoryResult() {
       },
     ],
     total: usage({
+      sessionCount: 4,
       assistantMessages: 16,
       total: 7400,
       apiCost: 1.75,
@@ -102,6 +104,10 @@ describe('cli renderers', () => {
     assert.match(output, /TOTALS/)
     assert.match(output, /PROVIDERS/)
     assert.match(output, /OpenAI/)
+    assert.match(output, /Sessions 1\s+Requests 12/)
+    assert.match(output, /^Tokens\s+5\.4k\s+Cached\s+40%$/m)
+    assert.match(output, /^API Cost \$1\.25$/m)
+    assert.doesNotMatch(output, /Input 1\.2k\s+Output 3\.4k/)
   })
 
   it('renders history dashboard trend section', () => {
@@ -112,10 +118,14 @@ describe('cli renderers', () => {
 
     assert.match(output, /opencode-quota · Daily since 2026-02-18/)
     assert.match(output, /TREND/)
-    assert.match(output, /Requests 12/)
-    assert.match(output, /Tokens 5\.4k/)
-    assert.match(output, /Cache 40%/)
-    assert.match(output, /API Cost \$1\.25/)
+    assert.match(output, /Sessions 4\s+Requests 16/)
+    assert.match(output, /^Tokens\s+7\.4k\s+Cached\s+40%$/m)
+    assert.match(output, /^API Cost \$1\.75$/m)
+    assert.match(output, /^Sessions$/m)
+    assert.match(output, /^Requests$/m)
+    assert.match(output, /^Tokens$/m)
+    assert.match(output, /^Cached$/m)
+    assert.match(output, /^API Cost$/m)
     assert.match(output, /02-18\s+\|\s+█+/)
     assert.match(output, /02-19\*\s+\|\s+█+/)
   })
@@ -178,9 +188,9 @@ describe('cli renderers', () => {
     const rules = lines.filter((line) => /^─+$/.test(line))
 
     assert.equal(rules.length, 2)
-    assert.equal(rules[0].length, 40)
+    assert.ok(rules[0].length <= 40)
     assert.equal(rules[0].length, rules[1].length)
-    assert.ok(lines.some((line) => line.endsWith('~')))
+    assert.ok(lines.every((line) => line.length <= 40))
   })
 
   it('does not duplicate non-percent quota labels in CLI rows', () => {
@@ -227,6 +237,7 @@ describe('cli renderers', () => {
       quotas: [],
     })
 
+    assert.match(output, /^Copilot\s+2 req\s+130 tok\s+- cached\s+-$/m)
     assert.match(output, /API Cost -/)
     assert.doesNotMatch(output, /\$0\.45/)
   })
